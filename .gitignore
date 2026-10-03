@@ -1,0 +1,18 @@
+# Build output
+build/
+managed_components/
+dependencies.lock
+
+# Generated from sdkconfig.defaults by ESP-IDF
+sdkconfig
+sdkconfig.old
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Simulator screenshots
+*.png
+!docs/**/*.png
