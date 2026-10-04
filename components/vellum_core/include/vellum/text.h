@@ -29,6 +29,10 @@ int32_t draw_text(Framebuffer& fb, const Font& font, int32_t x, int y, std::stri
 // Width in whole pixels, for centring and right-aligning short strings.
 inline int text_width_px(const Font& font, std::string_view text) { return (text_width(font, text) + 63) / 64; }
 
+// A paragraph that starts with this byte is a heading: set centred, and the
+// paragraph after it is not indented.
+constexpr char kHeadingMark = '\x01';
+
 // A position in a sequence of paragraphs: paragraph index and byte offset.
 struct TextPos {
   uint32_t paragraph = 0;

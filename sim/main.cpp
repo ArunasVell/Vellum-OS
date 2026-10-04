@@ -9,6 +9,7 @@
 // Headless (for CI and screenshots):
 //   vellum-sim --headless --keys onnp --time 14:05 --screenshot page.png
 // where n = next, p = prev, h = home, o = power. --time fixes the clock.
+// --card DIR uses a folder as the SD card: EPUBs go in DIR/books.
 #include <SDL.h>
 
 #include <algorithm>
@@ -21,6 +22,7 @@
 
 #include "png_writer.h"
 #include "vellum/app.h"
+#include "vellum/stdio_storage.h"
 
 namespace {
 
@@ -35,6 +37,7 @@ struct Options {
   int scale = 1;
   int battery = 82;
   int fixed_minutes = -1;  // --time HH:MM; -1 = the computer's clock
+  std::string card;        // --card DIR: a folder that plays the SD card
 };
 
 const char* mode_name(vellum::RefreshMode m) { return m == vellum::RefreshMode::Full ? "full" : "fast"; }
@@ -255,6 +258,8 @@ bool parse(int argc, char** argv, Options& opt) {
       opt.scale = std::max(1, std::atoi(v));
     } else if (a == "--battery" && (v = value())) {
       opt.battery = std::atoi(v);
+    } else if (a == "--card" && (v = value())) {
+      opt.card = v;
     } else if (a == "--time" && (v = value())) {
       int h = 0, m = 0;
       if (std::sscanf(v, "%d:%d", &h, &m) != 2 || h < 0 || h > 23 || m < 0 || m > 59) return false;
@@ -262,7 +267,7 @@ bool parse(int argc, char** argv, Options& opt) {
     } else {
       std::fprintf(stderr,
                    "usage: vellum-sim [--headless] [--keys onph] [--screenshot out.png] [--scale N] [--battery N] "
-                   "[--time HH:MM]\n");
+                   "[--time HH:MM] [--card DIR]\n");
       return false;
     }
   }
@@ -280,10 +285,18 @@ int main(int argc, char** argv) {
   SimInput input(opt);
   SimPower power(opt.battery);
   SimClock clock(opt);
+  vellum::StdioStorage card(opt.card.c_str());
   std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
 
-  vellum::Board board{"Simulator (X4 Pro geometry)", display,           input, power, nullptr, &clock,
-                      vellum::Rotation::R90,         framebuffer.data()};
+  vellum::Board board{"Simulator (X4 Pro geometry)",
+                      display,
+                      input,
+                      power,
+                      nullptr,
+                      &clock,
+                      opt.card.empty() ? nullptr : &card,
+                      vellum::Rotation::R90,
+                      framebuffer.data()};
   vellum::run(board);
 
   if (!opt.screenshot.empty() && !display.save_screenshot(opt.screenshot)) {

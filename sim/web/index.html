@@ -134,6 +134,18 @@
   ul.plain { margin: 0; padding-left: 18px; color: var(--muted); }
   ul.plain li + li { margin-top: 4px; }
   .foot { font-size: 13px; color: var(--muted); }
+  .books { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-top: 10px; }
+  .pick {
+    font: 500 13px/1 var(--font-body); color: var(--surface); background: var(--accent);
+    border: 0; border-radius: 999px; padding: 10px 16px; cursor: pointer;
+  }
+  .pick:hover { filter: brightness(1.08); }
+  .pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .book-status { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+  .screen.drop::after {
+    content: "Drop EPUB books here"; position: absolute; inset: 0; display: grid; place-items: center;
+    background: rgba(47, 74, 107, 0.82); color: #f5f4f0; font: 500 15px/1.3 var(--font-body);
+  }
 
   @media (prefers-reduced-motion: reduce) { .key:active { transform: none; } }
 </style>
@@ -177,6 +189,16 @@
     </div>
 
     <div class="block">
+      <h2>Your own books</h2>
+      <p class="lead" style="margin:0">Add EPUB files and they appear in the library, just as books copied to the reader's SD card will. Drag them onto the screen, or choose them here. Books, settings and your place in each book stay in this browser for your next visit.</p>
+      <div class="books">
+        <button class="pick" id="pick" type="button">Add EPUB books</button>
+        <input type="file" id="file" accept=".epub,application/epub+zip" multiple hidden>
+        <span class="book-status" id="book-status" aria-live="polite"></span>
+      </div>
+    </div>
+
+    <div class="block">
       <h2>What to look for</h2>
       <ul class="plain">
         <li>Most page turns use a fast refresh with no flash.</li>
@@ -188,7 +210,7 @@
       </ul>
     </div>
 
-    <p class="foot">Coming next: opening your own books from the SD card and remembering settings and pages after a restart, then sending books over Wi-Fi from a phone or another Vellum reader.</p>
+    <p class="foot">Coming next: a real touch screen (tap and swipe to turn pages), then sending books over Wi-Fi from a phone or another Vellum reader.</p>
   </section>
 </main>
 
@@ -247,6 +269,7 @@
     if (!core || busy) return;
     core._vellum_key(key);
     render();
+    saveSoon();
   }
 
   document.getElementById("prev").addEventListener("click", () => press(KEY.prev));
@@ -263,8 +286,59 @@
     if (e.key in map) { e.preventDefault(); press(map[e.key]); }
   });
 
-  VellumCore().then((m) => {
+  // The simulated SD card lives in /card, kept in the browser's IndexedDB so
+  // books, settings and progress survive a reload when the browser allows it.
+  const status = document.getElementById("book-status");
+  let persistent = false;
+  let saving = null;
+  function sync(load) {
+    return new Promise((resolve) => {
+      if (!persistent) return resolve();
+      try { core.FS.syncfs(load, () => resolve()); } catch (_) { resolve(); }
+    });
+  }
+  function saveSoon() {
+    if (!persistent || saving) return;
+    saving = setTimeout(() => { saving = null; sync(false); }, 800);
+  }
+
+  async function addBooks(files) {
+    if (!core) return;
+    const epubs = [...files].filter((f) => /\.epub$/i.test(f.name));
+    if (!epubs.length) { status.textContent = "Only .epub files can be added."; return; }
+    try { core.FS.mkdir("/card/books"); } catch (_) {}
+    for (const f of epubs) {
+      const name = f.name.replace(/[\/\\]/g, "_");
+      core.FS.writeFile("/card/books/" + name, new Uint8Array(await f.arrayBuffer()));
+    }
+    core._vellum_reload_library();
+    render();
+    saveSoon();
+    status.textContent = epubs.length === 1 ? "Added " + epubs[0].name : "Added " + epubs.length + " books";
+  }
+
+  const fileInput = document.getElementById("file");
+  document.getElementById("pick").addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", () => { addBooks(fileInput.files); fileInput.value = ""; });
+  let dragDepth = 0;
+  window.addEventListener("dragenter", (e) => { e.preventDefault(); if (++dragDepth === 1) screen.classList.add("drop"); });
+  window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; screen.classList.remove("drop"); } });
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    screen.classList.remove("drop");
+    if (e.dataTransfer && e.dataTransfer.files.length) addBooks(e.dataTransfer.files);
+  });
+
+  VellumCore().then(async (m) => {
     core = m;
+    try {
+      core.FS.mkdir("/card");
+      core.FS.mount(core.FS.filesystems.IDBFS, {}, "/card");
+      persistent = true;
+    } catch (_) {}
+    await sync(true);
     core._vellum_start(82);
     loading.hidden = true;
     render();

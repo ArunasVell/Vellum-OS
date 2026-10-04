@@ -44,10 +44,9 @@ void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total);
 
 // A typographic cover: frame, title and author. Small covers show the
 // title's initial only. Each book keeps the same look on every screen.
-void draw_cover(Framebuffer& fb, Rect r, const Book& book);
+void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_view author);
 // One book in a list: small cover, title, author and how far it is read.
 // A selected row is drawn inverted.
-void draw_book_row(Framebuffer& fb, Rect r, const Book& book, const BookState& state, const Strings& text,
-                   bool selected);
+void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected);
 
 }  // namespace vellum::ui

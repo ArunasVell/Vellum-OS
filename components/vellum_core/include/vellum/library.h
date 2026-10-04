@@ -1,46 +1,63 @@
-// The books on the device and how far each one has been read.
+// The books on the device and how far each one has been read: the built-in
+// samples plus every EPUB in the card's "books" folder (and its root).
 //
-// Kept in RAM for now; it moves to storage once the SD card driver lands.
+// Book details are cached in vellum/library.txt so a restart does not reopen
+// every EPUB; reading positions are kept in vellum/progress.txt.
 #pragma once
 
 #include <cstdint>
 #include <span>
 
 #include "vellum/book.h"
-#include "vellum/text.h"
+#include "vellum/epub.h"
+#include "vellum/hal.h"
+#include "vellum/reader.h"
 
 namespace vellum {
 
 struct BookState {
-  TextPos position;          // start of the page last shown
-  uint16_t page = 0;         // index of that page
-  uint16_t page_count = 0;   // 0 until the book has been opened and paginated
+  BookPos position;          // start of the page last shown
+  uint8_t percent = 0;       // of the whole book, when last read
   uint32_t last_opened = 0;  // larger = more recent; 0 = never opened
 
   bool started() const { return last_opened != 0; }
-  // Share read, 0..100, counting the page on screen as read. Falls back to
-  // paragraphs when the page count is not known.
-  int percent(uint32_t paragraph_count) const {
-    if (page_count) return (page + 1) * 100 / page_count;
-    return paragraph_count ? static_cast<int>(position.paragraph * 100 / paragraph_count) : 0;
-  }
+};
+
+struct LibraryEntry {
+  const Book* builtin = nullptr;  // set for samples compiled into the firmware
+  char path[160] = {};            // card path of an EPUB; "builtin:<title>" for samples
+  char title[128] = {};
+  char author[96] = {};
+  char language[16] = {};
+  uint32_t file_size = 0;
+  BookState state;
 };
 
 class Library {
  public:
-  static constexpr int kMaxBooks = 64;
+  static constexpr int kMaxBooks = 256;
+  static constexpr const char* kProgressPath = "vellum/progress.txt";
+  static constexpr const char* kCachePath = "vellum/library.txt";
 
-  explicit Library(std::span<const Book* const> books);
+  Library();
+  ~Library();
+  Library(const Library&) = delete;
+  Library& operator=(const Library&) = delete;
+
+  // Rebuilds the list: built-in samples, then the card's EPUBs (opened with
+  // `epub` only when the cache does not know them), sorted by title. Reading
+  // positions are reloaded from the card.
+  void load(std::span<const Book* const> builtins, Storage* storage, Epub& epub);
+  // Writes reading positions to the card.
+  bool save_progress(Storage& storage) const;
 
   int count() const { return count_; }
-  const Book& book(int i) const { return *books_[i]; }
-  BookState& state(int i) { return states_[i]; }
-  const BookState& state(int i) const { return states_[i]; }
+  const LibraryEntry& entry(int i) const { return entries_[i]; }
+  BookState& state(int i) { return entries_[i].state; }
+  const BookState& state(int i) const { return entries_[i].state; }
 
   // Records that book i was opened just now.
   void touch(int i);
-  // Page numbers depend on the reading style; forget them when it changes.
-  void forget_page_counts();
   // The book read most recently, or the first book when none has been opened.
   int current() const;
   // Writes book indices to `out`, most recently opened first and unopened
@@ -48,9 +65,15 @@ class Library {
   int by_recent(int* out, int max) const;
 
  private:
-  const Book* books_[kMaxBooks];
-  BookState states_[kMaxBooks];
+  void scan_folder(Storage& storage, const char* dir, Epub& epub);
+  void load_cache(Storage& storage);
+  void load_progress(Storage& storage);
+
+  LibraryEntry* entries_;
   int count_ = 0;
+  LibraryEntry* cache_;  // details read from library.txt
+  int cache_count_ = 0;
+  bool cache_dirty_ = false;
   uint32_t clock_ = 0;
 };
 
