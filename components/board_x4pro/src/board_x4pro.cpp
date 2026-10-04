@@ -1,5 +1,7 @@
 #include "board_x4pro.h"
 
+#include <atomic>
+
 #include "bm8563.h"
 #include "cw2017.h"
 #include "driver/gpio.h"
@@ -10,6 +12,7 @@
 #include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_now_peers.h"
 #include "esp_ota_ops.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
@@ -104,6 +107,13 @@ class Input : public vellum::InputSource {
     if (queue_ != nullptr) xQueueSend(queue_, &i, 0);
   }
 
+  // Wakes it with an InputEvent::Type::Peer, at most one waiting at a time so
+  // packets never crowd button presses out of the queue. Safe from any task.
+  static void post_peer() {
+    const uint32_t i = kPeerSource;
+    if (queue_ != nullptr && !peer_pending_.exchange(true)) xQueueSend(queue_, &i, 0);
+  }
+
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
     if (pop(out)) return true;
     const bool held = touching_ || home_;
@@ -114,6 +124,11 @@ class Input : public vellum::InputSource {
     }
     if (i == kTransferSource) {
       out.type = vellum::InputEvent::Type::Transfer;
+      return true;
+    }
+    if (i == kPeerSource) {
+      peer_pending_ = false;  // the app takes every packet waiting
+      out.type = vellum::InputEvent::Type::Peer;
       return true;
     }
     if (i == kTouchSource) {
@@ -146,6 +161,8 @@ class Input : public vellum::InputSource {
   };
   static constexpr uint32_t kTouchSource = kCount;
   static constexpr uint32_t kTransferSource = kCount + 1;
+  static constexpr uint32_t kPeerSource = kCount + 2;
+  static inline std::atomic<bool> peer_pending_{false};
   static constexpr uint32_t kPollMs = 25;
 
   static void IRAM_ATTR on_edge(void* arg) {
@@ -412,10 +429,11 @@ vellum::Board& board_x4pro_init() {
 
   // Wi-Fi stays off until "Add books" starts it.
   static WifiTransfer transfer(kSdMountPoint, Input::post_transfer, &clock);
+  static EspNowPeers peers(Input::post_peer);
 
   static vellum::Board board{
-      "XTEINK X4 Pro",       display, input,    power, &light, &clock, have_card ? &card : nullptr,
-      vellum::Rotation::R90, fb,      &transfer};
+      "XTEINK X4 Pro",       display, input,     power, &light, &clock, have_card ? &card : nullptr,
+      vellum::Rotation::R90, fb,      &transfer, &peers};
   board.version = esp_app_get_description()->version;
   static OtaUpdater updater;
   board.updater = &updater;

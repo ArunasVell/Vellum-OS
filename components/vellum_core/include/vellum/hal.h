@@ -42,6 +42,7 @@ struct InputEvent {
     TouchMove,
     TouchUp,
     Transfer,  // something changed in the book transfer; see Transfer::status()
+    Peer,      // a packet from another reader is waiting; see Peers::receive()
     Quit,
   };
   Type type = Type::None;
@@ -114,6 +115,13 @@ class File {
   virtual int32_t read_at(uint32_t offset, void* buf, uint32_t len) = 0;
 };
 
+// A file being written from start to end (see Storage::create).
+class Writer {
+ public:
+  virtual ~Writer() = default;
+  virtual bool write(const void* data, uint32_t len) = 0;
+};
+
 // The memory card. Paths are relative to its root and use '/', e.g.
 // "books/Alice.epub".
 class Storage {
@@ -129,6 +137,13 @@ class Storage {
   // Calls fn for each entry in dir. Returns false when dir cannot be read.
   using ListFn = void (*)(void* ctx, const char* name, bool is_dir, uint32_t size);
   virtual bool list(const char* dir, ListFn fn, void* ctx) = 0;
+  // Starts writing `path` piece by piece, for files too large to hold in
+  // memory. The file appears only when finish() keeps it, so a broken
+  // transfer leaves nothing behind. One writer at a time; nullptr on error.
+  virtual Writer* create(const char*) { return nullptr; }
+  // Closes the writer; `keep` replaces `path` with what was written, else it
+  // is thrown away. Returns false when keeping failed.
+  virtual bool finish(Writer*, bool) { return false; }
 };
 
 // Receiving books from a phone or computer over Wi-Fi. The device opens its
@@ -199,6 +214,37 @@ class Updater {
   virtual UpdateResult install(ProgressFn progress, void* ctx) = 0;
 };
 
+// Short messages straight to other readers nearby, with no Wi-Fi network in
+// between (ESP-NOW on the X4 Pro). Used to send books reader to reader.
+// While started, the board posts InputEvent::Type::Peer when packets arrive.
+struct PeerAddress {
+  uint8_t bytes[6] = {};
+  bool operator==(const PeerAddress&) const = default;
+};
+
+struct PeerPacket {
+  static constexpr int kMaxSize = 1400;
+  PeerAddress from;
+  uint16_t size = 0;
+  uint8_t data[kMaxSize];
+};
+
+class Peers {
+ public:
+  virtual ~Peers() = default;
+  // Turns the radio on and starts listening. Returns false when it cannot.
+  virtual bool start() = 0;
+  // Stops listening and turns the radio off (unless Transfer still uses it).
+  virtual void stop() = 0;
+  // This reader's name as others see it, e.g. "Vellum-3F2A".
+  virtual const char* name() = 0;
+  // Sends up to PeerPacket::kMaxSize bytes; `to` = nullptr reaches everyone
+  // in range. Delivery is not guaranteed.
+  virtual bool send(const PeerAddress* to, const void* data, uint32_t len) = 0;
+  // Takes the oldest packet received; false when there is none.
+  virtual bool receive(PeerPacket& out) = 0;
+};
+
 struct Board {
   const char* name;
   DisplayPanel& display;
@@ -210,6 +256,7 @@ struct Board {
   Rotation rotation;             // logical orientation for reading
   uint8_t* framebuffer;          // Framebuffer::bytes_for(display size) bytes
   Transfer* transfer = nullptr;  // nullptr when the device has no Wi-Fi
+  Peers* peers = nullptr;        // nullptr when it cannot reach other readers
   const char* version = "dev";   // the software version running
   Updater* updater = nullptr;    // nullptr when the device cannot update itself
 };

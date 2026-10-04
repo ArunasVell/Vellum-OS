@@ -580,6 +580,9 @@ void App::open_transfer(bool setup) {
       // The QR code and address lead straight to the updates page.
       const size_t len = std::strlen(transfer_info_.address);
       std::snprintf(transfer_info_.address + len, sizeof(transfer_info_.address) - len, "/setup");
+    } else if (transfer_state_ == TransferState::Running && board_.peers != nullptr && board_.peers->start()) {
+      // Other readers can send books here too, alongside the upload page.
+      receiver_.begin(*board_.peers, *board_.storage);
     }
     draw();
     queue_.submit();
@@ -589,11 +592,15 @@ void App::open_transfer(bool setup) {
 }
 
 void App::close_transfer() {
-  bool received = false;
+  bool received = receiver_.received() > 0;
+  if (receiver_.state() != PeerReceiver::State::Off) {
+    receiver_.end();
+    board_.peers->stop();  // before the Wi-Fi it rides on
+  }
   if (transfer_state_ == TransferState::Running) {
     TransferStatus st;
     board_.transfer->status(st);
-    received = st.received > 0;
+    received = received || st.received > 0;
     board_.transfer->stop();
   }
   transfer_state_ = TransferState::Off;
@@ -719,21 +726,31 @@ void App::draw_transfer() {
     return;
   }
   ui::draw_label(fb_, kSide, y, t.received_label);
-  if (st.received > 0) {
+  const int received = st.received + receiver_.received();
+  if (received > 0) {
     char count[32];
-    format_book_count(settings_.language, st.received, count, sizeof(count));
+    format_book_count(settings_.language, received, count, sizeof(count));
     ui::draw_right(fb_, fonts::literata_16, w - kSide, y, count);
   }
-  if (st.receiving[0] != '\0') {
+  if (receiver_.busy()) {
+    char name[150];
+    std::snprintf(name, sizeof(name), "%s \xC2\xB7 %d%%", receiver_.receiving(), receiver_.percent());  // ·
+    std::snprintf(line, sizeof(line), t.receiving, name);
+  } else if (st.receiving[0] != '\0') {
     std::snprintf(line, sizeof(line), t.receiving, st.receiving);
-  } else if (st.card_full) {
+  } else if (st.card_full || receiver_.card_full()) {
     std::snprintf(line, sizeof(line), "%s", t.card_full);
   } else if (st.received > 0) {
     std::snprintf(line, sizeof(line), "%s", st.last);
+  } else if (receiver_.received() > 0) {
+    std::snprintf(line, sizeof(line), "%s", receiver_.last());
   } else {
     std::snprintf(line, sizeof(line), "%s", t.waiting);
   }
   ui::draw_fitted(fb_, fonts::literata_20, kSide, y + 34, w - 2 * kSide, line);
+  if (receiver_.state() != PeerReceiver::State::Off) {
+    ui::draw_wrapped(fb_, fonts::literata_16, kSide, y + 74, w - 2 * kSide, 3, t.peer_hint, false);
+  }
 
   ui::draw_hint(fb_, t.hint_transfer);
 }
@@ -959,6 +976,139 @@ void App::night_update() {
   board_.power.sleep();  // a deep-sleeping board restarts from here on waking
 }
 
+// ---- Sending to another reader ---------------------------------------------------
+
+bool App::can_send() const {
+  return board_.peers != nullptr && board_.storage != nullptr && reading_ >= 0 &&
+         library_.entry(reading_).builtin == nullptr;
+}
+
+void App::open_send() {
+  send_sel_ = 0;
+  radio_failed_ = !board_.peers->start();
+  if (!radio_failed_) sender_.begin(*board_.peers, *board_.storage, library_.entry(reading_).path);
+  show(Screen::Send);
+}
+
+void App::close_send() {
+  sender_.cancel();
+  if (!radio_failed_) board_.peers->stop();
+  radio_failed_ = false;
+}
+
+bool App::send_activate() {
+  if (radio_failed_) return false;
+  switch (sender_.state()) {
+    case PeerSender::State::Looking:
+      if (sender_.reader_count() > 0) sender_.send_to(send_sel_);
+      return true;
+    case PeerSender::State::Sent:
+      close_send();
+      show(Screen::Reader);
+      return false;
+    case PeerSender::State::Failed:
+      send_sel_ = 0;
+      sender_.begin(*board_.peers, *board_.storage, library_.entry(reading_).path);  // try again
+      return true;
+    default:
+      return false;  // sending: Home cancels
+  }
+}
+
+bool App::peers_ticking() const { return (screen_ == Screen::Send && sender_.needs_ticks()) || receiver_.busy(); }
+
+bool App::service_peers(bool tick) {
+  if (board_.peers == nullptr) return false;
+  const bool sending = screen_ == Screen::Send && !radio_failed_;
+  bool changed = false;
+  static PeerPacket packet;  // too large for a small task stack
+  while (board_.peers->receive(packet)) {
+    if (sending) changed |= sender_.on_packet(packet);
+    if (receiver_.state() != PeerReceiver::State::Off) changed |= receiver_.on_packet(packet);
+  }
+  if (tick) {
+    if (sending) changed |= sender_.tick();
+    changed |= receiver_.tick();
+  }
+  return changed && (screen_ == Screen::Send || screen_ == Screen::Transfer);
+}
+
+void App::draw_send() {
+  const int w = fb_.width();
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.send_title);
+  ui::draw_fitted(fb_, fonts::literata_16, kSide, kSubtitleBase, w - 2 * kSide, library_.entry(reading_).title);
+
+  const int top = kListTop + 30;
+  char line[160];
+  const char* message = nullptr;
+  const char* hint = t.hint_retry;
+  switch (radio_failed_ ? PeerSender::State::Failed : sender_.state()) {
+    case PeerSender::State::Idle:
+    case PeerSender::State::Looking: {
+      ui::draw_label(fb_, kSide, top, t.nearby_label);
+      hint = t.hint_send;
+      if (sender_.reader_count() == 0) {
+        message = t.looking;
+        break;
+      }
+      for (int i = 0; i < sender_.reader_count(); ++i) {
+        const Rect r = row_rect(fb_, top + 14 + i * kLinkHeight, kLinkHeight);
+        add_hit(r, i);
+        draw_link(fb_, r, sender_.reader(i).name, i == send_sel_);
+      }
+      break;
+    }
+    case PeerSender::State::Offering:
+    case PeerSender::State::Sending:
+    case PeerSender::State::Finishing: {
+      std::snprintf(line, sizeof(line), t.sending_to, sender_.target_name());
+      ui::draw_fitted(fb_, fonts::literata_20, kSide, top + 20, w - 2 * kSide, line);
+      // Progress: a dotted track filled solid so far, and the share in figures.
+      const int bar_y = top + 60;
+      const int filled = (w - 2 * kSide) * sender_.percent() / 100;
+      dotted_rule(fb_, bar_y);
+      fb_.fill_rect({kSide, bar_y - 2, filled, 5}, Color::Black);
+      char percent[8];
+      std::snprintf(percent, sizeof(percent), "%d%%", sender_.percent());
+      ui::draw_right(fb_, fonts::literata_italic_40, w - kSide, bar_y + 60, percent);
+      hint = t.hint_sending;
+      break;
+    }
+    case PeerSender::State::Sent:
+      std::snprintf(line, sizeof(line), t.sent_to, sender_.target_name());
+      message = line;
+      hint = t.hint_sent;
+      break;
+    case PeerSender::State::Failed:
+      switch (radio_failed_ ? PeerSender::Error::None : sender_.error()) {
+        case PeerSender::Error::None:
+          message = t.no_wifi;
+          break;
+        case PeerSender::Error::NoAnswer:
+          message = t.send_no_answer;
+          break;
+        case PeerSender::Error::Refused:
+          message = t.send_refused;
+          break;
+        case PeerSender::Error::CardFull:
+          message = t.send_card_full;
+          break;
+        case PeerSender::Error::Corrupt:
+          message = t.send_corrupt;
+          break;
+        case PeerSender::Error::CannotRead:
+          message = t.send_unreadable;
+          break;
+      }
+      break;
+  }
+  if (message != nullptr) {
+    ui::draw_wrapped(fb_, fonts::literata_20, kSide, top + 44, w - 2 * kSide, 4, message, false);
+  }
+  ui::draw_hint(fb_, hint);
+}
+
 // ---- Contents and bookmarks ---------------------------------------------------
 
 void App::open_contents() {
@@ -972,7 +1122,7 @@ int App::contents_rows_per_page() const { return (fb_.height() - kListTop - kCon
 int App::contents_row_count() const {
   const Document& doc = *reader_.document();
   const int chapters = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
-  return 3 + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) + 1 + chapters;
+  return (can_send() ? 4 : 3) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) + 1 + chapters;
 }
 
 App::ContentsRow App::contents_row(int i, int& index) const {
@@ -980,6 +1130,10 @@ App::ContentsRow App::contents_row(int i, int& index) const {
   if (i == 0) return ContentsRow::Back;
   if (i == 1) return ContentsRow::Mark;
   if (i == 2) return ContentsRow::Light;
+  if (can_send()) {
+    if (i == 3) return ContentsRow::Send;
+    --i;
+  }
   i -= 3;
   if (contents_mark_count_ > 0) {
     if (i == 0) return ContentsRow::BookmarksLabel;
@@ -1047,6 +1201,8 @@ void App::contents_activate() {
     }
     case ContentsRow::Light:
       return open_light(Screen::Reader);
+    case ContentsRow::Send:
+      return open_send();
     case ContentsRow::Bookmark:
       return jump_to(library_.bookmark(contents_marks_[index]).position);
     case ContentsRow::Chapter: {
@@ -1114,6 +1270,9 @@ void App::draw_contents() {
                   : mark >= 0                  ? t.remove_bookmark
                                                : t.add_bookmark,
                   selected);
+        break;
+      case ContentsRow::Send:
+        draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight}, t.send_book, selected);
         break;
       case ContentsRow::Bookmark: {
         const Bookmark& b = library_.bookmark(contents_marks_[index]);
@@ -1428,6 +1587,9 @@ void App::draw() {
     case Screen::Updates:
       draw_updates();
       break;
+    case Screen::Send:
+      draw_send();
+      break;
     case Screen::Reader:
       break;
   }
@@ -1454,6 +1616,7 @@ uint32_t App::wait_ms() const {
   constexpr uint32_t kForever = 60 * 60 * 1000;
   if (asleep_) return kForever;
   if (power_held_) return kHoldMs;
+  if (peers_ticking()) return peer::kTickMs;
   const uint32_t idle = sleep_after_ms(settings_.sleep_after);
   if (idle == 0 || screen_ == Screen::Transfer) return kForever;  // books may still be arriving
   return idle;
@@ -1466,11 +1629,22 @@ void App::timeout() {
     sleep();
     return;
   }
+  if (peers_ticking()) {
+    if (service_peers(true)) {
+      draw();
+      queue_.submit();
+    }
+    return;
+  }
   if (sleep_after_ms(settings_.sleep_after) != 0 && screen_ != Screen::Transfer) sleep();
 }
 
 void App::sleep() {
   if (screen_ == Screen::Transfer) close_transfer();  // radio off first
+  if (screen_ == Screen::Send) {
+    close_send();
+    screen_ = Screen::Reader;  // wake to the book
+  }
   const bool in_book = screen_ == Screen::Reader || screen_ == Screen::Contents;
   if (in_book) save_progress();
   if (board_.storage != nullptr) {
@@ -1727,6 +1901,9 @@ bool App::handle(const InputEvent& ev) {
         }
       }
       break;
+    case InputEvent::Type::Peer:
+      if (!service_peers(false)) return true;
+      break;
     default:
       return true;
   }
@@ -1755,6 +1932,7 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Light && board_.storage != nullptr) save_settings(*board_.storage, settings_);
       if (screen_ == Screen::Transfer) return close_transfer(), false;
       if (screen_ == Screen::Updates && update_busy_ != UpdateBusy::No) return false;
+      if (screen_ == Screen::Send) close_send();
       show(Screen::Home);
     }
     return false;
@@ -1812,6 +1990,13 @@ bool App::handle_key(Key key) {
       if (key == Key::Power) return updates_activate(), true;
       updates_sel_ = wrap_index(updates_sel_ + step, kUpdateRows);
       return true;
+    case Screen::Send:
+      if (key == Key::Power) return send_activate();
+      if (sender_.state() == PeerSender::State::Looking && sender_.reader_count() > 0) {
+        send_sel_ = wrap_index(send_sel_ + step, sender_.reader_count());
+        return true;
+      }
+      return false;
     case Screen::Transfer:
       break;  // only Home leaves it
   }
@@ -1866,6 +2051,15 @@ bool App::handle_gesture(const Gesture& g) {
   if (g.kind != K::Tap) return false;
   if (screen_ == Screen::Battery) return show(Screen::Settings), false;  // a tap anywhere goes back
   if (screen_ == Screen::Light) return light_tap(g.x, g.y);
+  if (screen_ == Screen::Send) {
+    // A reader's row sends to it; after sending, a tap anywhere goes on.
+    const int item = hit_at(g.x, g.y);
+    if (sender_.state() == PeerSender::State::Looking) {
+      if (item < 0) return false;
+      send_sel_ = item;
+    }
+    return send_activate();
+  }
 
   const int item = hit_at(g.x, g.y);
   if (item < 0) return false;
@@ -1897,6 +2091,7 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Battery:
     case Screen::Light:
     case Screen::Check:
+    case Screen::Send:
       break;
   }
   return false;

@@ -146,6 +146,23 @@ struct Strings {
   const char* hint_setup;
   const char* update_notice;     // printf: version; small notice on the home screen
   const char* update_new;        // settings row value when one is ready
+  // Sending books reader to reader
+  const char* send_book;     // contents row
+  const char* send_title;    // screen title
+  const char* nearby_label;  // uppercase label
+  const char* looking;
+  const char* sending_to;  // printf: reader name
+  const char* sent_to;     // printf: reader name
+  const char* send_no_answer;
+  const char* send_refused;
+  const char* send_card_full;
+  const char* send_corrupt;
+  const char* send_unreadable;
+  const char* hint_send;
+  const char* hint_sending;
+  const char* hint_sent;
+  const char* hint_retry;
+  const char* peer_hint;         // on "Add books"
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };
