@@ -702,6 +702,7 @@ void App::draw_library() {
     last_drawn = k;
     x += tw + kTabGap;
   }
+  library_tabs_last_ = last_drawn;
   if (scrolls) {
     const int mid = kTabsTop + 26;
     if (library_tabs_first_ > 0) {
@@ -764,8 +765,10 @@ void App::draw_library() {
   const int first_book = library_first_book();
   const int first = library_page_ * rows;
   const int last = std::min(library_view_count_, first + rows);
+  const int bottom = keyboard_.is_open() ? keyboard_.area(fb_).y : fb_.height();  // whole rows above the keys
   for (int k = first; k < last; ++k) {
     const int y = top + (k - first) * ui::kRowHeight;
+    if (y + ui::kRowHeight > bottom) break;
     const int item = first_book + k;
     const bool selected = item == library_sel_;
     if (k > first && !selected && library_sel_ != item - 1) dotted_rule(fb_, y);
@@ -850,8 +853,12 @@ bool App::library_gesture(const Gesture& g) {
   }
   if (g.kind == K::Tap || g.kind == K::LongPress) {
     if (item == kTabsBackItem || item == kTabsMoreItem) {
-      library_tabs_first_ =
-          std::clamp(library_tabs_first_ + (item == kTabsMoreItem ? 1 : -1), 0, library_tab_count() - 1);
+      // › brings the next tab in at the right; ‹ one back at the left.
+      if (item == kTabsMoreItem) {
+        library_show_tab(std::min(library_tabs_last_ + 1, library_tab_count() - 1));
+      } else {
+        library_tabs_first_ = std::max(0, library_tabs_first_ - 1);
+      }
       return true;
     }
     if (item < 0) return false;

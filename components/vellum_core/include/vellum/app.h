@@ -313,6 +313,7 @@ class App {
   int library_sel_ = 0;
   int library_tab_ = 0;         // 0 All, 1 Reading now, 2 Finished, 3 + k shelf k
   int library_tabs_first_ = 0;  // first tab drawn when they do not all fit
+  int library_tabs_last_ = 0;   // and the last one drawn
   int library_page_ = 0;
   bool delete_armed_ = false;                  // Delete shelf was pressed once
   int library_view_[Library::kMaxBooks] = {};  // the books shown, in order
