@@ -1,5 +1,6 @@
 // Host unit tests for the portable core. Plain asserts, no framework.
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include "vellum/book.h"
@@ -134,7 +135,7 @@ void test_font_lookup_and_kerning() {
 
 void test_pagination_covers_text_once() {
   const Book& book = sample_book();
-  const PageStyle style{&fonts::literata_26, {28, 70, 424, 660}, 26};
+  const PageStyle style{&fonts::literata_26, {28, 70, 424, 660}, 26, &hyphenation::en_us};
   TextPos pos{};
   int pages = 0;
   while (pos.paragraph < book.paragraph_count && pages < 1000) {
@@ -162,6 +163,32 @@ void test_pagination_covers_text_once() {
   }
 }
 
+std::string hyphenated(const Hyphenator& h, std::string_view word) {
+  uint16_t breaks[16];
+  const int n = hyphenate(h, word, breaks, 16);
+  std::string out;
+  size_t last = 0;
+  for (int i = 0; i < n; ++i) {
+    out.append(word.substr(last, breaks[i] - last)).append("-");
+    last = breaks[i];
+  }
+  return out.append(word.substr(last));
+}
+
+void test_hyphenation() {
+  CHECK(hyphenated(hyphenation::en_us, "hyphenation") == "hy-phen-ation");
+  CHECK(hyphenated(hyphenation::en_us, "Considering,") == "Con-sid-er-ing,");
+  CHECK(hyphenated(hyphenation::en_us, "associate") == "as-so-ciate");                  // exception list
+  CHECK(hyphenated(hyphenation::en_us, "\xE2\x80\x98table") == "\xE2\x80\x98ta-ble");   // leading quote
+  CHECK(hyphenated(hyphenation::en_us, "they\xE2\x80\x99ll") == "they\xE2\x80\x99ll");  // apostrophe: left alone
+  CHECK(hyphenated(hyphenation::en_us, "cat") == "cat");
+  CHECK(hyphenated(hyphenation::lt, "Lietuva") == "Lie-tu-va");
+  CHECK(hyphenated(hyphenation::lt, "\xC5\xA0VIESA") == "\xC5\xA0VIE-SA");  // ŠVIESA, uppercase
+  CHECK(hyphenator_for("en-GB") == &hyphenation::en_us);
+  CHECK(hyphenator_for("lt") == &hyphenation::lt);
+  CHECK(hyphenator_for("de") == nullptr);
+}
+
 }  // namespace
 
 int main() {
@@ -172,6 +199,7 @@ int main() {
   test_utf8();
   test_font_lookup_and_kerning();
   test_pagination_covers_text_once();
+  test_hyphenation();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;

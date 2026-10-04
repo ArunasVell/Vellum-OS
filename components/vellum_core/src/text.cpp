@@ -92,8 +92,11 @@ namespace {
 struct Word {
   uint32_t begin;
   uint32_t end;
-  int32_t width;
+  int32_t width;  // includes the hyphen when there is one
+  bool hyphen;    // the word continues on the next line
 };
+
+constexpr int kMaxBreaks = 24;
 
 constexpr int kMaxWords = 48;
 
@@ -133,6 +136,19 @@ uint32_t dash_break(const Font& font, std::string_view s, uint32_t begin, uint32
   return best;
 }
 
+// End of the longest hyphenated prefix of s[begin, end) that fits in `room`
+// with its hyphen, or 0 when there is none.
+uint32_t hyphen_break(const Font& font, const Hyphenator& h, std::string_view s, uint32_t begin, uint32_t end,
+                      int32_t room) {
+  uint16_t breaks[kMaxBreaks];
+  const int n = hyphenate(h, s.substr(begin, end - begin), breaks, kMaxBreaks);
+  const int32_t hyphen = text_width(font, "-");
+  for (int k = n - 1; k >= 0; --k) {
+    if (text_width(font, s.substr(begin, breaks[k])) + hyphen <= room) return begin + breaks[k];
+  }
+  return 0;
+}
+
 }  // namespace
 
 TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint32_t count, TextPos pos,
@@ -161,16 +177,21 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
         // Compounds and dashed phrases may break after their dash.
         const int32_t room = line_width - natural - (n > 0 ? space : 0);
         uint32_t cut = dash_break(font, text, i, end, room);
+        bool hyphen = false;
+        if (cut == 0 && style.hyphenator != nullptr) {
+          cut = hyphen_break(font, *style.hyphenator, text, i, end, room);
+          hyphen = cut != 0;
+        }
         if (cut == 0 && n > 0) break;
         // A single word wider than the line is split where it overflows.
         if (cut == 0) cut = fit_prefix(font, text, i, end, room);
-        const int32_t cut_w = text_width(font, text.substr(i, cut - i));
+        const int32_t cut_w = text_width(font, text.substr(i, cut - i)) + (hyphen ? text_width(font, "-") : 0);
         natural += (n > 0 ? space : 0) + cut_w;
-        words[n++] = {i, cut, cut_w};
+        words[n++] = {i, cut, cut_w, hyphen};
         i = cut;
         break;
       }
-      words[n++] = {i, end, w};
+      words[n++] = {i, end, w, false};
       natural = needed;
       i = skip_spaces(text, end);
     }
@@ -181,7 +202,9 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
       const int gaps = n - 1;
       const int32_t extra = (last_line || gaps <= 0) ? 0 : line_width - natural;
       for (int k = 0; k < n; ++k) {
-        draw_text(*fb, font, x, baseline, text.substr(words[k].begin, words[k].end - words[k].begin));
+        const int32_t after =
+            draw_text(*fb, font, x, baseline, text.substr(words[k].begin, words[k].end - words[k].begin));
+        if (words[k].hyphen) draw_text(*fb, font, after, baseline, "-");
         // Spread the leftover space evenly; earlier gaps take the remainder.
         if (k < gaps) x += words[k].width + space + extra / gaps + (k < extra % gaps ? 1 : 0);
       }

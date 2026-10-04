@@ -9,7 +9,7 @@ mkdir -p "$out"
 
 em++ -O2 -std=c++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
   -I"$root/components/vellum_core/include" \
-  "$root/sim/web/web_main.cpp" "$root"/components/vellum_core/src/*.cpp "$root"/components/vellum_core/src/fonts/*.cpp \
+  "$root/sim/web/web_main.cpp" "$root"/components/vellum_core/src/*.cpp "$root"/components/vellum_core/src/fonts/*.cpp "$root"/components/vellum_core/src/hyphenation/*.cpp \
   -sMODULARIZE=1 -sEXPORT_NAME=VellumCore -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0 \
   -sENVIRONMENT=web -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=HEAPU8 \
   -o "$out/vellum-core.js"
