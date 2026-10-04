@@ -7,6 +7,7 @@
 #include <emscripten/emscripten.h>
 
 #include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <vector>
 
@@ -75,15 +76,35 @@ class WebClock : public vellum::Clock {
   }
 };
 
+// The "Add books" screen without a network: books added on the page count
+// as received while the screen is open.
+class WebTransfer : public vellum::Transfer {
+ public:
+  bool start(vellum::TransferInfo& info) override {
+    std::snprintf(info.network, sizeof(info.network), "Vellum-SIM");
+    std::snprintf(info.password, sizeof(info.password), "48151623");
+    std::snprintf(info.address, sizeof(info.address), "http://192.168.4.1");
+    st = {};
+    running = true;
+    return true;
+  }
+  void stop() override { running = false; }
+  void status(vellum::TransferStatus& out) override { out = st; }
+
+  vellum::TransferStatus st;
+  bool running = false;
+};
+
 WebDisplay display;
+WebTransfer transfer;
 NoInput input;
 WebPower power;
 WebClock clock;
 // The page writes dropped EPUBs into /card/books in Emscripten's in-memory file system.
 vellum::StdioStorage card("/card");
 std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
-vellum::Board board{"Browser simulator",   display,           input, power, nullptr, &clock, &card,
-                    vellum::Rotation::R90, framebuffer.data()};
+vellum::Board board{"Browser simulator", display,  input, power, nullptr, &clock, &card, vellum::Rotation::R90,
+                    framebuffer.data(),  &transfer};
 vellum::App* app = nullptr;
 
 }  // namespace
@@ -118,6 +139,19 @@ EMSCRIPTEN_KEEPALIVE void vellum_touch(int kind, int x, int y) {
   ev.x = static_cast<int16_t>(px < 0 ? 0 : px >= kPanelW ? kPanelW - 1 : px);
   ev.y = static_cast<int16_t>(py < 0 ? 0 : py >= kPanelH ? kPanelH - 1 : py);
   app->handle(ev);
+}
+
+// Call after writing a book into /card/books. Returns 1 when the "Add books"
+// screen is open and took it (the library reloads when that screen closes),
+// 0 when the caller should call vellum_reload_library() itself.
+EMSCRIPTEN_KEEPALIVE int vellum_book_received(const char* name) {
+  if (!app || !transfer.running) return 0;
+  ++transfer.st.received;
+  std::snprintf(transfer.st.last, sizeof(transfer.st.last), "%s", name);
+  vellum::InputEvent ev;
+  ev.type = vellum::InputEvent::Type::Transfer;
+  app->handle(ev);
+  return 1;
 }
 
 // Call after writing books into /card/books.

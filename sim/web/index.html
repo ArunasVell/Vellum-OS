@@ -193,6 +193,7 @@
     <div class="block">
       <h2>Your own books</h2>
       <p class="lead" style="margin:0">Add EPUB files and they appear in the library, just as books copied to the reader's SD card will. Drag them onto the screen, or choose them here. Books, settings and your place in each book stay in this browser for your next visit.</p>
+      <p class="lead" style="margin:0">On the reader, <b>Add books</b> on the home screen opens its own Wi-Fi network and shows two codes: scan the first to join, the second to open the upload page on your phone. Open it here too, then add books: they arrive on the reader's screen the way they would from a phone.</p>
       <div class="books">
         <button class="pick" id="pick" type="button">Add EPUB books</button>
         <input type="file" id="file" accept=".epub,application/epub+zip" multiple hidden>
@@ -212,7 +213,7 @@
       </ul>
     </div>
 
-    <p class="foot">Coming next: sending books over Wi-Fi from a phone or computer, then from one Vellum reader to another.</p>
+    <p class="foot">Coming next: sending books from one Vellum reader to another.</p>
   </section>
 </main>
 
@@ -326,11 +327,14 @@
     const epubs = [...files].filter((f) => /\.epub$/i.test(f.name));
     if (!epubs.length) { status.textContent = "Only .epub files can be added."; return; }
     try { core.FS.mkdir("/card/books"); } catch (_) {}
+    let taken = true;
     for (const f of epubs) {
       const name = f.name.replace(/[\/\\]/g, "_");
       core.FS.writeFile("/card/books/" + name, new Uint8Array(await f.arrayBuffer()));
+      // On the "Add books" screen the reader shows each book arriving, as if sent from a phone.
+      taken = core.ccall("vellum_book_received", "number", ["string"], [name]) === 1 && taken;
     }
-    core._vellum_reload_library();
+    if (!taken) core._vellum_reload_library();
     render();
     saveSoon();
     status.textContent = epubs.length === 1 ? "Added " + epubs[0].name : "Added " + epubs.length + " books";

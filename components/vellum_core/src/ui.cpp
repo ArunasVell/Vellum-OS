@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "qrcodegen.h"
 #include "vellum/text.h"
 
 namespace vellum::ui {
@@ -205,6 +206,32 @@ void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Stri
   draw_right(fb, fonts::literata_16, right, r.y + 34, status, fg);
   draw_fitted(fb, fonts::literata_20, text_x, r.y + 34, right - text_x - status_w - 14, book.title, fg);
   draw_fitted(fb, fonts::literata_16, text_x, r.y + 58, right - text_x, book.author, fg);
+}
+
+bool draw_qr(Framebuffer& fb, int x, int y, int size, std::string_view text) {
+  constexpr int kMaxVersion = 10;  // 57 modules: up to ~270 characters at low error correction
+  constexpr int kQuiet = 2;        // white modules around the code; the screen's white adds more
+  uint8_t qr[qrcodegen_BUFFER_LEN_FOR_VERSION(kMaxVersion)];
+  uint8_t temp[qrcodegen_BUFFER_LEN_FOR_VERSION(kMaxVersion)];
+  char buf[272];
+  if (text.size() >= sizeof(buf)) return false;
+  text.copy(buf, text.size());
+  buf[text.size()] = '\0';
+  if (!qrcodegen_encodeText(buf, temp, qr, qrcodegen_Ecc_LOW, 1, kMaxVersion, qrcodegen_Mask_AUTO, true)) return false;
+  const int n = qrcodegen_getSize(qr);
+  const int module = size / (n + 2 * kQuiet);  // whole pixels per module keep edges crisp
+  if (module < 1) return false;
+  const int origin_x = x + (size - n * module) / 2;
+  const int origin_y = y + (size - n * module) / 2;
+  fb.fill_rect({x, y, size, size}, Color::White);
+  for (int my = 0; my < n; ++my) {
+    for (int mx = 0; mx < n; ++mx) {
+      if (qrcodegen_getModule(qr, mx, my)) {
+        fb.fill_rect({origin_x + mx * module, origin_y + my * module, module, module}, Color::Black);
+      }
+    }
+  }
+  return true;
 }
 
 }  // namespace vellum::ui

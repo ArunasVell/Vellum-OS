@@ -307,6 +307,20 @@ class SimClock : public vellum::Clock {
   const Options& opt_;
 };
 
+// Shows the "Add books" screen as the device would; there is no real
+// network here. Copy books into the card folder's books/ instead.
+class SimTransfer : public vellum::Transfer {
+ public:
+  bool start(vellum::TransferInfo& info) override {
+    std::snprintf(info.network, sizeof(info.network), "Vellum-SIM");
+    std::snprintf(info.password, sizeof(info.password), "48151623");
+    std::snprintf(info.address, sizeof(info.address), "http://192.168.4.1");
+    return true;
+  }
+  void stop() override {}
+  void status(vellum::TransferStatus& out) override { out = {}; }
+};
+
 bool parse(int argc, char** argv, Options& opt) {
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -350,6 +364,7 @@ int main(int argc, char** argv) {
   SimPower power(opt.battery);
   SimClock clock(opt);
   vellum::StdioStorage card(opt.card.c_str());
+  SimTransfer transfer;
   std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
 
   vellum::Board board{"Simulator (X4 Pro geometry)",
@@ -360,7 +375,8 @@ int main(int argc, char** argv) {
                       &clock,
                       opt.card.empty() ? nullptr : &card,
                       vellum::Rotation::R90,
-                      framebuffer.data()};
+                      framebuffer.data(),
+                      &transfer};
   vellum::run(board);
 
   if (!opt.screenshot.empty() && !display.save_screenshot(opt.screenshot)) {

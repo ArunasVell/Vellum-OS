@@ -23,9 +23,12 @@ set(VELLUM_CORE_SRCS
   src/textfile.cpp
   src/touch.cpp
   src/ui.cpp
+  src/upload.cpp
+  src/upload_page.cpp
   src/xml.cpp
   src/zip.cpp
   third_party/miniz/miniz_tinfl.c
+  third_party/qrcodegen/qrcodegen.c
   src/fonts/literata_16.cpp
   src/fonts/literata_20.cpp
   src/fonts/literata_23.cpp
@@ -38,13 +41,13 @@ set(VELLUM_CORE_SRCS
 )
 
 if(ESP_PLATFORM)
-  idf_component_register(SRCS ${VELLUM_CORE_SRCS} INCLUDE_DIRS include PRIV_INCLUDE_DIRS third_party/miniz)
+  idf_component_register(SRCS ${VELLUM_CORE_SRCS} INCLUDE_DIRS include PRIV_INCLUDE_DIRS third_party/miniz third_party/qrcodegen)
 else()
   add_library(vellum_core STATIC ${VELLUM_CORE_SRCS})
-  target_include_directories(vellum_core PUBLIC include PRIVATE third_party/miniz)
+  target_include_directories(vellum_core PUBLIC include PRIVATE third_party/miniz third_party/qrcodegen)
   target_compile_features(vellum_core PUBLIC cxx_std_20)
   target_compile_options(vellum_core PRIVATE -Wall -Wextra -Werror)
 endif()
 
 # Vendored code keeps its own style; do not hold it to our warning flags.
-set_source_files_properties(third_party/miniz/miniz_tinfl.c PROPERTIES COMPILE_OPTIONS "-w")
+set_source_files_properties(third_party/miniz/miniz_tinfl.c third_party/qrcodegen/qrcodegen.c PROPERTIES COMPILE_OPTIONS "-w")

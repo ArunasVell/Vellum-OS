@@ -33,7 +33,16 @@ enum class Key : uint8_t { Prev, Next, Home, Power };
 // Touch coordinates are physical panel pixels, like the framebuffer's
 // storage; the app maps them to logical coordinates.
 struct InputEvent {
-  enum class Type : uint8_t { None, KeyDown, KeyUp, TouchDown, TouchMove, TouchUp, Quit };
+  enum class Type : uint8_t {
+    None,
+    KeyDown,
+    KeyUp,
+    TouchDown,
+    TouchMove,
+    TouchUp,
+    Transfer,  // something changed in the book transfer; see Transfer::status()
+    Quit,
+  };
   Type type = Type::None;
   Key key = Key::Next;
   int16_t x = 0;
@@ -106,16 +115,45 @@ class Storage {
   virtual bool list(const char* dir, ListFn fn, void* ctx) = 0;
 };
 
+// Receiving books from a phone or computer over Wi-Fi. The device opens its
+// own Wi-Fi network and serves an upload page; books land in "books/" on the
+// storage. While it runs, the board posts InputEvent::Type::Transfer
+// whenever the status changes.
+struct TransferInfo {
+  char network[33] = {};   // Wi-Fi network name
+  char password[65] = {};  // its password
+  char address[64] = {};   // upload page, e.g. "http://192.168.4.1"
+};
+
+struct TransferStatus {
+  int devices = 0;           // phones or computers joined to the network
+  int received = 0;          // books saved since start()
+  char last[128] = {};       // file name of the newest book saved
+  char receiving[128] = {};  // file name being received now, or ""
+  bool card_full = false;    // the last book did not fit
+};
+
+class Transfer {
+ public:
+  virtual ~Transfer() = default;
+  // Starts the network and the upload page. Returns false if Wi-Fi cannot start.
+  virtual bool start(TransferInfo& info) = 0;
+  // Stops both and turns the radio off.
+  virtual void stop() = 0;
+  virtual void status(TransferStatus& out) = 0;
+};
+
 struct Board {
   const char* name;
   DisplayPanel& display;
   InputSource& input;
   Power& power;
-  Frontlight* frontlight;  // nullptr when the device has none
-  Clock* clock;            // nullptr when the device has none
-  Storage* storage;        // nullptr when there is no card
-  Rotation rotation;       // logical orientation for reading
-  uint8_t* framebuffer;    // Framebuffer::bytes_for(display size) bytes
+  Frontlight* frontlight;        // nullptr when the device has none
+  Clock* clock;                  // nullptr when the device has none
+  Storage* storage;              // nullptr when there is no card
+  Rotation rotation;             // logical orientation for reading
+  uint8_t* framebuffer;          // Framebuffer::bytes_for(display size) bytes
+  Transfer* transfer = nullptr;  // nullptr when the device has no Wi-Fi
 };
 
 }  // namespace vellum

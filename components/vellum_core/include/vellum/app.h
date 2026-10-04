@@ -21,6 +21,9 @@ namespace vellum {
 // Touch: tap an item to open it (or change a setting); in the reader, tap
 // the left third or swipe right to go back, tap elsewhere or swipe left to
 // go forward. Swipes page through the library.
+//
+// "Add books" opens a Wi-Fi network and an upload page (Board::transfer);
+// Home closes it and reloads the library.
 class App {
  public:
   explicit App(Board& board);
@@ -33,9 +36,10 @@ class App {
   void reload_library();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader };
+  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer };
+  enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
-  static constexpr int kHomeRows = 3;     // other books listed under the current one
+  static constexpr int kHomeRows = 2;     // other books listed under the current one
   static constexpr int kLibraryRows = 7;  // books per library page
 
   // Home lists the current book, up to kHomeRows others, then these links.
@@ -43,6 +47,9 @@ class App {
   void home_activate();
   void library_activate();
   void settings_activate();
+  // Starts or stops receiving books over Wi-Fi (the "Add books" screen).
+  void open_transfer();
+  void close_transfer();
 
   // Remembers where a tappable item was drawn; `item` is its selection index.
   void add_hit(Rect r, int item);
@@ -59,6 +66,7 @@ class App {
   void draw_home();
   void draw_library();
   void draw_settings();
+  void draw_transfer();
   const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
@@ -78,6 +86,8 @@ class App {
   int home_sel_ = 0;
   int library_sel_ = 0;
   int settings_sel_ = 0;
+  TransferState transfer_state_ = TransferState::Off;
+  TransferInfo transfer_info_;
 
   struct Hit {
     Rect r;
