@@ -14,8 +14,9 @@ class WifiTransfer : public vellum::Transfer {
   using NotifyFn = void (*)();
 
   // `card_root` is where the SD card is mounted; `notify` is called (from
-  // other tasks) whenever the status changes.
-  WifiTransfer(const char* card_root, NotifyFn notify);
+  // other tasks) whenever the status changes. The upload page sets `clock`
+  // (may be nullptr) from the phone's time.
+  WifiTransfer(const char* card_root, NotifyFn notify, vellum::Clock* clock);
 
   bool start(vellum::TransferInfo& info) override;
   void stop() override;

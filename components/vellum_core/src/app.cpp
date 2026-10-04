@@ -46,6 +46,14 @@ constexpr int kContentsRowHeight = 50;
 constexpr int kContentsBottom = 60;  // room for the hint
 constexpr int kIndent = 20;          // per level of a nested contents entry
 
+// Battery screen geometry.
+constexpr int kChartLabelBase = 196;
+constexpr int kChartTop = 222;
+constexpr int kChartBottom = 438;
+constexpr int kChartAxis = 40;  // room left of the chart for 0, 50, 100
+constexpr int kEstimatesBase = 512;
+constexpr int kChartDays = 7;
+
 // "Add books" geometry.
 constexpr int kTransferTop = 192;  // baseline of the first step label
 constexpr int kQrSize = 156;
@@ -71,6 +79,31 @@ void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
   ui::draw_right(fb, fonts::literata_20, r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);  // ›
 }
 
+// A 2 px line; dotted lines leave every other pair of pixels out.
+void draw_line(Framebuffer& fb, int x0, int y0, int x1, int y1, bool dotted) {
+  const int dx = x1 > x0 ? x1 - x0 : x0 - x1;
+  const int dy = y1 > y0 ? y0 - y1 : y1 - y0;
+  const int sx = x0 < x1 ? 1 : -1;
+  const int sy = y0 < y1 ? 1 : -1;
+  int err = dx + dy;
+  for (int step = 0;; ++step) {
+    if (!dotted || step % 4 < 2) {
+      fb.set_pixel(x0, y0, Color::Black);
+      fb.set_pixel(x0, y0 + 1, Color::Black);
+    }
+    if (x0 == x1 && y0 == y1) break;
+    const int e2 = 2 * err;
+    if (e2 >= dy) {
+      err += dy;
+      x0 += sx;
+    }
+    if (e2 <= dx) {
+      err += dx;
+      y0 += sy;
+    }
+  }
+}
+
 int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
 
 // One line on the settings screen: a name and a value that Power cycles.
@@ -78,6 +111,7 @@ enum class Row : uint8_t {
   Language,
   Clock,
   SleepAfter,
+  Battery,  // opens the battery screen
   TextSize,
   LineSpacing,
   WordSpacing,
@@ -85,10 +119,10 @@ enum class Row : uint8_t {
   Alignment,
   Hyphenation
 };
-constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::SleepAfter, Row::TextSize,   Row::LineSpacing,
-                         Row::WordSpacing, Row::Margins, Row::Alignment,  Row::Hyphenation};
+constexpr Row kRows[] = {Row::Language,    Row::Clock,       Row::SleepAfter, Row::Battery,   Row::TextSize,
+                         Row::LineSpacing, Row::WordSpacing, Row::Margins,    Row::Alignment, Row::Hyphenation};
 constexpr int kRowCount = sizeof(kRows) / sizeof(kRows[0]);
-constexpr int kGeneralRows = 3;  // rows before the reading section
+constexpr int kGeneralRows = 4;  // rows before the reading section
 
 int value_count(Row r) {
   switch (r) {
@@ -124,6 +158,8 @@ int get(const Settings& s, Row r) {
       return s.justify ? 0 : 1;
     case Row::Hyphenation:
       return s.hyphenate ? 0 : 1;
+    case Row::Battery:
+      break;
   }
   return 0;
 }
@@ -157,6 +193,8 @@ void set(Settings& s, Row r, int v) {
     case Row::Hyphenation:
       s.hyphenate = v == 0;
       break;
+    case Row::Battery:
+      break;
   }
 }
 
@@ -180,6 +218,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.alignment;
     case Row::Hyphenation:
       return t.hyphenation;
+    case Row::Battery:
+      return t.battery;
   }
   return "";
 }
@@ -203,6 +243,8 @@ const char* value_name(const Strings& t, Row r, int v) {
       return v == 0 ? t.justified : t.left;
     case Row::Hyphenation:
       return v == 0 ? t.on : t.off;
+    case Row::Battery:
+      break;
   }
   return "";
 }
@@ -220,6 +262,7 @@ App::App(Board& board)
     char state[16];
     const int32_t n = textfile::read(*board_.storage, kStatePath, state, sizeof(state) - 1);
     resume_reader_ = n >= 6 && std::strncmp(state, "reader", 6) == 0;
+    battery_.load(*board_.storage);
   }
   library_.load(builtin_books(), board_.storage, epub_);
 }
@@ -395,7 +438,16 @@ void App::draw_settings() {
     const Color fg = highlight(fb_, r, selected);
     const int base = r.y + 28;
     draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, row_name(t, row), fg);
-    ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, value_name(t, row, get(settings_, row)), fg);
+    if (row == Row::Battery) {
+      // The level now, and a way in to the history.
+      char level[16] = "\xE2\x80\x93 \xE2\x80\xBA";  // – ›
+      if (const int percent = board_.power.battery_percent(); percent >= 0) {
+        std::snprintf(level, sizeof(level), "%d%% \xE2\x80\xBA", percent);
+      }
+      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, level, fg);
+    } else {
+      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, value_name(t, row, get(settings_, row)), fg);
+    }
     y += kSettingRowHeight;
   }
 
@@ -416,6 +468,7 @@ void App::draw_settings() {
 
 void App::settings_activate() {
   const Row row = kRows[settings_sel_];
+  if (row == Row::Battery) return show(Screen::Battery);
   set(settings_, row, (get(settings_, row) + 1) % value_count(row));
   if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
 }
@@ -730,6 +783,126 @@ void App::draw_contents() {
   ui::draw_hint(fb_, t.hint_list);
 }
 
+// ---- Battery -------------------------------------------------------------------
+
+bool App::record_battery(BatterySample::Kind kind) {
+  DateTime now;
+  const int level = board_.power.battery_percent();
+  if (board_.clock == nullptr || !board_.clock->now(now) || level < 0) return false;
+  BatterySample s;
+  s.time = seconds_since_2000(now);
+  s.percent = static_cast<uint8_t>(level > 100 ? 100 : level);
+  s.kind = kind;
+  s.charging = board_.power.charging();
+  battery_.add(s);
+  return true;
+}
+
+void App::save_battery() {
+  if (board_.storage == nullptr || battery_.count() == 0) return;
+  battery_.save(*board_.storage);
+  battery_saved_at_ = battery_.latest()->time;
+}
+
+void App::sample_battery() {
+  const BatterySample* last = battery_.latest();
+  const bool was_charging = last != nullptr && last->charging;
+  const uint32_t last_time = last != nullptr ? last->time : 0;
+  DateTime now;
+  if (board_.clock == nullptr || !board_.clock->now(now)) return;
+  const uint32_t t = seconds_since_2000(now);
+  const bool charging = board_.power.charging();
+  if (last != nullptr && t >= last_time && t - last_time < BatteryLog::kIntervalS && charging == was_charging) return;
+  if (!record_battery(BatterySample::Kind::Awake)) return;
+  // Plugging in or out is worth a card write; otherwise once an hour.
+  if (charging != was_charging || t - battery_saved_at_ >= BatteryLog::kSaveIntervalS) save_battery();
+}
+
+void App::draw_battery() {
+  const int w = fb_.width();
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.battery);
+  const int level = board_.power.battery_percent();
+  char big[16] = "\xE2\x80\x93";  // –
+  if (level >= 0) std::snprintf(big, sizeof(big), "%d%%", level);
+  ui::draw_right(fb_, fonts::literata_italic_40, w - kSide, kTitleBase, big);
+  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, board_.power.charging() ? t.charging : t.on_battery);
+
+  DateTime now;
+  if (board_.clock == nullptr || !board_.clock->now(now)) {
+    ui::draw_wrapped(fb_, fonts::literata_20, kSide, kChartLabelBase + 30, w - 2 * kSide, 6, t.clock_unset, false);
+    ui::draw_hint(fb_, t.hint_battery);
+    return;
+  }
+
+  // The last seven days: charge against time, solid while in use or
+  // charging, dotted while asleep.
+  ui::draw_label(fb_, kSide, kChartLabelBase, t.history_label);
+  const int left = kSide + kChartAxis;
+  const int right = w - kSide;
+  const uint32_t end = seconds_since_2000(now);
+  const uint32_t span = kChartDays * 86400u;
+  const uint32_t start = end > span ? end - span : 0;
+  auto x_of = [&](uint32_t time) {
+    if (time <= start) return left;
+    return left + static_cast<int>(uint64_t{time - start} * (right - left) / span);
+  };
+  auto y_of = [&](int percent) { return kChartBottom - percent * (kChartBottom - kChartTop) / 100; };
+  for (int p : {0, 50, 100}) {
+    const int y = y_of(p);
+    for (int x = left; x < right; x += 4) fb_.set_pixel(x, y, Color::Black);
+    char label[8];
+    std::snprintf(label, sizeof(label), "%d", p);
+    ui::draw_right(fb_, fonts::literata_16, left - 8, y + 6, label);
+  }
+  // Midnights, labelled with the day of the month that starts there.
+  for (uint32_t day = start / 86400 + 1; day * 86400 <= end; ++day) {
+    const int x = x_of(day * 86400);
+    fb_.vline(x, kChartBottom, 6, Color::Black);
+    uint16_t year;
+    uint8_t month, mday;
+    date_from_days(day, year, month, mday);
+    char label[4];
+    std::snprintf(label, sizeof(label), "%u", mday);
+    if (x + 4 < right) draw_text(fb_, fonts::literata_16, (x + 4) * 64, kChartBottom + 22, label);
+  }
+  for (int i = 1; i < battery_.count(); ++i) {
+    const BatterySample& a = battery_.at(i - 1);
+    const BatterySample& b = battery_.at(i);
+    if (b.time < start || b.time > end) continue;
+    draw_line(fb_, x_of(a.time), y_of(a.percent), x_of(b.time), y_of(b.percent), a.kind == BatterySample::Kind::Sleep);
+  }
+  if (const BatterySample* last = battery_.latest(); last != nullptr && last->time >= start) {
+    fb_.fill_round_rect({x_of(last->time) - 4, y_of(last->percent) - 3, 9, 9}, 4, Color::Black);  // now
+  }
+
+  // What the history says so far.
+  ui::draw_label(fb_, kSide, kEstimatesBase, t.estimates_label);
+  const BatteryEstimate e = battery_.estimate();
+  char left_text[48], reading[48], asleep[48], number[16];
+  std::snprintf(left_text, sizeof(left_text), "%s", t.measuring);
+  std::snprintf(reading, sizeof(reading), "%s", t.measuring);
+  std::snprintf(asleep, sizeof(asleep), "%s", t.measuring);
+  if (e.hours_left >= 0) format_time_left(settings_.language, e.hours_left, left_text, sizeof(left_text));
+  if (e.awake_tenths_per_hour >= 0) {
+    format_tenths(settings_.language, e.awake_tenths_per_hour, number, sizeof(number));
+    std::snprintf(reading, sizeof(reading), t.per_hour, number);
+  }
+  if (e.asleep_tenths_per_day >= 0) {
+    format_tenths(settings_.language, e.asleep_tenths_per_day, number, sizeof(number));
+    std::snprintf(asleep, sizeof(asleep), t.per_day, number);
+  }
+  const char* names[] = {t.time_left, t.while_reading, t.while_asleep};
+  const char* values[] = {left_text, reading, asleep};
+  for (int i = 0; i < 3; ++i) {
+    const int y = kEstimatesBase + 14 + i * kSettingRowHeight;
+    if (i > 0) dotted_rule(fb_, y);
+    draw_text(fb_, fonts::literata_20, kSide * 64, y + 28, names[i]);
+    ui::draw_right(fb_, fonts::literata_20, w - kSide, y + 28, values[i]);
+  }
+  ui::draw_hint(fb_, t.hint_battery);
+}
+
 // ---- Navigation --------------------------------------------------------------
 
 void App::open_book(int index) {
@@ -802,12 +975,17 @@ void App::draw() {
     case Screen::Contents:
       draw_contents();
       break;
+    case Screen::Battery:
+      draw_battery();
+      break;
     case Screen::Reader:
       break;
   }
 }
 
 void App::start() {
+  record_battery(BatterySample::Kind::Wake);
+  save_battery();
   // After sleep (a restart on the device), carry on reading where we were.
   if (resume_reader_ && library_.count() > 0) {
     resume_reader_ = false;
@@ -847,6 +1025,8 @@ void App::sleep() {
     const char* state = in_book ? "reader\n" : "home\n";
     board_.storage->write(kStatePath, state, static_cast<uint32_t>(std::strlen(state)));
   }
+  record_battery(BatterySample::Kind::Sleep);
+  save_battery();
   before_sleep_ = screen_;
   asleep_ = true;
   draw_sleep();
@@ -856,6 +1036,7 @@ void App::sleep() {
 
 void App::wake() {
   asleep_ = false;
+  record_battery(BatterySample::Kind::Wake);
   show(before_sleep_);
 }
 
@@ -879,6 +1060,7 @@ void App::draw_sleep() {
 // ---- Input -------------------------------------------------------------------
 
 bool App::handle(const InputEvent& ev) {
+  if (!asleep_ && ev.type != InputEvent::Type::Quit) sample_battery();
   if (asleep_) {
     if (ev.type == InputEvent::Type::Quit) return false;
     if (ev.type == InputEvent::Type::KeyDown) wake();  // its release is ignored
@@ -966,6 +1148,9 @@ bool App::handle_key(Key key) {
       if (key == Key::Power) settings_activate();
       settings_sel_ = wrap_index(settings_sel_ + step, kRowCount);
       return true;
+    case Screen::Battery:
+      if (key == Key::Power) show(Screen::Settings);
+      return false;
     case Screen::Transfer:
       break;  // only Home leaves it
   }
@@ -1018,6 +1203,7 @@ bool App::handle_gesture(const Gesture& g) {
     return true;
   }
   if (g.kind != K::Tap) return false;
+  if (screen_ == Screen::Battery) return show(Screen::Settings), false;  // a tap anywhere goes back
 
   const int item = hit_at(g.x, g.y);
   if (item < 0) return false;
@@ -1040,6 +1226,7 @@ bool App::handle_gesture(const Gesture& g) {
       return false;
     case Screen::Reader:
     case Screen::Transfer:
+    case Screen::Battery:
       break;
   }
   return false;

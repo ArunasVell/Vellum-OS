@@ -1,7 +1,7 @@
 // BM8563 real-time clock (register-compatible with the NXP PCF8563).
 //
 // Keeps time on the X4 Pro while the reader sleeps. Times are stored as
-// local time; setting the clock comes with Wi-Fi time sync.
+// local time; the Wi-Fi upload page sets it from the phone's clock.
 #pragma once
 
 #include <cstdint>
@@ -17,7 +17,7 @@ class Bm8563 : public vellum::Clock {
   bool attach(i2c_master_bus_handle_t bus, uint32_t scl_hz);
 
   bool now(vellum::DateTime& out) override;
-  bool set(const vellum::DateTime& t);
+  bool set(const vellum::DateTime& t) override;
 
  private:
   i2c_master_dev_handle_t dev_ = nullptr;

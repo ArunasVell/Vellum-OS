@@ -71,9 +71,23 @@ struct Strings {
   const char* back_to_book;
   const char* add_bookmark;
   const char* remove_bookmark;
-  const char* bookmarks_label;   // uppercase label
-  const char* chapters_label;    // uppercase label
-  const char* chapter_n;         // printf: number, for books without a table of contents
+  const char* bookmarks_label;  // uppercase label
+  const char* chapters_label;   // uppercase label
+  const char* chapter_n;        // printf: number, for books without a table of contents
+  // Battery history
+  const char* battery;  // settings row and screen title
+  const char* on_battery;
+  const char* charging;
+  const char* history_label;    // uppercase label over the chart
+  const char* estimates_label;  // uppercase label
+  const char* time_left;
+  const char* while_reading;
+  const char* while_asleep;
+  const char* measuring;    // not enough data yet
+  const char* per_hour;     // printf: a number such as "4.2"
+  const char* per_day;      // printf: a number such as "0.8"
+  const char* clock_unset;  // why there is no history yet
+  const char* hint_battery;
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };
@@ -82,5 +96,9 @@ const Strings& strings(Language lang);
 
 // "4 books", with the plural form the language needs.
 void format_book_count(Language lang, int n, char* out, size_t size);
+// "About 3 days" or "About 5 hours" for a duration in hours.
+void format_time_left(Language lang, int hours, char* out, size_t size);
+// A number given in tenths, with the language's decimal mark: "4.2", "4,2".
+void format_tenths(Language lang, int tenths, char* out, size_t size);
 
 }  // namespace vellum

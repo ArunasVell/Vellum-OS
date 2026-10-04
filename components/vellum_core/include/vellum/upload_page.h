@@ -6,9 +6,13 @@
 //   GET  /books             JSON list: [{"name": "Book.epub", "size": 123}, ...]
 //   POST /upload?name=NAME  the file as the request body; 200 when saved,
 //                           507 when the card is full, 4xx/5xx otherwise
+//   POST /time              the phone's local time, "YYYY-MM-DD HH:MM:SS",
+//                           to set the reader's clock
 #pragma once
 
 #include <cstddef>
+
+#include "vellum/hal.h"
 
 namespace vellum {
 
@@ -26,6 +30,10 @@ bool url_decode(const char* in, size_t in_len, char* out, size_t size);
 // most 120 bytes, and ending in ".epub". Returns false for names that are
 // not EPUB books or are empty once cleaned.
 bool safe_book_name(const char* in, char* out, size_t size);
+
+// Parses "YYYY-MM-DD HH:MM:SS" (the body of POST /time). Returns false for
+// anything else, including dates outside 2000-2099.
+bool parse_datetime(const char* in, size_t len, DateTime& out);
 
 // Appends `s` to out as a JSON string body (without quotes). Returns false
 // when it does not fit.

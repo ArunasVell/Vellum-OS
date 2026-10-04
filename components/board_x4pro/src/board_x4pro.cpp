@@ -378,7 +378,7 @@ vellum::Board& board_x4pro_init() {
   const bool have_card = mount_sd_card();
 
   // Wi-Fi stays off until "Add books" starts it.
-  static WifiTransfer transfer(kSdMountPoint, Input::post_transfer);
+  static WifiTransfer transfer(kSdMountPoint, Input::post_transfer, &clock);
 
   static vellum::Board board{
       "XTEINK X4 Pro",       display, input,    power, &light, &clock, have_card ? &card : nullptr,
