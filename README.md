@@ -2,7 +2,7 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books, settings (12- or 24-hour clock) and the reader, set in Literata with justified, hyphenated text. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons and frontlight, not yet tested on a device. Touch and the SD card are not written yet, so books cannot be opened from a card yet.
+> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, set in Literata with justified, hyphenated text. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons and frontlight, not yet tested on a device. Touch and the SD card are not written yet, so books cannot be opened from a card yet.
 
 ## Goals
 

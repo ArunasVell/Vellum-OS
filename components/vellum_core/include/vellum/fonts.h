@@ -50,7 +50,10 @@ extern const Font literata_26;         // body text
 extern const Font literata_italic_26;  // emphasis and headings
 extern const Font literata_20;         // small print: headers and page numbers
 extern const Font literata_italic_20;
-extern const Font literata_16;         // labels and list details
+extern const Font literata_16;  // labels and list details
+extern const Font literata_23;  // body text sizes chosen in settings
+extern const Font literata_30;
+extern const Font literata_34;
 extern const Font literata_italic_40;  // screen titles
 }  // namespace fonts
 

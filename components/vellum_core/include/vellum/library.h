@@ -18,8 +18,12 @@ struct BookState {
   uint32_t last_opened = 0;  // larger = more recent; 0 = never opened
 
   bool started() const { return last_opened != 0; }
-  // Share read, 0..100, counting the page on screen as read.
-  int percent() const { return page_count ? (page + 1) * 100 / page_count : 0; }
+  // Share read, 0..100, counting the page on screen as read. Falls back to
+  // paragraphs when the page count is not known.
+  int percent(uint32_t paragraph_count) const {
+    if (page_count) return (page + 1) * 100 / page_count;
+    return paragraph_count ? static_cast<int>(position.paragraph * 100 / paragraph_count) : 0;
+  }
 };
 
 class Library {
@@ -35,6 +39,8 @@ class Library {
 
   // Records that book i was opened just now.
   void touch(int i);
+  // Page numbers depend on the reading style; forget them when it changes.
+  void forget_page_counts();
   // The book read most recently, or the first book when none has been opened.
   int current() const;
   // Writes book indices to `out`, most recently opened first and unopened

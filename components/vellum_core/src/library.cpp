@@ -11,6 +11,10 @@ Library::Library(std::span<const Book* const> books) {
 
 void Library::touch(int i) { states_[i].last_opened = ++clock_; }
 
+void Library::forget_page_counts() {
+  for (int i = 0; i < count_; ++i) states_[i].page_count = 0;
+}
+
 int Library::current() const {
   int best = 0;
   for (int i = 1; i < count_; ++i) {

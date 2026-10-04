@@ -8,6 +8,7 @@
 #include "vellum/fonts.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
+#include "vellum/strings.h"
 
 namespace vellum::ui {
 
@@ -46,6 +47,7 @@ void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total);
 void draw_cover(Framebuffer& fb, Rect r, const Book& book);
 // One book in a list: small cover, title, author and how far it is read.
 // A selected row is drawn inverted.
-void draw_book_row(Framebuffer& fb, Rect r, const Book& book, const BookState& state, bool selected);
+void draw_book_row(Framebuffer& fb, Rect r, const Book& book, const BookState& state, const Strings& text,
+                   bool selected);
 
 }  // namespace vellum::ui
