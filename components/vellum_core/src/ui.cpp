@@ -9,6 +9,8 @@
 namespace vellum::ui {
 namespace {
 
+MenuFonts g_menu = literata_menu();
+
 constexpr std::string_view kEllipsis = "\xE2\x80\xA6";  // …
 constexpr int32_t kLabelTracking = 96;                  // 1.5 px between label letters, 1/64 px
 
@@ -96,7 +98,7 @@ int draw_wrapped(Framebuffer& fb, const Font& font, int x, int baseline, int max
 }
 
 void draw_label(Framebuffer& fb, int x, int baseline, std::string_view text) {
-  const Font& font = fonts::literata_16;
+  const Font& font = label_font();
   int32_t pen = x * 64;
   size_t i = 0;
   while (i < text.size()) {
@@ -115,17 +117,17 @@ void draw_battery(Framebuffer& fb, int right, int baseline, int percent) {
   fb.fill_rect({body.x + 2, body.y + 2, fill, body.h - 4}, Color::Black);
   char label[16];
   std::snprintf(label, sizeof(label), "%d%%", std::clamp(percent, 0, 100));
-  draw_right(fb, fonts::literata_16, body.x - 6, baseline, label);
+  draw_right(fb, label_font(), body.x - 6, baseline, label);
 }
 
 void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent) {
-  draw_text(fb, fonts::literata_16, kSide * 64, kStatusBase, time);
+  draw_text(fb, label_font(), kSide * 64, kStatusBase, time);
   draw_battery(fb, fb.width() - kSide, kStatusBase, battery_percent);
   fb.hline(kSide, kStatusRule, fb.width() - 2 * kSide, Color::Black);
 }
 
 void draw_hint(Framebuffer& fb, std::string_view text) {
-  draw_centered(fb, fonts::literata_16, fb.height() - kHintBase, text);
+  draw_centered(fb, label_font(), fb.height() - kHintBase, text);
 }
 
 void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total) {
@@ -201,7 +203,7 @@ void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_vie
   if (band) fb.fill_rect({inner.x, inner.y, inner.w, band}, Color::Black);
 
   if (!large) {
-    const Font& font = fonts::literata_italic_26;
+    const Font& font = italic_font();
     const uint32_t cp = initial(title);
     const Glyph& g = font.glyphs[font.find(cp)];
     char letter[5] = {};
@@ -224,11 +226,11 @@ void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_vie
 
   const int text_x = inner.x + 4;
   const int text_w = inner.w - 8;
-  const Font& title_font = fonts::literata_italic_20;
-  const int after = draw_wrapped(fb, title_font, text_x, inner.y + band + inner.h / 8 + title_font.ascent, text_w, 5,
+  const Font& cover_title = small_italic_font();
+  const int after = draw_wrapped(fb, cover_title, text_x, inner.y + band + inner.h / 8 + cover_title.ascent, text_w, 5,
                                  title, true, fg);
-  fb.hline(r.x + r.w / 2 - 10, after - title_font.line_height + 18, 20, fg);
-  const Font& author_font = fonts::literata_16;
+  fb.hline(r.x + r.w / 2 - 10, after - cover_title.line_height + 18, 20, fg);
+  const Font& author_font = label_font();
   const int author_w = inner.w - 4;
   const Fit f = fit(author_font, author, author_w);
   draw_fit(fb, author_font, inner.x + 2 + (author_w - fit_width_px(author_font, author, f)) / 2, inner.y + inner.h - 14,
@@ -255,10 +257,10 @@ void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Stri
   }
   const int text_x = cover.x + cover.w + 18;
   const int right = r.x + r.w - 14;
-  const int status_w = text_width_px(fonts::literata_16, status);
-  draw_right(fb, fonts::literata_16, right, r.y + 34, status, fg);
-  draw_fitted(fb, fonts::literata_20, text_x, r.y + 34, right - text_x - status_w - 14, book.title, fg);
-  draw_fitted(fb, fonts::literata_16, text_x, r.y + 58, right - text_x, book.author, fg);
+  const int status_w = text_width_px(label_font(), status);
+  draw_right(fb, label_font(), right, r.y + 34, status, fg);
+  draw_fitted(fb, text_font(), text_x, r.y + 34, right - text_x - status_w - 14, book.title, fg);
+  draw_fitted(fb, label_font(), text_x, r.y + 58, right - text_x, book.author, fg);
 }
 
 bool draw_qr(Framebuffer& fb, int x, int y, int size, std::string_view text) {
@@ -286,5 +288,8 @@ bool draw_qr(Framebuffer& fb, int x, int y, int size, std::string_view text) {
   }
   return true;
 }
+
+void set_menu_fonts(const MenuFonts& f) { g_menu = f; }
+const MenuFonts& menu_fonts() { return g_menu; }
 
 }  // namespace vellum::ui

@@ -32,7 +32,6 @@ constexpr int kSubtitleBase = 142;
 constexpr int kListTop = 160;
 constexpr int kSettingsTitleBase = 104;
 constexpr int kSettingsTop = 116;
-constexpr int kSectionGap = 32;  // uppercase section label above a group of rows
 constexpr int kSettingRowHeight = 36;
 
 // Sleep screen geometry.
@@ -92,8 +91,8 @@ void dotted_rule(Framebuffer& fb, int y) {
 
 void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
   const Color c = highlight(fb, r, selected);
-  draw_text(fb, fonts::literata_20, (r.x + kPad) * 64, r.y + 30, text, c);
-  ui::draw_right(fb, fonts::literata_20, r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);  // ›
+  draw_text(fb, ui::text_font(), (r.x + kPad) * 64, r.y + 30, text, c);
+  ui::draw_right(fb, ui::text_font(), r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);  // ›
 }
 
 // A 2 px line; dotted lines leave every other pair of pixels out.
@@ -126,6 +125,9 @@ int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) %
 // One line on the settings screen: a name and a value that Power cycles.
 enum class Row : uint8_t {
   Language,
+  MenuFont,     // cycles through the typefaces
+  BookFont,     // the same, for reading
+  ReadingPage,  // opens the reading settings
   Clock,
   SleepAfter,
   Light,    // opens the front light screen
@@ -138,11 +140,14 @@ enum class Row : uint8_t {
   Alignment,
   Hyphenation
 };
-constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::SleepAfter, Row::Light,
-                         Row::Battery,     Row::Check,   Row::TextSize,   Row::LineSpacing,
-                         Row::WordSpacing, Row::Margins, Row::Alignment,  Row::Hyphenation};
-constexpr int kRowCount = sizeof(kRows) / sizeof(kRows[0]);
-constexpr int kGeneralRows = 6;  // rows before the reading section
+// Settings has two pages: general, ending in a way to the reading page, and
+// reading, with a preview of the text below its rows.
+constexpr Row kGeneralRows[] = {Row::Language, Row::MenuFont, Row::Clock, Row::SleepAfter,
+                                Row::Light,    Row::Battery,  Row::Check, Row::ReadingPage};
+constexpr Row kReadingRows[] = {Row::BookFont, Row::TextSize,  Row::LineSpacing, Row::WordSpacing,
+                                Row::Margins,  Row::Alignment, Row::Hyphenation};
+constexpr int kGeneralCount = sizeof(kGeneralRows) / sizeof(kGeneralRows[0]);
+constexpr int kReadingCount = sizeof(kReadingRows) / sizeof(kReadingRows[0]);
 
 int value_count(Row r) {
   switch (r) {
@@ -178,6 +183,9 @@ int get(const Settings& s, Row r) {
       return s.justify ? 0 : 1;
     case Row::Hyphenation:
       return s.hyphenate ? 0 : 1;
+    case Row::MenuFont:
+    case Row::BookFont:
+    case Row::ReadingPage:
     case Row::Light:
     case Row::Battery:
     case Row::Check:
@@ -215,6 +223,9 @@ void set(Settings& s, Row r, int v) {
     case Row::Hyphenation:
       s.hyphenate = v == 0;
       break;
+    case Row::MenuFont:
+    case Row::BookFont:
+    case Row::ReadingPage:
     case Row::Light:
     case Row::Battery:
     case Row::Check:
@@ -248,6 +259,12 @@ const char* row_name(const Strings& t, Row r) {
       return t.battery;
     case Row::Check:
       return t.device_check;
+    case Row::MenuFont:
+      return t.menu_font;
+    case Row::BookFont:
+      return t.book_font;
+    case Row::ReadingPage:
+      return t.reading;
   }
   return "";
 }
@@ -271,6 +288,9 @@ const char* value_name(const Strings& t, Row r, int v) {
       return v == 0 ? t.justified : t.left;
     case Row::Hyphenation:
       return v == 0 ? t.on : t.off;
+    case Row::MenuFont:
+    case Row::BookFont:
+    case Row::ReadingPage:
     case Row::Light:
     case Row::Battery:
     case Row::Check:
@@ -297,6 +317,8 @@ App::App(Board& board)
     battery_.load(*board_.storage);
   }
   library_.load(builtin_books(), board_.storage, epub_);
+  fonts_.scan(board_.storage);
+  apply_fonts();
 }
 
 App::~App() {
@@ -318,6 +340,8 @@ void App::reload_library() {
   epub_path_[0] = '\0';
   reading_ = -1;
   library_.load(builtin_books(), board_.storage, epub_);
+  fonts_.scan(board_.storage);  // fonts may have arrived with the books
+  apply_fonts();
   show(Screen::Home);
 }
 
@@ -361,8 +385,8 @@ void App::draw_home() {
   ui::draw_cover(fb_, cover, book.title, book.author, cover_of(current, true));
   const int col_x = cover.x + cover.w + 22;
   const int col_w = w - kSide - col_x;
-  int y = ui::draw_wrapped(fb_, fonts::literata_italic_26, col_x, cover.y + 28, col_w, 3, book.title, false);
-  ui::draw_fitted(fb_, fonts::literata_20, col_x, y + 4, col_w, book.author);
+  int y = ui::draw_wrapped(fb_, ui::italic_font(), col_x, cover.y + 28, col_w, 3, book.title, false);
+  ui::draw_fitted(fb_, ui::text_font(), col_x, y + 4, col_w, book.author);
   if (book.builtin != nullptr) {
     char chapter[96];
     const Book& b = *book.builtin;
@@ -371,7 +395,7 @@ void App::draw_home() {
     } else {
       std::snprintf(chapter, sizeof(chapter), "%s", b.chapter_label);
     }
-    ui::draw_wrapped(fb_, fonts::literata_16, col_x, y + 32, col_w, 2, chapter, false);
+    ui::draw_wrapped(fb_, ui::label_font(), col_x, y + 32, col_w, 2, chapter, false);
   }
 
   const int track_y = cover.y + cover.h - 6;
@@ -379,10 +403,10 @@ void App::draw_home() {
     const int percent = state.percent;
     char label[16];
     std::snprintf(label, sizeof(label), "%d%%", percent);
-    ui::draw_right(fb_, fonts::literata_16, col_x + col_w, track_y - 14, label);
+    ui::draw_right(fb_, ui::label_font(), col_x + col_w, track_y - 14, label);
     ui::draw_progress(fb_, col_x, track_y, col_w, percent, 100);
   } else {
-    draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, t.not_started);
+    draw_text(fb_, ui::label_font(), col_x * 64, track_y - 14, t.not_started);
     ui::draw_progress(fb_, col_x, track_y, col_w, 0, 1);
   }
 
@@ -390,7 +414,7 @@ void App::draw_home() {
   ui::draw_label(fb_, kSide, kShelfLabelBase, t.library_label);
   char count[32];
   format_book_count(settings_.language, library_.count(), count, sizeof(count));
-  ui::draw_right(fb_, fonts::literata_16, w - kSide, kShelfLabelBase, count);
+  ui::draw_right(fb_, ui::label_font(), w - kSide, kShelfLabelBase, count);
 
   int order[Library::kMaxBooks];
   const int n = library_.by_recent(order, Library::kMaxBooks);
@@ -419,7 +443,7 @@ void App::draw_home() {
 
 void App::home_activate() {
   const int count = home_item_count();
-  if (home_sel_ == count - 1) return show(Screen::Settings);
+  if (home_sel_ == count - 1) return open_settings(false);
   if (home_sel_ == count - 2) return open_transfer();
   if (home_sel_ == count - 3) return show(Screen::Library);
   const int current = library_.current();
@@ -438,17 +462,17 @@ void App::home_activate() {
 void App::draw_library() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.library);
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.library);
   char count[32];
   format_book_count(settings_.language, library_.count(), count, sizeof(count));
-  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, count);
+  draw_text(fb_, ui::label_font(), kSide * 64, kSubtitleBase, count);
 
   const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
   const int page = library_sel_ / kLibraryRows;
   if (pages > 1) {
     char label[48];
     std::snprintf(label, sizeof(label), t.page_of, page + 1, pages);
-    ui::draw_right(fb_, fonts::literata_16, w - kSide, kSubtitleBase, label);
+    ui::draw_right(fb_, ui::label_font(), w - kSide, kSubtitleBase, label);
   }
 
   const int first = page * kLibraryRows;
@@ -470,66 +494,101 @@ void App::library_activate() { open_book(library_sel_); }
 void App::draw_settings() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kSettingsTitleBase, t.settings);
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kSettingsTitleBase, settings_reading_ ? t.reading : t.settings);
 
-  int y = kSettingsTop;
-  for (int i = 0; i < kRowCount; ++i) {
-    if (i == 0 || i == kGeneralRows) {
-      ui::draw_label(fb_, kSide, y + 24, i == 0 ? t.general_label : t.reading_label);
-      y += kSectionGap;
-    }
-    const Row row = kRows[i];
+  const Row* rows = settings_reading_ ? kReadingRows : kGeneralRows;
+  const int count = settings_reading_ ? kReadingCount : kGeneralCount;
+  int y = kSettingsTop + 8;
+  for (int i = 0; i < count; ++i) {
+    const Row row = rows[i];
     const bool selected = i == settings_sel_;
     const Rect r = row_rect(fb_, y, kSettingRowHeight);
     add_hit(r, i);
     const Color fg = highlight(fb_, r, selected);
-    const int base = r.y + 26;
-    draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, row_name(t, row), fg);
+    const int base = r.y + 27;
+    const char* name = row_name(t, row);
+    draw_text(fb_, ui::text_font(), (r.x + kPad) * 64, base, name, fg);
+    char value[64];
     if (row == Row::Light) {
-      char level[24];
       if (settings_.light == 0) {
-        std::snprintf(level, sizeof(level), "%s \xE2\x80\xBA", t.off);  // ›
+        std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", t.off);  // ›
       } else {
-        std::snprintf(level, sizeof(level), "%d%% \xE2\x80\xBA", settings_.light * 100 / kLightSteps);
+        std::snprintf(value, sizeof(value), "%d%% \xE2\x80\xBA", settings_.light * 100 / kLightSteps);
       }
-      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, level, fg);
     } else if (row == Row::Battery) {
       // The level now, and a way in to the history.
-      char level[16] = "\xE2\x80\x93 \xE2\x80\xBA";  // – ›
+      std::snprintf(value, sizeof(value), "\xE2\x80\x93 \xE2\x80\xBA");  // – ›
       if (const int percent = board_.power.battery_percent(); percent >= 0) {
-        std::snprintf(level, sizeof(level), "%d%% \xE2\x80\xBA", percent);
+        std::snprintf(value, sizeof(value), "%d%% \xE2\x80\xBA", percent);
       }
-      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, level, fg);
-    } else if (row == Row::Check) {
-      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, "\xE2\x80\xBA", fg);  // ›
+    } else if (row == Row::Check || row == Row::ReadingPage) {
+      std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
+    } else if (row == Row::MenuFont || row == Row::BookFont) {
+      std::snprintf(value, sizeof(value), "%s", row == Row::MenuFont ? settings_.menu_font : settings_.book_font);
     } else {
-      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, value_name(t, row, get(settings_, row)), fg);
+      std::snprintf(value, sizeof(value), "%s", value_name(t, row, get(settings_, row)));
+    }
+    // A long font name gives way to the row's name.
+    const int right = r.x + r.w - kPad;
+    const int room = right - (r.x + kPad + text_width_px(ui::text_font(), name) + 16);
+    if (text_width_px(ui::text_font(), value) <= room) {
+      ui::draw_right(fb_, ui::text_font(), right, base, value, fg);
+    } else if (room > 0) {
+      ui::draw_fitted(fb_, ui::text_font(), right - room, base, room, value, fg);
     }
     y += kSettingRowHeight;
   }
 
-  // A few lines set exactly as the reader would set them.
-  ui::draw_label(fb_, kSide, y + 30, t.preview_label);
-  const int top = y + 44;
-  const int bottom = fb_.height() - 52;
-  dotted_rule(fb_, top);
-  dotted_rule(fb_, bottom);
-  const char* preview[] = {t.preview_text};
-  const ReadingStyle style = reading_style(settings_);
-  PageStyle page = page_style(style, fb_, t.preview_language, false);
-  page.area = {style.margin, top + 10, w - 2 * style.margin, bottom - top - 14};
-  typeset_page(page, preview, 1, {}, &fb_);
+  if (settings_reading_) {
+    // A few lines set exactly as the reader would set them.
+    ui::draw_label(fb_, kSide, y + 34, t.preview_label);
+    const int top = y + 48;
+    const int bottom = fb_.height() - 52;
+    dotted_rule(fb_, top);
+    dotted_rule(fb_, bottom);
+    const char* preview[] = {t.preview_text};
+    const ReadingStyle style = reading_style(settings_, &book_fonts_);
+    PageStyle page = page_style(style, fb_, t.preview_language, false);
+    page.area = {style.margin, top + 10, w - 2 * style.margin, bottom - top - 14};
+    typeset_page(page, preview, 1, {}, &fb_);
+  }
 
   ui::draw_hint(fb_, t.hint_settings);
 }
 
+void App::open_settings(bool reading) {
+  settings_reading_ = reading;
+  settings_sel_ = 0;
+  show(Screen::Settings);
+}
+
 void App::settings_activate() {
-  const Row row = kRows[settings_sel_];
+  const Row row = (settings_reading_ ? kReadingRows : kGeneralRows)[settings_sel_];
   if (row == Row::Battery) return show(Screen::Battery);
   if (row == Row::Light) return open_light(Screen::Settings);
   if (row == Row::Check) return open_check();
-  set(settings_, row, (get(settings_, row) + 1) % value_count(row));
+  if (row == Row::ReadingPage) return open_settings(true);
+  if (row == Row::MenuFont || row == Row::BookFont) {
+    // The next typeface in the list, Literata after the last.
+    char* name = row == Row::MenuFont ? settings_.menu_font : settings_.book_font;
+    const int next = (std::max(fonts_.find(name), 0) + 1) % fonts_.count();
+    std::snprintf(name, sizeof(settings_.menu_font), "%s", fonts_.name(next));
+  } else {
+    set(settings_, row, (get(settings_, row) + 1) % value_count(row));
+  }
+  apply_fonts();
   if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
+}
+
+void App::apply_fonts() {
+  MenuFonts menu = literata_menu();
+  const int menu_family = fonts_.find(settings_.menu_font);
+  if (menu_family < 0 || !fonts_.menu(menu_family, menu)) menu = literata_menu();
+  ui::set_menu_fonts(menu);
+  const int px = text_px(settings_.text_size);
+  book_fonts_ = literata_book(px);
+  const int book_family = fonts_.find(settings_.book_font);
+  if (book_family >= 0 && !fonts_.book(book_family, px, book_fonts_)) book_fonts_ = literata_book(px);
 }
 
 // ---- Adding books over Wi-Fi -------------------------------------------------
@@ -580,8 +639,8 @@ static void append_wifi_escaped(char* out, size_t size, size_t& len, const char*
 void App::draw_transfer() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.add_books);
-  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, t.transfer_lead);
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.add_books);
+  draw_text(fb_, ui::label_font(), kSide * 64, kSubtitleBase, t.transfer_lead);
 
   const char* message = nullptr;
   switch (transfer_state_) {
@@ -598,7 +657,7 @@ void App::draw_transfer() {
       break;
   }
   if (message != nullptr) {
-    ui::draw_wrapped(fb_, fonts::literata_20, kSide, kTransferTop + 40, w - 2 * kSide, 3, message, false);
+    ui::draw_wrapped(fb_, ui::text_font(), kSide, kTransferTop + 40, w - 2 * kSide, 3, message, false);
     ui::draw_hint(fb_, t.hint_transfer);
     return;
   }
@@ -618,10 +677,10 @@ void App::draw_transfer() {
   append_wifi_escaped(join, sizeof(join), len, info.password);
   std::snprintf(join + len, sizeof(join) - len, ";;");
   ui::draw_qr(fb_, kSide, y + 12, kQrSize, join);
-  draw_text(fb_, fonts::literata_16, col_x * 64, y + 46, t.network);
-  ui::draw_fitted(fb_, fonts::literata_26, col_x, y + 80, col_w, info.network);
-  draw_text(fb_, fonts::literata_16, col_x * 64, y + 120, t.password);
-  ui::draw_fitted(fb_, fonts::literata_26, col_x, y + 154, col_w, info.password);
+  draw_text(fb_, ui::label_font(), col_x * 64, y + 46, t.network);
+  ui::draw_fitted(fb_, ui::large_font(), col_x, y + 80, col_w, info.network);
+  draw_text(fb_, ui::label_font(), col_x * 64, y + 120, t.password);
+  ui::draw_fitted(fb_, ui::large_font(), col_x, y + 154, col_w, info.password);
 
   // Step 2: open the upload page.
   y += kQrSize + 46;
@@ -629,8 +688,8 @@ void App::draw_transfer() {
   ui::draw_qr(fb_, kSide, y + 12, kQrSize, info.address);
   const char* address = info.address;
   if (std::strncmp(address, "http://", 7) == 0) address += 7;  // what people type
-  ui::draw_fitted(fb_, fonts::literata_26, col_x, y + 80, col_w, address);
-  ui::draw_wrapped(fb_, fonts::literata_16, col_x, y + 118, col_w, 3, t.scan_hint, false);
+  ui::draw_fitted(fb_, ui::large_font(), col_x, y + 80, col_w, address);
+  ui::draw_wrapped(fb_, ui::label_font(), col_x, y + 118, col_w, 3, t.scan_hint, false);
 
   // What has arrived so far.
   TransferStatus st;
@@ -640,7 +699,7 @@ void App::draw_transfer() {
   if (st.received > 0) {
     char count[32];
     format_book_count(settings_.language, st.received, count, sizeof(count));
-    ui::draw_right(fb_, fonts::literata_16, w - kSide, y, count);
+    ui::draw_right(fb_, ui::label_font(), w - kSide, y, count);
   }
   char line[160];
   if (st.receiving[0] != '\0') {
@@ -652,7 +711,7 @@ void App::draw_transfer() {
   } else {
     std::snprintf(line, sizeof(line), "%s", t.waiting);
   }
-  ui::draw_fitted(fb_, fonts::literata_20, kSide, y + 34, w - 2 * kSide, line);
+  ui::draw_fitted(fb_, ui::text_font(), kSide, y + 34, w - 2 * kSide, line);
 
   ui::draw_hint(fb_, t.hint_transfer);
 }
@@ -717,7 +776,7 @@ int App::page_bookmark() const {
 void App::jump_to(BookPos pos) {
   Document& doc = *reader_.document();
   const BookPos before = reader_.position();
-  const ReadingStyle style = reading_style(settings_);
+  const ReadingStyle style = reading_style(settings_, &book_fonts_);
   if (!reader_.open(doc, reader_.id(), style, pos, fb_)) reader_.open(doc, reader_.id(), style, before, fb_);
   BookState& state = library_.state(reading_);
   state.position = reader_.position();
@@ -767,7 +826,7 @@ void App::draw_contents() {
   const int w = fb_.width();
   const Strings& t = text();
   const Document& doc = *reader_.document();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.contents);
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.contents);
 
   const int per_page = contents_rows_per_page();
   const int count = contents_row_count();
@@ -777,10 +836,10 @@ void App::draw_contents() {
   if (pages > 1) {
     char label[48];
     std::snprintf(label, sizeof(label), t.page_of, page + 1, pages);
-    ui::draw_right(fb_, fonts::literata_16, w - kSide, kSubtitleBase, label);
-    title_w -= text_width_px(fonts::literata_16, label) + 16;
+    ui::draw_right(fb_, ui::label_font(), w - kSide, kSubtitleBase, label);
+    title_w -= text_width_px(ui::label_font(), label) + 16;
   }
-  ui::draw_fitted(fb_, fonts::literata_16, kSide, kSubtitleBase, title_w, library_.entry(reading_).title);
+  ui::draw_fitted(fb_, ui::label_font(), kSide, kSubtitleBase, title_w, library_.entry(reading_).title);
 
   const int mark = page_bookmark();
   const int current = current_chapter_row();
@@ -819,9 +878,9 @@ void App::draw_contents() {
         char percent[8];
         std::snprintf(percent, sizeof(percent), "%d%%", b.percent);
         const int right = r.x + r.w - kPad;
-        ui::draw_right(fb_, fonts::literata_16, right, base, percent, fg);
+        ui::draw_right(fb_, ui::label_font(), right, base, percent, fg);
         const int x = r.x + kPad;
-        ui::draw_fitted(fb_, fonts::literata_italic_20, x, base, right - 56 - x, b.snippet, fg);
+        ui::draw_fitted(fb_, ui::small_italic_font(), x, base, right - 56 - x, b.snippet, fg);
         break;
       }
       case ContentsRow::Chapter: {
@@ -837,7 +896,7 @@ void App::draw_contents() {
         }
         const int x = r.x + kPad + depth * kIndent;
         const int right = r.x + r.w - kPad;
-        ui::draw_fitted(fb_, fonts::literata_20, x, base, right - 24 - x, title, fg);
+        ui::draw_fitted(fb_, ui::text_font(), x, base, right - 24 - x, title, fg);
         if (index == current) fb_.fill_round_rect({right - 8, base - 12, 8, 8}, 4, fg);  // you are here
         break;
       }
@@ -885,16 +944,16 @@ void App::sample_battery() {
 void App::draw_battery() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.battery);
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.battery);
   const int level = board_.power.battery_percent();
   char big[16] = "\xE2\x80\x93";  // –
   if (level >= 0) std::snprintf(big, sizeof(big), "%d%%", level);
-  ui::draw_right(fb_, fonts::literata_italic_40, w - kSide, kTitleBase, big);
-  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, board_.power.charging() ? t.charging : t.on_battery);
+  ui::draw_right(fb_, ui::screen_title_font(), w - kSide, kTitleBase, big);
+  draw_text(fb_, ui::label_font(), kSide * 64, kSubtitleBase, board_.power.charging() ? t.charging : t.on_battery);
 
   DateTime now;
   if (board_.clock == nullptr || !board_.clock->now(now)) {
-    ui::draw_wrapped(fb_, fonts::literata_20, kSide, kChartLabelBase + 30, w - 2 * kSide, 6, t.clock_unset, false);
+    ui::draw_wrapped(fb_, ui::text_font(), kSide, kChartLabelBase + 30, w - 2 * kSide, 6, t.clock_unset, false);
     ui::draw_hint(fb_, t.hint_battery);
     return;
   }
@@ -917,7 +976,7 @@ void App::draw_battery() {
     for (int x = left; x < right; x += 4) fb_.set_pixel(x, y, Color::Black);
     char label[8];
     std::snprintf(label, sizeof(label), "%d", p);
-    ui::draw_right(fb_, fonts::literata_16, left - 8, y + 6, label);
+    ui::draw_right(fb_, ui::label_font(), left - 8, y + 6, label);
   }
   // Midnights, labelled with the day of the month that starts there.
   for (uint32_t day = start / 86400 + 1; day * 86400 <= end; ++day) {
@@ -928,7 +987,7 @@ void App::draw_battery() {
     date_from_days(day, year, month, mday);
     char label[4];
     std::snprintf(label, sizeof(label), "%u", mday);
-    if (x + 4 < right) draw_text(fb_, fonts::literata_16, (x + 4) * 64, kChartBottom + 22, label);
+    if (x + 4 < right) draw_text(fb_, ui::label_font(), (x + 4) * 64, kChartBottom + 22, label);
   }
   for (int i = 1; i < battery_.count(); ++i) {
     const BatterySample& a = battery_.at(i - 1);
@@ -961,8 +1020,8 @@ void App::draw_battery() {
   for (int i = 0; i < 3; ++i) {
     const int y = kEstimatesBase + 14 + i * kSettingRowHeight;
     if (i > 0) dotted_rule(fb_, y);
-    draw_text(fb_, fonts::literata_20, kSide * 64, y + 28, names[i]);
-    ui::draw_right(fb_, fonts::literata_20, w - kSide, y + 28, values[i]);
+    draw_text(fb_, ui::text_font(), kSide * 64, y + 28, names[i]);
+    ui::draw_right(fb_, ui::text_font(), w - kSide, y + 28, values[i]);
   }
   ui::draw_hint(fb_, t.hint_battery);
 }
@@ -989,7 +1048,7 @@ void App::close_light() {
 void App::draw_light() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.front_light);
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.front_light);
 
   const int x0 = kSide + kKnob / 2;
   const int track_w = w - 2 * kSide - kKnob;
@@ -1008,15 +1067,15 @@ void App::draw_light() {
     } else {
       std::snprintf(label, sizeof(label), "%d%%", value * 100 / kLightSteps);
     }
-    draw_text(fb_, fonts::literata_20, kSide * 64, y + 36, i == 0 ? t.brightness : t.warmth);
-    ui::draw_right(fb_, fonts::literata_20, w - kSide, y + 36, label);
+    draw_text(fb_, ui::text_font(), kSide * 64, y + 36, i == 0 ? t.brightness : t.warmth);
+    ui::draw_right(fb_, ui::text_font(), w - kSide, y + 36, label);
     const int track_y = y + kLightTrack;
     ui::draw_progress(fb_, x0, track_y, track_w, value, kLightSteps);
     const int knob_x = x0 + value * track_w / kLightSteps;
     fb_.fill_round_rect({knob_x - kKnob / 2, track_y - kKnob / 2, kKnob, kKnob}, kKnob / 2, Color::Black);
     if (i == 1) {
-      draw_text(fb_, fonts::literata_16, kSide * 64, track_y + 26, t.cool);
-      ui::draw_right(fb_, fonts::literata_16, w - kSide, track_y + 26, t.warm);
+      draw_text(fb_, ui::label_font(), kSide * 64, track_y + 26, t.cool);
+      ui::draw_right(fb_, ui::label_font(), w - kSide, track_y + 26, t.warm);
     }
   }
   const Rect done = row_rect(fb_, kLightTop + 2 * kLightBlock, kLinkHeight);
@@ -1059,7 +1118,9 @@ void App::open_book(int index) {
     doc = &epub_;
   }
   BookState& state = library_.state(index);
-  if (!reader_.open(*doc, static_cast<uint32_t>(index) + 1, reading_style(settings_), state.position, fb_)) return;
+  if (!reader_.open(*doc, static_cast<uint32_t>(index) + 1, reading_style(settings_, &book_fonts_), state.position,
+                    fb_))
+    return;
   library_.touch(index);
   reading_ = index;
   state.position = reader_.position();
@@ -1202,7 +1263,7 @@ void App::draw_sleep() {
     ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author,
                    cover_of(library_.current(), true));
   }
-  ui::draw_centered(fb_, fonts::literata_16, h - 96, t.sleeping);
+  ui::draw_centered(fb_, ui::label_font(), h - 96, t.sleeping);
   ui::draw_hint(fb_, t.wake_hint);
 }
 
@@ -1260,7 +1321,7 @@ void App::draw_check() {
   const int w = fb_.width();
   const int h = fb_.height();
   const Strings& t = text();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.device_check);
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.device_check);
 
   // Marks in the four corners: all four visible means nothing is cut off.
   for (int i = 0; i < kCorner; ++i) {
@@ -1289,8 +1350,8 @@ void App::draw_check() {
       fb_.fill_round_rect({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, 6, Color::White);
     }
     const char* name = t.key_names[k];
-    const int name_w = text_width(fonts::literata_16, name) / 64;
-    draw_text(fb_, fonts::literata_16, (r.x + (r.w - name_w) / 2) * 64, r.y + 24, name, fg);
+    const int name_w = text_width(ui::label_font(), name) / 64;
+    draw_text(fb_, ui::label_font(), (r.x + (r.w - name_w) / 2) * 64, r.y + 24, name, fg);
     if (done) {
       // A tick, three pixels thick (each line is two).
       const int cx = r.x + r.w / 2;
@@ -1307,13 +1368,13 @@ void App::draw_check() {
   const Rect box{kSide, kTouchTop, w - 2 * kSide, kTouchHeight};
   fb_.draw_rect(box, Color::Black);
   if (!check_.touched) {
-    ui::draw_wrapped(fb_, fonts::literata_20, box.x + 16, box.y + 50, box.w - 32, 2, t.touch_here, false);
+    ui::draw_wrapped(fb_, ui::text_font(), box.x + 16, box.y + 50, box.w - 32, 2, t.touch_here, false);
   } else {
     char where[64];
     std::snprintf(where, sizeof(where), "x %d  y %d", check_.x, check_.y);
-    draw_text(fb_, fonts::literata_20, (box.x + 16) * 64, box.y + 34, where);
+    draw_text(fb_, ui::text_font(), (box.x + 16) * 64, box.y + 34, where);
     std::snprintf(where, sizeof(where), "(%d, %d)", check_.px, check_.py);
-    draw_text(fb_, fonts::literata_16, (box.x + 16) * 64, box.y + 60, where);
+    draw_text(fb_, ui::label_font(), (box.x + 16) * 64, box.y + 60, where);
   }
   if (check_.touched) {
     // Crosshair where the finger is (or was), across the whole screen.
@@ -1364,8 +1425,8 @@ void App::draw_check() {
   for (int i = 0; i < 7; ++i) {
     const int y = kAboutLabelBase + 10 + i * kAboutRowHeight;
     if (i > 0) dotted_rule(fb_, y);
-    draw_text(fb_, fonts::literata_16, kSide * 64, y + 25, names[i]);
-    ui::draw_right(fb_, fonts::literata_16, w - kSide, y + 25, values[i]);
+    draw_text(fb_, ui::label_font(), kSide * 64, y + 25, names[i]);
+    ui::draw_right(fb_, ui::label_font(), w - kSide, y + 25, values[i]);
   }
 
   ui::draw_hint(fb_, t.hint_check);
@@ -1438,6 +1499,13 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Reader || screen_ == Screen::Contents) save_progress();
       if (screen_ == Screen::Light && board_.storage != nullptr) save_settings(*board_.storage, settings_);
       if (screen_ == Screen::Transfer) return close_transfer(), false;
+      if (screen_ == Screen::Settings && settings_reading_) {
+        open_settings(false);  // back to the general page, on the way in
+        settings_sel_ = kGeneralCount - 1;
+        draw();
+        queue_.submit();
+        return false;
+      }
       show(Screen::Home);
     }
     return false;
@@ -1468,7 +1536,7 @@ bool App::handle_key(Key key) {
       return true;
     case Screen::Settings:
       if (key == Key::Power) settings_activate();
-      settings_sel_ = wrap_index(settings_sel_ + step, kRowCount);
+      settings_sel_ = wrap_index(settings_sel_ + step, settings_reading_ ? kReadingCount : kGeneralCount);
       return true;
     case Screen::Battery:
       if (key == Key::Power) show(Screen::Settings);

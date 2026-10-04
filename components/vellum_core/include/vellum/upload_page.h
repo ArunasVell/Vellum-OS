@@ -4,7 +4,8 @@
 // server implements the same way:
 //   GET  /                  this page
 //   GET  /books             JSON list: [{"name": "Book.epub", "size": 123}, ...]
-//   POST /upload?name=NAME  the file as the request body; 200 when saved,
+//   POST /upload?name=NAME  the file as the request body (a book, or a .ttf or
+//                           .otf font for the fonts folder); 200 when saved,
 //                           507 when the card is full, 4xx/5xx otherwise
 //   POST /time              the phone's local time, "YYYY-MM-DD HH:MM:SS",
 //                           to set the reader's clock
@@ -30,6 +31,8 @@ bool url_decode(const char* in, size_t in_len, char* out, size_t size);
 // most 120 bytes, and ending in ".epub". Returns false for names that are
 // not EPUB books or are empty once cleaned.
 bool safe_book_name(const char* in, char* out, size_t size);
+// The same for fonts (.ttf or .otf), which go in the fonts folder.
+bool safe_font_name(const char* in, char* out, size_t size);
 
 // Parses "YYYY-MM-DD HH:MM:SS" (the body of POST /time). Returns false for
 // anything else, including dates outside 2000-2099.

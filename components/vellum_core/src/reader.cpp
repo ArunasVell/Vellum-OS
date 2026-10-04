@@ -1,4 +1,4 @@
-// Reader: Literata text over a slim footer with progress, time and battery.
+// Reader: text in the chosen book font over a slim footer with progress, time and battery.
 // No header: the page belongs to the text.
 #include "vellum/reader.h"
 
@@ -19,7 +19,7 @@ constexpr int kOpeningDrop = 140;  // extra space above the text on a chapter's 
 constexpr int kRibbonW = 16;       // bookmark ribbon
 constexpr int kRibbonH = 30;
 
-const Font* const kSizes[] = {&fonts::literata_23, &fonts::literata_26, &fonts::literata_30, &fonts::literata_34};
+constexpr int kTextPx[] = {23, 26, 30, 34};
 constexpr int kLinePercent[] = {90, 100, 115};
 constexpr int kWordSpace[] = {80, 100, 125};
 constexpr int kMargins[] = {16, ui::kSide, 44};
@@ -30,8 +30,13 @@ bool before_or_at(TextPos a, TextPos b) {
 
 }  // namespace
 
-ReadingStyle reading_style(const Settings& s) {
-  return {kSizes[static_cast<int>(s.text_size)],
+int text_px(TextSize size) { return kTextPx[static_cast<int>(size)]; }
+
+ReadingStyle reading_style(const Settings& s, const BookFonts* fonts) {
+  const BookFonts f = fonts != nullptr ? *fonts : literata_book(text_px(s.text_size));
+  return {f.body,
+          f.heading_small,
+          f.heading,
           kLinePercent[static_cast<int>(s.line_spacing)],
           kWordSpace[static_cast<int>(s.word_spacing)],
           kMargins[static_cast<int>(s.margins)],
@@ -176,11 +181,10 @@ void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, i
 
   if (opening()) {
     if (ch.title[0] != '\0') {
-      ui::draw_centered(fb, fonts::literata_italic_20, kTextTop + 56, ch.label);
-      ui::draw_wrapped(fb, fonts::literata_italic_26, style_.margin, kTextTop + 96, w - 2 * style_.margin, 1, ch.title,
-                       true);
+      ui::draw_centered(fb, *style_.heading_small, kTextTop + 56, ch.label);
+      ui::draw_wrapped(fb, *style_.heading, style_.margin, kTextTop + 96, w - 2 * style_.margin, 1, ch.title, true);
     } else {
-      ui::draw_centered(fb, fonts::literata_italic_26, kTextTop + 80, ch.label);
+      ui::draw_centered(fb, *style_.heading, kTextTop + 80, ch.label);
     }
   }
 
@@ -190,10 +194,10 @@ void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, i
   // Footer: dotted progress track through the whole book, then time, page
   // number within the chapter and battery on one low line.
   ui::draw_progress(fb, style_.margin, h - kTrackRise, w - 2 * style_.margin, percent(), 100);
-  draw_text(fb, fonts::literata_16, style_.margin * 64, h - kFooterBase, time);
+  draw_text(fb, ui::label_font(), style_.margin * 64, h - kFooterBase, time);
   char label[32];
   std::snprintf(label, sizeof(label), text.short_of, page_ + 1, page_count_);
-  ui::draw_centered(fb, fonts::literata_16, h - kFooterBase, label);
+  ui::draw_centered(fb, ui::label_font(), h - kFooterBase, label);
   ui::draw_battery(fb, w - style_.margin, h - kFooterBase, battery_percent);
 
   if (bookmarked) {

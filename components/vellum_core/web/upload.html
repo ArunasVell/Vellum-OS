@@ -37,11 +37,11 @@
     <div class="eyebrow">Vellum</div>
     <h1 data-t="title">Add books</h1>
   </div>
-  <p data-t="lead">Choose EPUB books on this phone or computer. They go straight onto the reader's SD card.</p>
+  <p data-t="lead">Choose EPUB books on this phone or computer. They go straight onto the reader's SD card. Fonts (.ttf or .otf) work too: pick them in Settings › Menu font or Reading › Book font.</p>
   <div class="drop" id="drop">
     <button id="pick" type="button" data-t="pick">Choose books</button>
-    <p data-t="drop">or drop EPUB files here</p>
-    <input id="file" type="file" accept=".epub,application/epub+zip" multiple hidden>
+    <p data-t="drop">or drop EPUB or font files here</p>
+    <input id="file" type="file" accept=".epub,application/epub+zip,.ttf,.otf,font/ttf,font/otf" multiple hidden>
   </div>
   <section id="sending" hidden>
     <h2 data-t="sending">Sending</h2>
@@ -58,12 +58,12 @@
   const lt = /^lt\b/i.test(navigator.language || "");
   const T = lt ? {
     title: "Įkelti knygas",
-    lead: "Pasirinkite EPUB knygas šiame telefone ar kompiuteryje. Jos įrašomos tiesiai į skaityklės SD kortelę.",
-    pick: "Pasirinkti knygas", drop: "arba įmeskite EPUB failus čia", sending: "Siunčiama",
+    lead: "Pasirinkite EPUB knygas šiame telefone ar kompiuteryje. Jos įrašomos tiesiai į skaityklės SD kortelę. Tinka ir šriftai (.ttf ar .otf): juos pasirinkite Nustatymai › Meniu šriftas arba Skaitymas › Knygos šriftas.",
+    pick: "Pasirinkti knygas", drop: "arba įmeskite EPUB ar šriftų failus čia", sending: "Siunčiama",
     onreader: "Skaityklėje", done: "Baigę paspauskite skaityklės Namų mygtuką. Naujos knygos atsiras bibliotekoje.",
-    waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "ne EPUB", none: "Knygų dar nėra."
+    waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "netinka", none: "Knygų dar nėra."
   } : {
-    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not EPUB", none: "No books yet."
+    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book or font", none: "No books yet."
   };
   if (lt) {
     document.documentElement.lang = "lt";
@@ -105,7 +105,7 @@
       const r = row(f.name, T.waiting);
       sendingEl.hidden = false;
       queueEl.append(r.li);
-      if (!/\.epub$/i.test(f.name)) { r.state.textContent = T.notepub; r.state.classList.add("bad"); continue; }
+      if (!/\.(epub|ttf|otf)$/i.test(f.name)) { r.state.textContent = T.notepub; r.state.classList.add("bad"); continue; }
       const bar = document.createElement("div"); bar.className = "bar"; bar.innerHTML = "<i></i>";
       r.left.append(bar);
       jobs.push({ f, r, bar: bar.firstChild });

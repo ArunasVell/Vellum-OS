@@ -2,7 +2,7 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books plus any EPUB books on the SD card, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, set in Literata with justified, hyphenated text. Settings and the page you are on in each book are saved to the card. **Add books** opens the reader's own Wi-Fi network so a phone or computer can send books from a browser. Holding Power for a second puts the reader to sleep with the book's cover on screen, as does leaving it idle (10 minutes by default); pressing Power wakes it back in the book. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons, touch screen, frontlight, SD card, Wi-Fi book upload and deep sleep, not yet tested on a device.
+> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books plus any EPUB books on the SD card, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, with justified, hyphenated text in Literata, Atkinson Hyperlegible Next, EB Garamond or any .ttf/.otf font added from a phone (menus can use a different font from books). Settings and the page you are on in each book are saved to the card. **Add books** opens the reader's own Wi-Fi network so a phone or computer can send books from a browser. Holding Power for a second puts the reader to sleep with the book's cover on screen, as does leaving it idle (10 minutes by default); pressing Power wakes it back in the book. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons, touch screen, frontlight, SD card, Wi-Fi book upload and deep sleep, not yet tested on a device.
 
 ## Goals
 
@@ -19,7 +19,7 @@ components/vellum_core/   Portable code: framebuffer, display queue, app. No ESP
 components/board_x4pro/   XTEINK X4 Pro board profile and drivers (ESP-IDF).
 main/                     Firmware entry point.
 sim/                      Desktop and browser simulators, the same core code running on a PC.
-assets/fonts/             Source fonts; tools/make_fonts.sh turns them into built-in bitmap fonts.
+assets/fonts/             Source fonts: tools/make_fonts.sh pre-renders Literata, tools/make_ttf_fonts.py embeds the others.
 tests/                    Host unit tests for the core.
 ```
 
@@ -91,7 +91,7 @@ idf.py build
 
 The X4 Pro pin map, hardware notes, screen drivers (SSD1677, UC8179, UC8279 and the boot-time detection between them) and the CW2017 battery gauge driver are ported from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) (MIT, see [NOTICE](NOTICE)). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices. EPUB files are unzipped with the inflater from [miniz](https://github.com/richgel999/miniz) (MIT, in `components/vellum_core/third_party/miniz`). QR codes are drawn with [Project Nayuki's QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT, in `components/vellum_core/third_party/qrcodegen`).
 
-Literata is by the Literata Project Authors, under the SIL Open Font License ([assets/fonts/literata/OFL.txt](assets/fonts/literata/OFL.txt)). Hyphenation patterns come from the [hyph-utf8](https://www.hyphenation.org/tex) project: American English by Gerard D.C. Kuiken, Lithuanian by Vytas Statulevičius, Sigitas Tolušis and Yannis Haralambous (MIT); licences are kept in [assets/hyphenation](assets/hyphenation) and the generated tables. The built-in books are public-domain texts from Project Gutenberg: the first chapters of Lewis Carroll's *Alice's Adventures in Wonderland*, Herman Melville's *Moby-Dick* and Jane Austen's *Persuasion*, and G. K. Chesterton's story *The Absence of Mr Glass*.
+Literata (the Literata Project Authors), Atkinson Hyperlegible Next (the Atkinson Hyperlegible Next Project Authors) and EB Garamond (the EB Garamond Project Authors) are under the SIL Open Font License; the licences are in each folder of [assets/fonts](assets/fonts). Fonts not pre-rendered are drawn with stb_truetype by Sean Barrett (public domain or MIT). Hyphenation patterns come from the [hyph-utf8](https://www.hyphenation.org/tex) project: American English by Gerard D.C. Kuiken, Lithuanian by Vytas Statulevičius, Sigitas Tolušis and Yannis Haralambous (MIT); licences are kept in [assets/hyphenation](assets/hyphenation) and the generated tables. The built-in books are public-domain texts from Project Gutenberg: the first chapters of Lewis Carroll's *Alice's Adventures in Wonderland*, Herman Melville's *Moby-Dick* and Jane Austen's *Persuasion*, and G. K. Chesterton's story *The Absence of Mr Glass*.
 
 ## License
 

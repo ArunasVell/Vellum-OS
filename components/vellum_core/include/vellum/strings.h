@@ -26,8 +26,9 @@ struct Strings {
   const char* hint_list;
   const char* hint_settings;
   // Settings
-  const char* general_label;  // uppercase label
-  const char* reading_label;  // uppercase label
+  const char* reading;  // reading settings: row and screen title
+  const char* menu_font;
+  const char* book_font;
   const char* preview_label;  // uppercase label
   const char* language;
   const char* clock;

@@ -110,9 +110,12 @@ struct WifiTransfer::Impl {
     char name[128];
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
         httpd_query_key_value(query, "name", raw, sizeof(raw)) != ESP_OK ||
-        !vellum::url_decode(raw, std::strlen(raw), decoded, sizeof(decoded)) ||
-        !vellum::safe_book_name(decoded, name, sizeof(name))) {
-      return fail(req, "400 Bad Request", "Only EPUB books can be added.");
+        !vellum::url_decode(raw, std::strlen(raw), decoded, sizeof(decoded))) {
+      return fail(req, "400 Bad Request", "Only EPUB books and fonts can be added.");
+    }
+    const bool font = vellum::safe_font_name(decoded, name, sizeof(name));
+    if (!font && !vellum::safe_book_name(decoded, name, sizeof(name))) {
+      return fail(req, "400 Bad Request", "Only EPUB books and fonts can be added.");
     }
 
     // Room on the card?
@@ -124,7 +127,11 @@ struct WifiTransfer::Impl {
     }
 
     char dir_path[64];
-    self->books_dir(dir_path, sizeof(dir_path));
+    if (font) {
+      std::snprintf(dir_path, sizeof(dir_path), "%s/fonts", self->root);
+    } else {
+      self->books_dir(dir_path, sizeof(dir_path));
+    }
     mkdir(dir_path, 0775);
     char path[256];
     char part[262];

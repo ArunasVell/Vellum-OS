@@ -5,6 +5,7 @@
 #include "vellum/display_queue.h"
 #include "vellum/document.h"
 #include "vellum/epub.h"
+#include "vellum/font_library.h"
 #include "vellum/hal.h"
 #include "vellum/library.h"
 #include "vellum/reader.h"
@@ -67,6 +68,10 @@ class App {
   void home_activate();
   void library_activate();
   void settings_activate();
+  // Settings has a general page and a reading page (with a text preview).
+  void open_settings(bool reading);
+  // Makes the menu and book typefaces from Settings current.
+  void apply_fonts();
   // Starts or stops receiving books over Wi-Fi (the "Add books" screen).
   void open_transfer();
   void close_transfer();
@@ -145,6 +150,9 @@ class App {
   int home_sel_ = 0;
   int library_sel_ = 0;
   int settings_sel_ = 0;
+  bool settings_reading_ = false;  // the reading page of Settings
+  FontLibrary fonts_;
+  BookFonts book_fonts_ = literata_book(26);
   int contents_sel_ = 0;
   int light_sel_ = 0;  // 0 brightness, 1 warmth, 2 done
   Screen light_back_ = Screen::Settings;

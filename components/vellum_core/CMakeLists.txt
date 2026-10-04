@@ -12,6 +12,8 @@ set(VELLUM_CORE_SRCS
   src/books/persuasion.cpp
   src/display_queue.cpp
   src/epub.cpp
+  src/font_library.cpp
+  src/font_raster.cpp
   src/framebuffer.cpp
   src/hyphenation.cpp
   src/hyphenation/en_us.cpp
@@ -32,6 +34,8 @@ set(VELLUM_CORE_SRCS
   third_party/miniz/miniz_tinfl.c
   third_party/qrcodegen/qrcodegen.c
   third_party/tjpgd/tjpgd.c
+  src/fonts/atkinson_ttf.cpp
+  src/fonts/ebgaramond_ttf.cpp
   src/fonts/literata_16.cpp
   src/fonts/literata_20.cpp
   src/fonts/literata_23.cpp

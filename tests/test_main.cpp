@@ -12,6 +12,8 @@
 #include "vellum/covers.h"
 #include "vellum/display_queue.h"
 #include "vellum/epub.h"
+#include "vellum/font_library.h"
+#include "vellum/font_raster.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
 #include "vellum/reader.h"
@@ -991,6 +993,136 @@ int band_mean(const CoverImage& img, int y0, int y1) {
   return static_cast<int>(sum / ((y1 - y0) * img.w));
 }
 
+std::string font_family(const char* file, bool* italic_out = nullptr) {
+  char family[48];
+  bool italic = false;
+  if (!parse_font_file_name(file, family, sizeof(family), italic)) return "<rejected>";
+  if (italic_out != nullptr) *italic_out = italic;
+  return family;
+}
+
+void test_font_files() {
+  bool italic = true;
+  CHECK(font_family("Merriweather-Regular.ttf", &italic) == "Merriweather" && !italic);
+  CHECK(font_family("Merriweather-Italic.ttf", &italic) == "Merriweather" && italic);
+  CHECK(font_family("PlayfairDisplay-Regular.otf") == "Playfair Display");
+  CHECK(font_family("EBGaramond-VariableFont_wght.ttf") == "EB Garamond");
+  CHECK(font_family("EBGaramond-Italic-VariableFont_wght.ttf", &italic) == "EB Garamond" && italic);
+  CHECK(font_family("Literata_18pt-Regular.ttf") == "Literata");
+  CHECK(font_family("Literata[opsz,wght].ttf") == "Literata");
+  CHECK(font_family("Gentium.TTF") == "Gentium");
+  CHECK(font_family("Merriweather-Bold.ttf") == "<rejected>");  // other weights are not used
+  CHECK(font_family("notes.txt") == "<rejected>");
+  CHECK(font_family(".ttf") == "<rejected>");
+
+  char out[160];
+  CHECK(safe_font_name("C:\\fakepath\\Lora-Regular.ttf", out, sizeof(out)) && std::string(out) == "Lora-Regular.ttf");
+  CHECK(safe_font_name("x.OTF", out, sizeof(out)));
+  CHECK(!safe_font_name("book.epub", out, sizeof(out)));
+  CHECK(!safe_book_name("Lora-Regular.ttf", out, sizeof(out)));
+}
+
+void test_raster_font() {
+  TtfFace face;
+  CHECK(!face.load(reinterpret_cast<const uint8_t*>("not a font at all"), 17));
+  CHECK(face.load(fonts::kAtkinsonRegular, fonts::kAtkinsonRegularSize));
+  RasterFont f;
+  CHECK(f.build(face, 26, "Atkinson Hyperlegible Next"));
+  const Font& font = f.font();
+  CHECK(font.size == 26 && font.glyph_count > 250 && font.line_height >= 26 && font.ascent > font.descent);
+  for (uint32_t cp : {0x0105u, 0x010Du, 0x0119u, 0x0117u, 0x012Fu, 0x0161u, 0x0173u, 0x016Bu, 0x017Eu}) {
+    CHECK(font.find(cp) != font.fallback);  // ą č ę ė į š ų ū ž
+  }
+  CHECK(font.glyphs[font.find('A')].codepoint == 'A');
+  CHECK(font.glyphs[font.find(0x0105)].codepoint == 0x0105);  // ą
+  CHECK(font.find(0x4E2D) == font.fallback);                  // a character it does not have
+  for (uint16_t i = 1; i < font.glyph_count; ++i) CHECK(font.glyphs[i - 1].codepoint < font.glyphs[i].codepoint);
+  const int w = text_width_px(font, "Vellum");
+  CHECK(w > 50 && w < 120);
+  // Wider at a larger size; kerning tables stay sorted.
+  RasterFont big;
+  CHECK(big.build(face, 40, "Atkinson Hyperlegible Next"));
+  CHECK(text_width_px(big.font(), "Vellum") > w);
+  for (uint16_t i = 1; i < big.font().kerning_count; ++i) {
+    const KernPair& a = big.font().kerning[i - 1];
+    const KernPair& b = big.font().kerning[i];
+    CHECK(a.left < b.left || (a.left == b.left && a.right < b.right));
+  }
+  // Drawn, it leaves ink.
+  Fixture fx;
+  fx.fb.clear(Color::White);
+  draw_text(fx.fb, font, 10 * 64, 40, "Hello");
+  int ink = 0;
+  for (int y = 0; y < 60; ++y) {
+    for (int x = 0; x < 120; ++x) ink += fx.fb.pixel(x, y) == Color::Black ? 1 : 0;
+  }
+  CHECK(ink > 50);
+}
+
+void test_font_library() {
+  std::remove("test-card/fonts/MyFace-Regular.ttf");
+  std::remove("test-card/fonts/MyFace-Bold.ttf");
+  std::remove("test-card/fonts/Broken-Regular.ttf");
+  StdioStorage card("test-card");
+  CHECK(card.write("fonts/MyFace-Regular.ttf", fonts::kEbgaramondRegular, fonts::kEbgaramondRegularSize));
+  CHECK(card.write("fonts/MyFace-Bold.ttf", fonts::kEbgaramondRegular, fonts::kEbgaramondRegularSize));
+  CHECK(card.write("fonts/Broken-Regular.ttf", "nonsense", 8));
+  FontLibrary lib;
+  CHECK(lib.count() == 3 && std::string(lib.name(0)) == "Literata");
+  lib.scan(&card);
+  CHECK(lib.count() == 5);
+  const int mine = lib.find("My Face");
+  const int broken = lib.find("Broken");
+  CHECK(mine >= 3 && broken >= 3 && lib.on_card(mine) && !lib.on_card(1));
+  MenuFonts menu = literata_menu();
+  CHECK(!lib.menu(broken, menu) && menu.label == &fonts::literata_16);  // unchanged
+  CHECK(lib.menu(mine, menu) && menu.label->size == 16 && menu.title->size == 40);
+  CHECK(std::string(menu.label->family) == "My Face");
+  BookFonts book = literata_book(26);
+  CHECK(lib.book(1, 30, book) && book.body->size == 30 && book.heading->size == 26);
+  CHECK(lib.book(0, 34, book) && book.body == &fonts::literata_34);
+  std::remove("test-card/fonts/MyFace-Regular.ttf");
+  std::remove("test-card/fonts/MyFace-Bold.ttf");
+  std::remove("test-card/fonts/Broken-Regular.ttf");
+}
+
+void test_app_fonts() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/state.txt");
+  StdioStorage card("test-card");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  CHECK(ui::menu_fonts().label == &fonts::literata_16);
+  press(*app, Key::Prev);  // Settings, the last link
+  press(*app, Key::Power);
+  press(*app, Key::Next);  // Menu font
+  press(*app, Key::Power);
+  CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
+  CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);  // down to Reading
+  press(*app, Key::Power);
+  press(*app, Key::Power);  // Book font: the next after Literata
+  CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
+  press(*app, Key::Power);
+  CHECK(read_all("test-card/vellum/settings.txt").find("book_font=EB Garamond") != std::string::npos);
+  delete app;
+
+  // Remembered on the next start; a font that is gone falls back to Literata.
+  const char* saved = "menu_font=Gone Font\nbook_font=EB Garamond\n";
+  card.write("vellum/settings.txt", saved, static_cast<uint32_t>(std::strlen(saved)));
+  app = new App(board);
+  app->start();
+  CHECK(ui::menu_fonts().label == &fonts::literata_16);
+  delete app;
+  std::remove("test-card/vellum/settings.txt");
+  ui::set_menu_fonts(literata_menu());
+}
+
 void test_covers() {
   // Both sample books carry a test card: white top, grey band, black bottom.
   // sample.epub has a JPEG (EPUB 3 cover-image), sample-ncx.epub a PNG
@@ -1095,7 +1227,8 @@ void test_app_device_check() {
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
   press(*app, Key::Power);
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Language, Clock, Sleep after, Light, Battery: Device check
+  for (int i = 0; i < 6; ++i)
+    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Light, Battery: Device check
   CHECK(!on_check());
   press(*app, Key::Power);
   CHECK(on_check());
@@ -1154,6 +1287,10 @@ int main() {
   test_app_battery_log();
   test_app_front_light();
   test_app_device_check();
+  test_font_files();
+  test_raster_font();
+  test_font_library();
+  test_app_fonts();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {
