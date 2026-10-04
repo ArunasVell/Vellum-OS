@@ -1,9 +1,13 @@
 #include "board_x4pro.h"
 
+#include "cw2017.h"
 #include "driver/gpio.h"
+#include "driver/i2c_master.h"
 #include "driver/ledc.h"
+#include "epd_controller.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 
@@ -12,15 +16,43 @@ namespace {
 constexpr const char* kTag = "x4pro";
 constexpr int kDebounceMs = 10;
 
-// Placeholder until the panel driver lands: logs what would be refreshed.
-class PendingDisplay : public vellum::DisplayPanel {
+// Detects which controller this unit's panel has, then drives it over SPI.
+class Display : public vellum::DisplayPanel {
  public:
+  void init() {
+    const epd::Pins pins{x4pro::kEpdSclk, x4pro::kEpdMosi, x4pro::kEpdCs,
+                         x4pro::kEpdDc,   x4pro::kEpdRst,  x4pro::kEpdBusy};
+    const epd::ProbeResult probe = epd::probe(pins);
+    switch (probe.chip) {
+      case epd::Chip::Ssd1677:
+        controller_ = &epd::ssd1677(x4pro::kPanelWidth, x4pro::kPanelHeight);
+        break;
+      case epd::Chip::Uc8179:
+        controller_ = &epd::uc8179(x4pro::kPanelWidth, x4pro::kPanelHeight);
+        break;
+      case epd::Chip::Uc8279:
+        controller_ = &epd::uc8279(x4pro::kPanelWidth, x4pro::kPanelHeight);
+        break;
+    }
+    ESP_ERROR_CHECK(bus_.init(pins, controller_->spi_hz()) ? ESP_OK : ESP_FAIL);
+    controller_->begin(bus_);
+    ESP_LOGI(kTag, "display controller %s", controller_->name());
+  }
+
   int width() const override { return x4pro::kPanelWidth; }
   int height() const override { return x4pro::kPanelHeight; }
-  void present(const vellum::Framebuffer&, vellum::RefreshMode mode, vellum::Rect d) override {
-    ESP_LOGI(kTag, "present %s %d,%d %dx%d (panel driver not yet implemented)",
-             mode == vellum::RefreshMode::Full ? "full" : "fast", d.x, d.y, d.w, d.h);
+
+  // The controllers refresh the whole panel; `dirty` is not used yet.
+  void present(const vellum::Framebuffer& fb, vellum::RefreshMode mode, vellum::Rect) override {
+    const int64_t start = esp_timer_get_time();
+    const bool full = mode == vellum::RefreshMode::Full;
+    controller_->display(bus_, fb.data(), full ? epd::Mode::Full : epd::Mode::Fast, /*power_off=*/true);
+    ESP_LOGI(kTag, "%s refresh %d ms", full ? "full" : "fast", static_cast<int>((esp_timer_get_time() - start) / 1000));
   }
+
+ private:
+  epd::Bus bus_;
+  epd::Controller* controller_ = nullptr;
 };
 
 // Buttons raise a GPIO interrupt; the waiting task debounces and reads the level.
@@ -34,7 +66,6 @@ class Buttons : public vellum::InputSource {
     cfg.pull_up_en = GPIO_PULLUP_ENABLE;
     cfg.intr_type = GPIO_INTR_ANYEDGE;
     ESP_ERROR_CHECK(gpio_config(&cfg));
-    ESP_ERROR_CHECK(gpio_install_isr_service(0));
     for (uint32_t i = 0; i < kCount; ++i) {
       ESP_ERROR_CHECK(gpio_isr_handler_add(static_cast<gpio_num_t>(kPins[i].gpio), on_edge,
                                            reinterpret_cast<void*>(static_cast<uintptr_t>(i))));
@@ -79,11 +110,30 @@ class Buttons : public vellum::InputSource {
   bool pressed_[kCount] = {};
 };
 
-// Placeholder until the CW2017 fuel gauge driver lands.
-class PendingPower : public vellum::Power {
+// Charge level from the CW2017 gauge; charging state from the charger's status pin.
+class Power : public vellum::Power {
  public:
-  int battery_percent() override { return -1; }
+  void init(i2c_master_bus_handle_t i2c) {
+    if (!gauge_.attach(i2c, x4pro::kI2cHz)) ESP_LOGW(kTag, "battery gauge not added");
+  }
+
+  int battery_percent() override {
+    // The level moves slowly; reading it at most once a minute keeps the bus quiet.
+    const int64_t now = esp_timer_get_time();
+    if (cached_ < 0 || now - read_at_ >= kCacheUs) {
+      cached_ = gauge_.percent();
+      read_at_ = now;
+    }
+    return cached_;
+  }
+
   bool charging() override { return gpio_get_level(static_cast<gpio_num_t>(x4pro::kChargeStatus)) == 1; }
+
+ private:
+  static constexpr int64_t kCacheUs = 60LL * 1000 * 1000;
+  Cw2017 gauge_;
+  int cached_ = -1;
+  int64_t read_at_ = 0;
 };
 
 // Two LEDC channels mixed for brightness and colour temperature.
@@ -143,17 +193,34 @@ void init_power_rails() {
   ESP_ERROR_CHECK(gpio_config(&in));
 }
 
+// Shared by the fuel gauge now, and the touch controller and RTC later.
+i2c_master_bus_handle_t init_i2c() {
+  i2c_master_bus_config_t cfg = {};
+  cfg.i2c_port = I2C_NUM_0;
+  cfg.sda_io_num = static_cast<gpio_num_t>(x4pro::kI2cSda);
+  cfg.scl_io_num = static_cast<gpio_num_t>(x4pro::kI2cScl);
+  cfg.clk_source = I2C_CLK_SRC_DEFAULT;
+  cfg.glitch_ignore_cnt = 7;
+  cfg.flags.enable_internal_pullup = 1;
+  i2c_master_bus_handle_t bus = nullptr;
+  ESP_ERROR_CHECK(i2c_new_master_bus(&cfg, &bus));
+  return bus;
+}
+
 }  // namespace
 
 vellum::Board& board_x4pro_init() {
-  static PendingDisplay display;
+  static Display display;
   static Buttons buttons;
-  static PendingPower power;
+  static Power power;
   static Frontlight light;
 
   init_power_rails();
+  ESP_ERROR_CHECK(gpio_install_isr_service(0));  // buttons and display BUSY
   buttons.init();
   light.init();
+  power.init(init_i2c());
+  display.init();
 
   // Internal, DMA-capable RAM so the panel driver can stream it over SPI.
   auto* fb = static_cast<uint8_t*>(heap_caps_malloc(

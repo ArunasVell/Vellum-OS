@@ -2,7 +2,7 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The desktop simulator runs a placeholder reader. On the X4 Pro the firmware builds and handles buttons and the frontlight, but the display, battery gauge, touch and SD card drivers are not written yet. Do not flash it expecting a working reader.
+> **Status: early skeleton.** The desktop simulator runs a placeholder reader. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, buttons and frontlight, not yet tested on a device. Touch and the SD card are not written yet, and there is no text rendering, so do not flash it expecting a working reader.
 
 ## Goals
 
@@ -64,7 +64,7 @@ idf.py build
 
 ## Credits
 
-The X4 Pro pin map and hardware notes come from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) bring-up work (MIT). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices.
+The X4 Pro pin map, hardware notes, screen drivers (SSD1677, UC8179, UC8279 and the boot-time detection between them) and the CW2017 battery gauge driver are ported from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) (MIT, see [NOTICE](NOTICE)). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices.
 
 ## License
 
