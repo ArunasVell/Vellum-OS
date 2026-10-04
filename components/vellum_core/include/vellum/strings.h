@@ -66,6 +66,14 @@ struct Strings {
   const char* no_wifi;
   const char* no_card;
   const char* hint_transfer;
+  // Contents and bookmarks, opened from the reader
+  const char* contents;  // screen title
+  const char* back_to_book;
+  const char* add_bookmark;
+  const char* remove_bookmark;
+  const char* bookmarks_label;   // uppercase label
+  const char* chapters_label;    // uppercase label
+  const char* chapter_n;         // printf: number, for books without a table of contents
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };

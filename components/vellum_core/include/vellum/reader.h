@@ -49,17 +49,25 @@ class Reader {
   bool open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos pos, const Framebuffer& fb);
 
   // Draws the current page. The footer shows `time` (may be empty) on the
-  // left, the page number in the middle and the battery on the right.
-  void draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent) const;
+  // left, the page number in the middle and the battery on the right. A
+  // bookmarked page wears a ribbon in its top corner.
+  void draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent,
+            bool bookmarked = false) const;
   bool next();  // false at the end of the book
   bool prev();  // false at the start of the book
 
   uint32_t id() const { return id_; }
+  Document* document() const { return doc_; }
+  int chapter() const { return chapter_; }
   int page() const { return page_; }
   int page_count() const { return page_count_; }
   BookPos position() const { return {static_cast<uint16_t>(chapter_), page_starts_[page_]}; }
   // Share of the whole book read, 0..100, weighting chapters by length.
   int percent() const;
+  // Where `pos` is relative to the current page: -1 before it, 0 on it, 1 after it.
+  int compare_to_page(BookPos pos) const;
+  // The first words of the current page, ending in an ellipsis when cut short.
+  void snippet(char* out, size_t size) const;
 
  private:
   bool load(int chapter);

@@ -17,12 +17,14 @@ namespace vellum {
 // input event.
 //
 // Controls: the side buttons (Prev/Next) move through lists and turn pages,
-// Power opens the highlighted item, Home returns to the home screen.
+// Power opens the highlighted item, Home returns to the home screen. In the
+// reader, Power opens the book's contents: its chapters and bookmarks, and
+// a row that bookmarks the page.
 // Holding Power for a second sleeps; so does leaving the reader idle for
 // the time set in Settings. Any button wakes it, back where it was.
 // Touch: tap an item to open it (or change a setting); in the reader, tap
-// the left third or swipe right to go back, tap elsewhere or swipe left to
-// go forward. Swipes page through the library.
+// the left third or swipe right to go back, the right third or swipe left
+// to go forward, the middle for the contents. Swipes page through lists.
 //
 // "Add books" opens a Wi-Fi network and an upload page (Board::transfer);
 // Home closes it and reloads the library.
@@ -44,7 +46,9 @@ class App {
   void timeout();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer };
+  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents };
+  // One line of the contents screen.
+  enum class ContentsRow : uint8_t { Back, Mark, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
   static constexpr int kHomeRows = 2;     // other books listed under the current one
@@ -58,6 +62,18 @@ class App {
   // Starts or stops receiving books over Wi-Fi (the "Add books" screen).
   void open_transfer();
   void close_transfer();
+  // The contents screen: rows are back, bookmark toggle, bookmarks, chapters.
+  void open_contents();
+  int contents_row_count() const;
+  ContentsRow contents_row(int i, int& index) const;
+  int contents_rows_per_page() const;
+  void contents_activate();
+  // The contents entry (or chapter, without one) holding the current page.
+  int current_chapter_row() const;
+  // The bookmark on the current page, or -1.
+  int page_bookmark() const;
+  // Moves the reader to `pos` in the open book and shows it.
+  void jump_to(BookPos pos);
 
   // Remembers where a tappable item was drawn; `item` is its selection index.
   void add_hit(Rect r, int item);
@@ -78,6 +94,7 @@ class App {
   void draw_library();
   void draw_settings();
   void draw_transfer();
+  void draw_contents();
   const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
@@ -97,6 +114,9 @@ class App {
   int home_sel_ = 0;
   int library_sel_ = 0;
   int settings_sel_ = 0;
+  int contents_sel_ = 0;
+  int contents_marks_[Library::kMaxBookmarks] = {};  // the open book's bookmarks, in order
+  int contents_mark_count_ = 0;
   TransferState transfer_state_ = TransferState::Off;
   bool power_held_ = false;  // Power is down and has not acted yet
   bool asleep_ = false;

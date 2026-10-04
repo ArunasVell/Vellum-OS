@@ -2,7 +2,9 @@
 // No header: the page belongs to the text.
 #include "vellum/reader.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "vellum/ui.h"
 
@@ -14,6 +16,8 @@ constexpr int kTextBottom = 44;    // space below the text block, for the footer
 constexpr int kFooterBase = 12;    // footer baseline, from the bottom edge
 constexpr int kTrackRise = 32;     // progress track, from the bottom edge
 constexpr int kOpeningDrop = 140;  // extra space above the text on a chapter's opening page
+constexpr int kRibbonW = 16;       // bookmark ribbon
+constexpr int kRibbonH = 30;
 
 const Font* const kSizes[] = {&fonts::literata_23, &fonts::literata_26, &fonts::literata_30, &fonts::literata_34};
 constexpr int kLinePercent[] = {90, 100, 115};
@@ -105,6 +109,51 @@ bool Reader::prev() {
   return true;
 }
 
+int Reader::compare_to_page(BookPos pos) const {
+  if (pos.chapter != chapter_) return pos.chapter < chapter_ ? -1 : 1;
+  if (!before_or_at(page_starts_[page_], pos.text)) return -1;
+  if (page_ + 1 < page_count_ && before_or_at(page_starts_[page_ + 1], pos.text)) return 1;
+  return 0;
+}
+
+void Reader::snippet(char* out, size_t size) const {
+  if (size < 8) {
+    if (size > 0) out[0] = '\0';
+    return;
+  }
+  // The page's text from its first word, paragraphs joined by spaces.
+  const Chapter& ch = chapter_info_;
+  const TextPos start = page_starts_[page_];
+  // Headings are left out unless the page has nothing else: the text says
+  // more about which page it was.
+  size_t n = 0;
+  bool cut = false;
+  for (int pass = 0; pass < 2 && n == 0; ++pass) {
+    for (uint32_t i = start.paragraph; i < ch.paragraph_count && !cut; ++i) {
+      const char* p = ch.paragraphs[i];
+      if (*p == kHeadingMark) {
+        if (pass == 0) continue;
+        ++p;
+      }
+      if (i == start.paragraph && start.offset <= std::strlen(p)) p += start.offset;
+      if (*p == '\0') continue;
+      if (n > 0) out[n++] = ' ';
+      while (*p != '\0' && n < size - 1) out[n++] = *p++;
+      cut = *p != '\0' || n >= size - 1;
+    }
+  }
+  out[n] = '\0';
+  if (!cut) return;
+  // Shorten to the last whole word that leaves room for the ellipsis.
+  size_t end = std::min(n, size - 4);
+  while (end > 0 && out[end] != ' ') --end;
+  if (end == 0) {
+    end = size - 4;
+    while (end > 0 && (static_cast<uint8_t>(out[end]) & 0xC0) == 0x80) --end;  // a whole character
+  }
+  std::memcpy(out + end, "\xE2\x80\xA6", 4);  // …
+}
+
 int Reader::percent() const {
   uint64_t before = 0;
   uint64_t total = 0;
@@ -118,7 +167,8 @@ int Reader::percent() const {
   return static_cast<int>(done * 100 / (total * page_count_));
 }
 
-void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent) const {
+void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent,
+                  bool bookmarked) const {
   const Chapter& ch = chapter_info_;
   fb.clear(Color::White);
   const int w = fb.width();
@@ -145,6 +195,16 @@ void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, i
   std::snprintf(label, sizeof(label), text.short_of, page_ + 1, page_count_);
   ui::draw_centered(fb, fonts::literata_16, h - kFooterBase, label);
   ui::draw_battery(fb, w - style_.margin, h - kFooterBase, battery_percent);
+
+  if (bookmarked) {
+    // A ribbon hanging from the top edge, notched at the end.
+    const int x = w - style_.margin - kRibbonW;
+    fb.fill_rect({x, 0, kRibbonW, kRibbonH}, Color::Black);
+    for (int r = 0; r < kRibbonW / 2; ++r) {
+      const int half = r + 1;
+      fb.hline(x + kRibbonW / 2 - half, kRibbonH - kRibbonW / 2 + r, 2 * half, Color::White);
+    }
+  }
 }
 
 }  // namespace vellum

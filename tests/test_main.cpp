@@ -1,5 +1,7 @@
 // Host unit tests for the portable core. Plain asserts, no framework.
+#include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <utility>
 #include <vector>
@@ -302,6 +304,30 @@ void test_epub() {
   CHECK(ch.paragraph_count == 2 && std::string(ch.paragraphs[0]) == "\x01Second");
   CHECK(!epub.load_chapter(2, ch));
   CHECK(!epub.open(data, "missing.epub"));
+}
+
+void test_epub_contents() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  for (const char* name : {"sample.epub", "sample-ncx.epub"}) {
+    Epub epub;
+    CHECK(epub.open(data, name));
+    CHECK(epub.chapter_count() == 2);
+    CHECK(epub.toc_count() == 3);  // the link outside the book is left out
+    if (epub.toc_count() != 3) continue;
+    CHECK(std::string(epub.toc(0).title) == "Pirmas skyrius");
+    CHECK(std::string(epub.toc(1).title).starts_with("Eilėraštis"));
+    CHECK(std::string(epub.toc(2).title) == "Second");
+    CHECK(epub.toc(0).depth == 0 && epub.toc(1).depth == 1 && epub.toc(2).depth == 0);
+    CHECK(epub.toc(0).chapter == 0 && epub.toc(1).chapter == 0 && epub.toc(2).chapter == 1);
+    CHECK(epub.toc(0).paragraph == 0 && epub.toc(2).paragraph == 0);
+    // The poem's place is known once its chapter has been read.
+    CHECK(epub.toc(1).paragraph == TocEntry::kUnknown);
+    Chapter ch{};
+    CHECK(epub.load_chapter(0, ch));
+    CHECK(epub.toc(1).paragraph == 3);
+    CHECK(std::string(ch.paragraphs[3]) == "Eilėraštis:");
+  }
+  CHECK(std::string(strings(Language::English).chapter_n).find("%d") != std::string::npos);
 }
 
 void test_card_library_and_progress() {
@@ -665,6 +691,88 @@ void test_app_sleep() {
   std::remove("test-card/vellum/state.txt");
 }
 
+void press(App& app, Key key) {
+  app.handle(key_event(InputEvent::Type::KeyDown, key));
+  app.handle(key_event(InputEvent::Type::KeyUp, key));
+}
+
+int count_lines(const std::string& s) { return static_cast<int>(std::count(s.begin(), s.end(), '\n')); }
+
+void test_app_contents_and_bookmarks() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  StdioStorage card("test-card");
+  std::remove("test-card/vellum/state.txt");
+  std::remove("test-card/vellum/bookmarks.txt");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(card.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
+  const char* progress = "books/sample.epub\t0\t0\t0\t0\t1\n";  // the book read last
+  CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the book
+  auto progress_has = [](const char* fields) {
+    return read_all("test-card/vellum/progress.txt").find(fields) != std::string::npos;
+  };
+  CHECK(progress_has("books/sample.epub\t0\t0\t0\t"));
+
+  // Rows: back, bookmark this page, CHAPTERS, the three contents entries.
+  int full = panel.full;
+  press(*app, Key::Power);  // contents
+  CHECK(panel.full == full + 1);
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // bookmark this page; back in the book
+  const std::string marks = read_all("test-card/vellum/bookmarks.txt");
+  CHECK(count_lines(marks) == 1 && marks.starts_with("books/sample.epub\t0\t0\t0\t"));
+  CHECK(marks.find("\tLabas, pasauli") != std::string::npos);  // the page's first words, after the heading
+
+  // Rows now: back, remove, BOOKMARKS, the bookmark, CHAPTERS, three entries.
+  press(*app, Key::Power);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // labels are skipped
+  press(*app, Key::Power);                             // "Second"
+  CHECK(progress_has("books/sample.epub\t1\t0\t0\t"));
+
+  press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // bookmark this page too
+  CHECK(count_lines(read_all("test-card/vellum/bookmarks.txt")) == 2);
+
+  // Back to the first bookmark (the bookmarks come in reading order), then remove it.
+  press(*app, Key::Power);
+  for (int i = 0; i < 2; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(progress_has("books/sample.epub\t0\t0\t0\t"));
+  press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // remove this bookmark
+  const std::string left = read_all("test-card/vellum/bookmarks.txt");
+  CHECK(count_lines(left) == 1 && left.starts_with("books/sample.epub\t1\t"));
+
+  // Prev from the top wraps to the last chapter; Home leaves for the home screen.
+  press(*app, Key::Power);
+  press(*app, Key::Prev);
+  press(*app, Key::Power);
+  CHECK(progress_has("books/sample.epub\t1\t0\t0\t"));
+  delete app;
+
+  // Bookmarks survive a restart.
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  int found = -1;
+  for (int i = 0; i < lib.count(); ++i) {
+    if (std::string(lib.entry(i).path) == "books/sample.epub") found = i;
+  }
+  CHECK(found >= 0);
+  int marks_out[4];
+  CHECK(found >= 0 && lib.bookmarks_of(found, marks_out, 4) == 1);
+  std::remove("test-card/vellum/bookmarks.txt");
+  std::remove("test-card/vellum/state.txt");
+}
+
 }  // namespace
 
 int main() {
@@ -687,9 +795,11 @@ int main() {
   test_upload_page_embedded();
   test_xml_entities();
   test_epub();
+  test_epub_contents();
   test_card_library_and_progress();
   test_app_transfer();
   test_app_sleep();
+  test_app_contents_and_bookmarks();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {
