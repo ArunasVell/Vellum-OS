@@ -17,6 +17,8 @@ enum class TimeFormat : uint8_t {
 enum class TextSize : uint8_t { Small, Medium, Large, ExtraLarge };
 enum class Spacing : uint8_t { Narrow, Normal, Wide };
 enum class SleepAfter : uint8_t { Min5, Min10, Min30, Never };
+// New versions: installed at night, only announced, or not looked for.
+enum class AutoUpdate : uint8_t { AtNight, AskFirst, Off };
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 
 struct Settings {
@@ -25,6 +27,7 @@ struct Settings {
   SleepAfter sleep_after = SleepAfter::Min10;  // idle time before the reader sleeps
   uint8_t light = 0;                           // front light, 0 (off) to kLightSteps
   uint8_t warmth = 3;                          // 0 (coolest) to kLightSteps (warmest)
+  AutoUpdate auto_update = AutoUpdate::AtNight;
   // Reading
   TextSize text_size = TextSize::Medium;
   Spacing line_spacing = Spacing::Normal;

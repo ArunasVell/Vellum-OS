@@ -33,7 +33,7 @@ constexpr int kListTop = 160;
 constexpr int kSettingsTitleBase = 104;
 constexpr int kSettingsTop = 116;
 constexpr int kSectionGap = 32;  // uppercase section label above a group of rows
-constexpr int kSettingRowHeight = 36;
+constexpr int kSettingRowHeight = 34;
 
 // Sleep screen geometry.
 constexpr int kSleepCoverTop = 120;
@@ -71,9 +71,17 @@ constexpr int kAboutLabelBase = 444;
 constexpr int kAboutRowHeight = 34;
 constexpr int kCorner = 14;  // marks in the screen's corners
 
+// Updates geometry.
+constexpr int kUpdateStatusLabelBase = 196;
+constexpr int kUpdateRowsTop = 300;
+constexpr int kUpdateRowHeight = 50;
+constexpr int kUpdateRows = 4;  // check or install, automatic, home Wi-Fi, from a file
+
 // "Add books" geometry.
 constexpr int kTransferTop = 192;  // baseline of the first step label
 constexpr int kQrSize = 156;
+
+constexpr int kUpdateNoticeItem = 1000;  // hit item of the home screen's update notice
 
 constexpr int kPad = 12;  // selection highlights extend this far into the margins
 
@@ -130,6 +138,7 @@ enum class Row : uint8_t {
   SleepAfter,
   Light,    // opens the front light screen
   Battery,  // opens the battery screen
+  Updates,  // opens the updates screen
   Check,    // opens the device check
   TextSize,
   LineSpacing,
@@ -138,11 +147,11 @@ enum class Row : uint8_t {
   Alignment,
   Hyphenation
 };
-constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::SleepAfter, Row::Light,
-                         Row::Battery,     Row::Check,   Row::TextSize,   Row::LineSpacing,
-                         Row::WordSpacing, Row::Margins, Row::Alignment,  Row::Hyphenation};
+constexpr Row kRows[] = {Row::Language, Row::Clock,     Row::SleepAfter, Row::Light,       Row::Battery,
+                         Row::Updates,  Row::Check,     Row::TextSize,   Row::LineSpacing, Row::WordSpacing,
+                         Row::Margins,  Row::Alignment, Row::Hyphenation};
 constexpr int kRowCount = sizeof(kRows) / sizeof(kRows[0]);
-constexpr int kGeneralRows = 6;  // rows before the reading section
+constexpr int kGeneralRows = 7;  // rows before the reading section
 
 int value_count(Row r) {
   switch (r) {
@@ -180,6 +189,7 @@ int get(const Settings& s, Row r) {
       return s.hyphenate ? 0 : 1;
     case Row::Light:
     case Row::Battery:
+    case Row::Updates:
     case Row::Check:
       break;
   }
@@ -217,6 +227,7 @@ void set(Settings& s, Row r, int v) {
       break;
     case Row::Light:
     case Row::Battery:
+    case Row::Updates:
     case Row::Check:
       break;
   }
@@ -246,6 +257,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.front_light;
     case Row::Battery:
       return t.battery;
+    case Row::Updates:
+      return t.updates;
     case Row::Check:
       return t.device_check;
   }
@@ -273,6 +286,7 @@ const char* value_name(const Strings& t, Row r, int v) {
       return v == 0 ? t.on : t.off;
     case Row::Light:
     case Row::Battery:
+    case Row::Updates:
     case Row::Check:
       break;
   }
@@ -295,6 +309,7 @@ App::App(Board& board)
     const int32_t n = textfile::read(*board_.storage, kStatePath, state, sizeof(state) - 1);
     resume_reader_ = n >= 6 && std::strncmp(state, "reader", 6) == 0;
     battery_.load(*board_.storage);
+    load_update_state(*board_.storage, update_state_);
   }
   library_.load(builtin_books(), board_.storage, epub_);
 }
@@ -349,6 +364,16 @@ void App::draw_home() {
   const Strings& t = text();
 
   ui::draw_label(fb_, kSide, kHeroLabelBase, state.started() ? t.continue_reading : t.start_reading);
+  if (update_available()) {
+    // A small notice: a new version is ready. Tapping it opens Updates.
+    char notice[64];
+    std::snprintf(notice, sizeof(notice), t.update_notice, update_state_.latest);
+    const int tw = text_width(fonts::literata_16, notice) / 64;
+    const Rect pill{w - kSide - tw - 24, kHeroLabelBase - 22, tw + 24, 30};
+    fb_.fill_round_rect(pill, 15, Color::Black);
+    draw_text(fb_, fonts::literata_16, (pill.x + 12) * 64, kHeroLabelBase - 1, notice, Color::White);
+    add_hit({pill.x - 8, pill.y - 8, pill.w + 16, pill.h + 16}, kUpdateNoticeItem);
+  }
 
   // The current book: cover, title, author, chapter and progress.
   const Rect hero = row_rect(fb_, kHeroTop, kHeroHeight);
@@ -500,6 +525,10 @@ void App::draw_settings() {
         std::snprintf(level, sizeof(level), "%d%% \xE2\x80\xBA", percent);
       }
       ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, level, fg);
+    } else if (row == Row::Updates) {
+      char value[48];
+      std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", update_available() ? t.update_new : board_.version);
+      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, value, fg);
     } else if (row == Row::Check) {
       ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, "\xE2\x80\xBA", fg);  // ›
     } else {
@@ -528,14 +557,16 @@ void App::settings_activate() {
   if (row == Row::Battery) return show(Screen::Battery);
   if (row == Row::Light) return open_light(Screen::Settings);
   if (row == Row::Check) return open_check();
+  if (row == Row::Updates) return open_updates();
   set(settings_, row, (get(settings_, row) + 1) % value_count(row));
   if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
 }
 
 // ---- Adding books over Wi-Fi -------------------------------------------------
 
-void App::open_transfer() {
-  if (board_.storage == nullptr) {
+void App::open_transfer(bool setup) {
+  transfer_setup_ = setup;
+  if (board_.storage == nullptr && !setup) {
     transfer_state_ = TransferState::NoCard;
   } else if (board_.transfer == nullptr) {
     transfer_state_ = TransferState::Failed;
@@ -545,8 +576,12 @@ void App::open_transfer() {
     show(Screen::Transfer);
     transfer_info_ = {};
     transfer_state_ = board_.transfer->start(transfer_info_) ? TransferState::Running : TransferState::Failed;
-    // Other readers can send books here too, alongside the upload page.
-    if (transfer_state_ == TransferState::Running && board_.peers != nullptr && board_.peers->start()) {
+    if (setup) {
+      // The QR code and address lead straight to the updates page.
+      const size_t len = std::strlen(transfer_info_.address);
+      std::snprintf(transfer_info_.address + len, sizeof(transfer_info_.address) - len, "/setup");
+    } else if (transfer_state_ == TransferState::Running && board_.peers != nullptr && board_.peers->start()) {
+      // Other readers can send books here too, alongside the upload page.
       receiver_.begin(*board_.peers, *board_.storage);
     }
     draw();
@@ -569,11 +604,38 @@ void App::close_transfer() {
     board_.transfer->stop();
   }
   transfer_state_ = TransferState::Off;
-  if (received) {
+  if (transfer_setup_) {
+    transfer_setup_ = false;
+    show(Screen::Updates);
+  } else if (received) {
     reload_library();  // shows the home screen with the new books
   } else {
     show(Screen::Home);
   }
+}
+
+// A new version of Vellum arrived from the upload page and waits in the spare
+// slot: say so, turn the radio off and restart into it. Boards that cannot
+// restart (the simulators) carry on at the home screen.
+void App::finish_update() {
+  if (transfer_state_ == TransferState::Running) board_.transfer->stop();  // radio off first
+  transfer_state_ = TransferState::Off;
+  transfer_setup_ = false;
+  restart_into_update();
+}
+
+void App::restart_into_update() {
+  if (board_.storage != nullptr) board_.storage->write(kStatePath, "home\n", 5);
+  update_state_.latest[0] = '\0';  // it is the running version now
+  if (board_.storage != nullptr) save_update_state(*board_.storage, update_state_);
+  save_battery();
+  fb_.clear(Color::White);
+  ui::draw_centered(fb_, fonts::literata_20, fb_.height() / 2, text().update_done);
+  queue_.submit_full();
+  board_.power.restart();
+  // Boards that cannot restart carry on at home.
+  update_busy_ = UpdateBusy::No;
+  show(Screen::Home);
 }
 
 // Escapes the characters a Wi-Fi QR code treats as syntax.
@@ -588,8 +650,8 @@ static void append_wifi_escaped(char* out, size_t size, size_t& len, const char*
 void App::draw_transfer() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.add_books);
-  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, t.transfer_lead);
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, transfer_setup_ ? t.updates : t.add_books);
+  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, transfer_setup_ ? t.setup_lead : t.transfer_lead);
 
   const char* message = nullptr;
   switch (transfer_state_) {
@@ -607,7 +669,7 @@ void App::draw_transfer() {
   }
   if (message != nullptr) {
     ui::draw_wrapped(fb_, fonts::literata_20, kSide, kTransferTop + 40, w - 2 * kSide, 3, message, false);
-    ui::draw_hint(fb_, t.hint_transfer);
+    ui::draw_hint(fb_, transfer_setup_ ? t.hint_setup : t.hint_transfer);
     return;
   }
 
@@ -644,6 +706,25 @@ void App::draw_transfer() {
   TransferStatus st;
   board_.transfer->status(st);
   y += kQrSize + 46;
+  char line[160];
+  using Update = TransferStatus::Update;
+  if (transfer_setup_) {
+    ui::draw_label(fb_, kSide, y, t.phone_label);
+    if (st.update == Update::Receiving) {
+      std::snprintf(line, sizeof(line), t.updating, st.update_percent);
+    } else if (st.update == Update::NotVellum || st.update == Update::Broken) {
+      std::snprintf(line, sizeof(line), "%s", st.update == Update::NotVellum ? t.update_not_vellum : t.update_broken);
+    } else if (st.home_wifi_saved > 0 && board_.updater != nullptr) {
+      char network[40];
+      board_.updater->home_network(network, sizeof(network));
+      std::snprintf(line, sizeof(line), t.wifi_saved, network);
+    } else {
+      std::snprintf(line, sizeof(line), "%s", t.waiting_phone);
+    }
+    ui::draw_fitted(fb_, fonts::literata_20, kSide, y + 34, w - 2 * kSide, line);
+    ui::draw_hint(fb_, t.hint_setup);
+    return;
+  }
   ui::draw_label(fb_, kSide, y, t.received_label);
   const int received = st.received + receiver_.received();
   if (received > 0) {
@@ -651,7 +732,6 @@ void App::draw_transfer() {
     format_book_count(settings_.language, received, count, sizeof(count));
     ui::draw_right(fb_, fonts::literata_16, w - kSide, y, count);
   }
-  char line[160];
   if (receiver_.busy()) {
     char name[150];
     std::snprintf(name, sizeof(name), "%s \xC2\xB7 %d%%", receiver_.receiving(), receiver_.percent());  // ·
@@ -673,6 +753,227 @@ void App::draw_transfer() {
   }
 
   ui::draw_hint(fb_, t.hint_transfer);
+}
+
+// ---- Updates -------------------------------------------------------------------
+
+bool App::update_available() const { return is_newer_version(update_state_.latest, board_.version); }
+
+void App::open_updates() {
+  updates_sel_ = 0;
+  update_error_ = false;
+  show(Screen::Updates);
+}
+
+void App::record_update_check(UpdateResult result, const char* latest) {
+  if (result != UpdateResult::Available && result != UpdateResult::UpToDate) return;
+  textfile::copy(result == UpdateResult::Available ? latest : "", update_state_.latest, sizeof(update_state_.latest));
+  update_state_.has_checked = board_.clock != nullptr && board_.clock->now(update_state_.checked);
+  if (board_.storage != nullptr) save_update_state(*board_.storage, update_state_);
+}
+
+void App::check_for_update() {
+  if (board_.updater == nullptr) return;
+  update_busy_ = UpdateBusy::Checking;
+  update_error_ = false;
+  draw();
+  queue_.submit();
+  char latest[32] = "";
+  const UpdateResult r = board_.updater->check(board_.version, latest, sizeof(latest));
+  update_busy_ = UpdateBusy::No;
+  record_update_check(r, latest);
+  update_error_ = r != UpdateResult::Available && r != UpdateResult::UpToDate;
+  update_result_ = r;
+}
+
+void App::install_update() {
+  if (board_.updater == nullptr) return;
+  update_busy_ = UpdateBusy::Installing;
+  update_error_ = false;
+  install_percent_ = 0;
+  draw();
+  queue_.submit();
+  const UpdateResult r = board_.updater->install(
+      [](void* ctx, int percent) {
+        // Redraw every tenth: each refresh takes a moment of its own.
+        auto* app = static_cast<App*>(ctx);
+        if (percent / 10 == app->install_percent_ / 10) return;
+        app->install_percent_ = percent;
+        app->draw();
+        app->queue_.submit();
+      },
+      this);
+  if (r == UpdateResult::Installed) return restart_into_update();
+  update_busy_ = UpdateBusy::No;
+  update_error_ = true;
+  update_result_ = r;
+}
+
+void App::updates_activate() {
+  switch (updates_sel_) {
+    case 0:
+      if (update_available()) {
+        install_update();
+      } else {
+        check_for_update();
+      }
+      break;
+    case 1:
+      settings_.auto_update = static_cast<AutoUpdate>((static_cast<int>(settings_.auto_update) + 1) % 3);
+      if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
+      break;
+    default:
+      open_transfer(true);
+      break;
+  }
+}
+
+void App::draw_updates() {
+  const int w = fb_.width();
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.updates);
+  char line[128];
+  std::snprintf(line, sizeof(line), t.this_version, board_.version);
+  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, line);
+
+  // Where things stand.
+  ui::draw_label(fb_, kSide, kUpdateStatusLabelBase, t.status_label);
+  char network[40] = "";
+  if (board_.updater != nullptr) board_.updater->home_network(network, sizeof(network));
+  const char* detail = nullptr;
+  char checked[64] = "";
+  if (update_state_.has_checked) {
+    const DateTime& c = update_state_.checked;
+    char when[24];
+    std::snprintf(when, sizeof(when), "%04u-%02u-%02u ", unsigned{c.year}, unsigned{c.month}, unsigned{c.day});
+    format_time(c, settings_.time_format, when + std::strlen(when), sizeof(when) - std::strlen(when));
+    std::snprintf(checked, sizeof(checked), t.checked_at, when);
+    detail = checked;
+  }
+  if (update_busy_ == UpdateBusy::Checking) {
+    std::snprintf(line, sizeof(line), "%s", t.checking);
+    detail = nullptr;
+  } else if (update_busy_ == UpdateBusy::Installing) {
+    std::snprintf(line, sizeof(line), t.installing, update_state_.latest, install_percent_);
+    detail = nullptr;
+  } else if (update_error_) {
+    const char* why = t.install_failed;
+    switch (update_result_) {
+      case UpdateResult::NoNetwork:
+        why = t.need_home_wifi;
+        break;
+      case UpdateResult::NoWifi:
+        why = t.wifi_failed;
+        break;
+      case UpdateResult::NoServer:
+        why = t.server_failed;
+        break;
+      default:
+        break;
+    }
+    std::snprintf(line, sizeof(line), "%s", why);
+  } else if (update_available()) {
+    std::snprintf(line, sizeof(line), t.update_ready, update_state_.latest);
+  } else if (network[0] == '\0') {
+    std::snprintf(line, sizeof(line), "%s", t.need_home_wifi);
+  } else if (update_state_.has_checked) {
+    std::snprintf(line, sizeof(line), "%s", t.up_to_date);
+  } else {
+    std::snprintf(line, sizeof(line), "%s", t.not_checked);
+  }
+  const int y =
+      ui::draw_wrapped(fb_, fonts::literata_20, kSide, kUpdateStatusLabelBase + 36, w - 2 * kSide, 2, line, false);
+  if (update_busy_ == UpdateBusy::Installing) {
+    ui::draw_progress(fb_, kSide, y - 10, w - 2 * kSide, install_percent_, 100);
+  } else if (detail != nullptr) {
+    ui::draw_fitted(fb_, fonts::literata_16, kSide, y - 4, w - 2 * kSide, detail);
+  }
+
+  // What can be done.
+  char action[64];
+  if (update_available()) {
+    std::snprintf(action, sizeof(action), t.install_version, update_state_.latest);
+  } else {
+    std::snprintf(action, sizeof(action), "%s", t.check_now);
+  }
+  const char* names[kUpdateRows] = {action, t.automatic, t.home_wifi, t.from_file};
+  const char* values[kUpdateRows] = {"", t.auto_names[static_cast<int>(settings_.auto_update)],
+                                     network[0] != '\0' ? network : t.not_set, ""};
+  for (int i = 0; i < kUpdateRows; ++i) {
+    const Rect r = row_rect(fb_, kUpdateRowsTop + i * kUpdateRowHeight, kUpdateRowHeight);
+    const bool selected = i == updates_sel_;
+    if (i > 0 && !selected && updates_sel_ != i - 1) dotted_rule(fb_, r.y);
+    add_hit(r, i);
+    const Color fg = highlight(fb_, r, selected);
+    const int base = r.y + 32;
+    draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, names[i], fg);
+    char value[64];
+    std::snprintf(value, sizeof(value), "%s%s%s", values[i], values[i][0] != '\0' && i >= 2 ? " " : "",
+                  i >= 2 ? "\xE2\x80\xBA" : "");  // ›
+    const int name_w = text_width(fonts::literata_20, names[i]) / 64;
+    const int right = r.x + r.w - kPad;
+    const int room = right - (r.x + kPad + name_w + 16);
+    const int value_w = text_width(fonts::literata_20, value) / 64;
+    if (value_w <= room) {
+      ui::draw_right(fb_, fonts::literata_20, right, base, value, fg);
+    } else if (room > 0) {
+      ui::draw_fitted(fb_, fonts::literata_20, right - room, base, room, value, fg);  // a long network name
+    }
+  }
+
+  // What the automatic setting does, and what it lacks.
+  int help_y = kUpdateRowsTop + kUpdateRows * kUpdateRowHeight + 34;
+  help_y = ui::draw_wrapped(fb_, fonts::literata_16, kSide, help_y, w - 2 * kSide, 3,
+                            t.auto_help[static_cast<int>(settings_.auto_update)], false);
+  DateTime now;
+  const bool clock_set = board_.clock != nullptr && board_.clock->now(now);
+  if (settings_.auto_update != AutoUpdate::Off && (network[0] == '\0' || !clock_set)) {
+    ui::draw_wrapped(fb_, fonts::literata_16, kSide, help_y + 6, w - 2 * kSide, 3, t.night_needs, false);
+  }
+  ui::draw_hint(fb_, t.hint_updates);
+}
+
+// ---- Updates at night ----------------------------------------------------------
+
+void App::schedule_night_check() {
+  uint32_t seconds = 0;
+  DateTime now;
+  if (settings_.auto_update != AutoUpdate::Off && board_.updater != nullptr && board_.clock != nullptr &&
+      board_.clock->now(now)) {
+    char network[40];
+    board_.updater->home_network(network, sizeof(network));
+    if (network[0] != '\0') seconds = seconds_until_hour(now, kNightHour);
+  }
+  board_.power.set_wake_timer(seconds);
+}
+
+void App::night_update() {
+  // The screen still shows the sleep cover: leave it as it is.
+  asleep_ = true;
+  before_sleep_ = resume_reader_ ? Screen::Reader : Screen::Home;
+  if (update_state_.night_restart) {
+    // The version installed a moment ago started: back to sleep.
+    update_state_.night_restart = false;
+    if (board_.storage != nullptr) save_update_state(*board_.storage, update_state_);
+  } else if (settings_.auto_update != AutoUpdate::Off && board_.updater != nullptr) {
+    char latest[32] = "";
+    const UpdateResult r = board_.updater->check(board_.version, latest, sizeof(latest));
+    record_update_check(r, latest);
+    if (r == UpdateResult::Available && settings_.auto_update == AutoUpdate::AtNight && board_.storage != nullptr) {
+      update_state_.night_restart = true;  // the new version sleeps again after its first start
+      save_update_state(*board_.storage, update_state_);
+      if (board_.updater->install(nullptr, nullptr) == UpdateResult::Installed) {
+        update_state_.latest[0] = '\0';
+        save_update_state(*board_.storage, update_state_);
+        board_.power.restart();
+        return;
+      }
+      update_state_.night_restart = false;
+      save_update_state(*board_.storage, update_state_);
+    }
+  }
+  schedule_night_check();
+  board_.power.sleep();  // a deep-sleeping board restarts from here on waking
 }
 
 // ---- Sending to another reader ---------------------------------------------------
@@ -1283,6 +1584,9 @@ void App::draw() {
     case Screen::Check:
       draw_check();
       break;
+    case Screen::Updates:
+      draw_updates();
+      break;
     case Screen::Send:
       draw_send();
       break;
@@ -1292,6 +1596,7 @@ void App::draw() {
 }
 
 void App::start() {
+  if (board_.power.woke_by_timer() || update_state_.night_restart) return night_update();
   apply_light();
   record_battery(BatterySample::Kind::Wake);
   save_battery();
@@ -1348,6 +1653,7 @@ void App::sleep() {
   }
   record_battery(BatterySample::Kind::Sleep);
   save_battery();
+  schedule_night_check();
   before_sleep_ = screen_;
   asleep_ = true;
   draw_sleep();
@@ -1528,15 +1834,16 @@ void App::draw_check() {
   } else {
     std::snprintf(card, sizeof(card), "%s", t.missing);
   }
-  const char* names[] = {t.device, t.screen, t.battery, t.clock, t.memory_card, t.front_light, t.wifi};
+  const char* names[] = {t.device, t.version, t.screen, t.battery, t.clock, t.memory_card, t.front_light, t.wifi};
   const char* values[] = {board_.name,
+                          board_.version,
                           screen,
                           battery,
                           clock,
                           card,
                           board_.frontlight != nullptr ? t.present : t.missing,
                           board_.transfer != nullptr ? t.present : t.missing};
-  for (int i = 0; i < 7; ++i) {
+  for (int i = 0; i < 8; ++i) {
     const int y = kAboutLabelBase + 10 + i * kAboutRowHeight;
     if (i > 0) dotted_rule(fb_, y);
     draw_text(fb_, fonts::literata_16, kSide * 64, y + 25, names[i]);
@@ -1585,6 +1892,14 @@ bool App::handle(const InputEvent& ev) {
       break;
     case InputEvent::Type::Transfer:
       if (screen_ != Screen::Transfer) return true;
+      if (transfer_state_ == TransferState::Running) {
+        TransferStatus st;
+        board_.transfer->status(st);
+        if (st.update == TransferStatus::Update::Installed) {
+          finish_update();
+          break;
+        }
+      }
       break;
     case InputEvent::Type::Peer:
       if (!service_peers(false)) return true;
@@ -1616,6 +1931,7 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Reader || screen_ == Screen::Contents) save_progress();
       if (screen_ == Screen::Light && board_.storage != nullptr) save_settings(*board_.storage, settings_);
       if (screen_ == Screen::Transfer) return close_transfer(), false;
+      if (screen_ == Screen::Updates && update_busy_ != UpdateBusy::No) return false;
       if (screen_ == Screen::Send) close_send();
       show(Screen::Home);
     }
@@ -1669,6 +1985,11 @@ bool App::handle_key(Key key) {
     }
     case Screen::Check:
       return false;  // check_event() takes its keys
+    case Screen::Updates:
+      if (update_busy_ != UpdateBusy::No) return false;
+      if (key == Key::Power) return updates_activate(), true;
+      updates_sel_ = wrap_index(updates_sel_ + step, kUpdateRows);
+      return true;
     case Screen::Send:
       if (key == Key::Power) return send_activate();
       if (sender_.state() == PeerSender::State::Looking && sender_.reader_count() > 0) {
@@ -1744,6 +2065,7 @@ bool App::handle_gesture(const Gesture& g) {
   if (item < 0) return false;
   switch (screen_) {
     case Screen::Home:
+      if (item == kUpdateNoticeItem) return open_updates(), false;
       home_sel_ = item;
       home_activate();
       return false;
@@ -1759,6 +2081,11 @@ bool App::handle_gesture(const Gesture& g) {
       contents_sel_ = item;
       contents_activate();
       return false;
+    case Screen::Updates:
+      if (update_busy_ != UpdateBusy::No) return false;
+      updates_sel_ = item;
+      updates_activate();
+      return true;
     case Screen::Reader:
     case Screen::Transfer:
     case Screen::Battery:

@@ -3,9 +3,12 @@
 #include <dirent.h>
 #include <sys/stat.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 
+#include "esp_app_desc.h"
+#include "esp_app_format.h"
 #include "esp_event.h"
 #include "esp_heap_caps.h"
 #include "esp_http_server.h"
@@ -13,12 +16,13 @@
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_now_peers.h"
+#include "esp_ota_ops.h"
 #include "esp_pm.h"
 #include "esp_random.h"
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
-#include "nvs_flash.h"
 #include "vellum/upload_page.h"
+#include "wifi_common.h"
 
 namespace {
 
@@ -64,6 +68,29 @@ struct WifiTransfer::Impl {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_send(req, vellum::kUploadPage, vellum::kUploadPageSize);
+  }
+
+  static esp_err_t get_setup(httpd_req_t* req) {
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, vellum::kSetupPage, vellum::kSetupPageSize);
+  }
+
+  // The home Wi-Fi for updates, from the setup page's form.
+  static esp_err_t post_wifi(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    char body[512];
+    char ssid[33];
+    char password[65];
+    const int n = req->content_len < sizeof(body) ? httpd_req_recv(req, body, req->content_len) : -1;
+    if (n <= 0 || !vellum::form_field(body, static_cast<size_t>(n), "ssid", ssid, sizeof(ssid)) || ssid[0] == '\0' ||
+        !vellum::form_field(body, static_cast<size_t>(n), "password", password, sizeof(password))) {
+      return fail(req, "400 Bad Request", "Expected a network name and password.");
+    }
+    if (!home_wifi_save(ssid, password)) return fail(req, "500 Internal Server Error", "Could not save.");
+    ESP_LOGI(kTag, "home Wi-Fi set to %s", ssid);
+    self->update([](vellum::TransferStatus& s) { ++s.home_wifi_saved; });
+    return httpd_resp_sendstr(req, "ok");
   }
 
   static esp_err_t get_books(httpd_req_t* req) {
@@ -175,6 +202,124 @@ struct WifiTransfer::Impl {
     return httpd_resp_sendstr(req, "ok");
   }
 
+  static esp_err_t get_info(httpd_req_t* req) {
+    char body[256];
+    char ssid[33];
+    char password[65];
+    home_wifi_load(ssid, sizeof(ssid), password, sizeof(password));
+    size_t len = 0;
+    len += std::snprintf(body, sizeof(body), "{\"version\":\"");
+    vellum::json_escape(esp_app_get_description()->version, body, 100, len);
+    len += std::snprintf(body + len, sizeof(body) - len, "\",\"home_network\":\"");
+    vellum::json_escape(ssid, body, sizeof(body) - 4, len);
+    std::snprintf(body + len, sizeof(body) - len, "\"}");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(req, body);
+  }
+
+  // A Vellum build for this chip starts with the image header, one segment
+  // header, then the app description naming the project.
+  static constexpr size_t kHeadBytes =
+      sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t);
+
+  static bool is_vellum(const uint8_t* head, char* version, size_t size) {
+    const auto* image = reinterpret_cast<const esp_image_header_t*>(head);
+    const auto* app =
+        reinterpret_cast<const esp_app_desc_t*>(head + sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t));
+    if (image->magic != ESP_IMAGE_HEADER_MAGIC || image->chip_id != CONFIG_IDF_FIRMWARE_CHIP_ID ||
+        app->magic_word != ESP_APP_DESC_MAGIC_WORD ||
+        strncmp(app->project_name, esp_app_get_description()->project_name, sizeof(app->project_name)) != 0) {
+      return false;
+    }
+    std::snprintf(version, size, "%.*s", static_cast<int>(sizeof(app->version)), app->version);
+    return true;
+  }
+
+  // The new software goes into the spare app slot; the reader starts it on
+  // the next restart and goes back to this one if it fails to start.
+  static esp_err_t post_update(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    using U = vellum::TransferStatus::Update;
+    const esp_partition_t* slot = esp_ota_get_next_update_partition(nullptr);
+    auto finish = [&](U result) { self->update([&](vellum::TransferStatus& s) { s.update = result; }); };
+    if (slot == nullptr || req->content_len < kHeadBytes || req->content_len > slot->size) {
+      finish(U::NotVellum);
+      return fail(req, "400 Bad Request", "That file is not a Vellum update.");
+    }
+    self->update([](vellum::TransferStatus& s) {
+      s.update = U::Receiving;
+      s.update_percent = 0;
+      s.update_version[0] = '\0';
+    });
+
+    esp_ota_handle_t ota = 0;
+    bool begun = false;
+    bool ok = true;
+    U failure = U::Broken;
+    size_t got = 0;
+    int shown = 0;
+    static uint8_t head[kHeadBytes];  // the first bytes, checked before anything is written
+    while (got < req->content_len) {
+      const size_t left = req->content_len - got;
+      const int n = httpd_req_recv(req, self->buffer, left < kChunk ? left : kChunk);
+      if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+      if (n <= 0) {
+        ok = false;
+        break;
+      }
+      const uint8_t* data = reinterpret_cast<const uint8_t*>(self->buffer);
+      size_t len = static_cast<size_t>(n);
+      if (!begun) {
+        const size_t take = std::min(len, kHeadBytes - got);
+        std::memcpy(head + got, data, take);
+        got += take;
+        data += take;
+        len -= take;
+        if (got < kHeadBytes) continue;
+        char version[32];
+        if (!is_vellum(head, version, sizeof(version))) {
+          ok = false;
+          failure = U::NotVellum;
+          break;
+        }
+        self->update([&](vellum::TransferStatus& s) {
+          std::snprintf(s.update_version, sizeof(s.update_version), "%s", version);
+        });
+        if (esp_ota_begin(slot, OTA_WITH_SEQUENTIAL_WRITES, &ota) != ESP_OK ||
+            esp_ota_write(ota, head, kHeadBytes) != ESP_OK) {
+          ok = false;
+          break;
+        }
+        begun = true;
+      }
+      if (len > 0 && esp_ota_write(ota, data, len) != ESP_OK) {
+        ok = false;
+        break;
+      }
+      got += len;
+      const int percent = static_cast<int>(uint64_t{got} * 100 / req->content_len);
+      if (percent / 5 != shown / 5) {
+        shown = percent;
+        self->update([&](vellum::TransferStatus& s) { s.update_percent = percent; });
+      }
+    }
+    if (begun) {
+      ok = ok && esp_ota_end(ota) == ESP_OK && esp_ota_set_boot_partition(slot) == ESP_OK;  // end checks the image
+      if (!ok) esp_ota_abort(ota);
+    }
+    ESP_LOGI(kTag, "update %s (%u bytes)", ok ? "installed" : "failed", static_cast<unsigned>(req->content_len));
+    if (!ok) {
+      finish(failure);
+      return fail(req, "400 Bad Request",
+                  failure == U::NotVellum ? "That file is not a Vellum update." : "The update did not arrive whole.");
+    }
+    // Answer first: the reader stops the network and restarts once told.
+    const esp_err_t sent = httpd_resp_sendstr(req, "ok");
+    finish(U::Installed);
+    return sent;
+  }
+
   static esp_err_t post_time(httpd_req_t* req) {
     auto* self = static_cast<Impl*>(req->user_ctx);
     char body[32];
@@ -194,14 +339,7 @@ struct WifiTransfer::Impl {
   bool start_wifi(vellum::TransferInfo& info) {
     static bool once = false;
     if (!once) {
-      esp_err_t err = nvs_flash_init();
-      if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        err = nvs_flash_init();
-      }
-      if (err != ESP_OK || esp_netif_init() != ESP_OK) return false;
-      err = esp_event_loop_create_default();
-      if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return false;
+      if (!wifi_base_init()) return false;
       netif = esp_netif_create_default_wifi_ap();
       esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, this);
       once = true;
@@ -243,12 +381,17 @@ struct WifiTransfer::Impl {
     cfg.recv_wait_timeout = 15;
     cfg.send_wait_timeout = 15;
     cfg.lru_purge_enable = true;
+    cfg.max_uri_handlers = 10;
     if (httpd_start(&server, &cfg) != ESP_OK) return false;
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = get_page, .user_ctx = this},
         {.uri = "/books", .method = HTTP_GET, .handler = get_books, .user_ctx = this},
         {.uri = "/upload", .method = HTTP_POST, .handler = post_upload, .user_ctx = this},
         {.uri = "/time", .method = HTTP_POST, .handler = post_time, .user_ctx = this},
+        {.uri = "/info", .method = HTTP_GET, .handler = get_info, .user_ctx = this},
+        {.uri = "/update", .method = HTTP_POST, .handler = post_update, .user_ctx = this},
+        {.uri = "/setup", .method = HTTP_GET, .handler = get_setup, .user_ctx = this},
+        {.uri = "/wifi", .method = HTTP_POST, .handler = post_wifi, .user_ctx = this},
     };
     for (const httpd_uri_t& r : routes) httpd_register_uri_handler(server, &r);
     return true;

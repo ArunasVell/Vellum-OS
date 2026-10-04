@@ -66,6 +66,10 @@ struct Strings {
   const char* no_wifi;
   const char* no_card;
   const char* hint_transfer;
+  const char* updating;           // printf: percent
+  const char* update_done;        // full screen, before the restart
+  const char* update_not_vellum;  // the file sent was something else
+  const char* update_broken;      // it stopped part way
   // Contents and bookmarks, opened from the reader
   const char* contents;  // screen title
   const char* back_to_book;
@@ -107,10 +111,41 @@ struct Strings {
   const char* screen;
   const char* memory_card;
   const char* wifi;
+  const char* version;
   const char* present;
   const char* missing;
   const char* not_set;
   const char* hint_check;
+  // Updates
+  const char* updates;       // settings row and screen title
+  const char* this_version;  // printf: version
+  const char* status_label;  // uppercase label
+  const char* up_to_date;
+  const char* update_ready;  // printf: version
+  const char* not_checked;
+  const char* checked_at;  // printf: date and time
+  const char* checking;
+  const char* installing;  // printf: version, percent
+  const char* need_home_wifi;
+  const char* wifi_failed;
+  const char* server_failed;
+  const char* install_failed;
+  const char* check_now;
+  const char* install_version;  // printf: version
+  const char* automatic;
+  const char* auto_names[3];  // at night, ask first, off
+  const char* auto_help[3];   // what each does
+  const char* night_needs;    // what the nightly check needs and lacks
+  const char* home_wifi;
+  const char* from_file;
+  const char* hint_updates;
+  const char* setup_lead;   // one line under the title of the phone screen
+  const char* phone_label;  // uppercase label
+  const char* waiting_phone;
+  const char* wifi_saved;  // printf: network name
+  const char* hint_setup;
+  const char* update_notice;     // printf: version; small notice on the home screen
+  const char* update_new;        // settings row value when one is ready
   // Sending books reader to reader
   const char* send_book;     // contents row
   const char* send_title;    // screen title

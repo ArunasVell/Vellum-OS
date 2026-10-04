@@ -42,6 +42,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - name: Version number
+        # Each run on main gets the next number; the reader shows it in
+        # Settings › Device check and on the upload page.
+        run: echo "0.1.${{ github.run_number }}" > version.txt
       - name: Build with ESP-IDF
         uses: espressif/esp-idf-ci-action@v1
         with:
@@ -56,3 +60,28 @@ jobs:
             build/partition_table/partition-table.bin
             build/ota_data_initial.bin
             build/flash_args
+
+  release:
+    name: Publish update file
+    # Every change merged into main becomes a release with an update file
+    # the reader accepts from its upload page.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [host, firmware]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: vellum-x4pro
+          path: out
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: 0.1.${{ github.run_number }}
+        run: |
+          cp out/vellum.bin "vellum-$VERSION.bin"
+          (cd out && zip -r "../vellum-$VERSION-usb.zip" .)
+          gh release create "v$VERSION" "vellum-$VERSION.bin" "vellum-$VERSION-usb.zip" \
+            --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Vellum $VERSION" \
+            --notes "Update file: vellum-$VERSION.bin (send it from the reader's Add books page). The USB zip is for flashing over a cable."

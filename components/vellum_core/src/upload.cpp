@@ -48,6 +48,23 @@ bool url_decode(const char* in, size_t in_len, char* out, size_t size) {
   return true;
 }
 
+bool form_field(const char* body, size_t len, const char* key, char* out, size_t size) {
+  const size_t key_len = std::strlen(key);
+  size_t start = 0;
+  while (start <= len) {
+    size_t end = start;
+    while (end < len && body[end] != '&') ++end;
+    if (end - start > key_len && body[start + key_len] == '=' && std::strncmp(body + start, key, key_len) == 0) {
+      return url_decode(body + start + key_len + 1, end - start - key_len - 1, out, size);
+    }
+    if (end - start == key_len && std::strncmp(body + start, key, key_len) == 0) {
+      return url_decode("", 0, out, size);  // "key" alone: empty
+    }
+    start = end + 1;
+  }
+  return false;
+}
+
 bool safe_book_name(const char* in, char* out, size_t size) {
   // Keep only the last path part: browsers may send "C:\fakepath\x.epub".
   const char* base = in;

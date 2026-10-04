@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vellum · Updates</title>
+<style>
+  :root { --paper: #f3f1ec; --card: #fbfaf7; --ink: #1f2226; --muted: #61656c; --line: #d6d2c8; --accent: #2f4a6b; --bad: #8a2c22; }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #15171a; --card: #1d2024; --ink: #e8e6e1; --muted: #9a9ea6; --line: #30343a; --accent: #9db8d9; --bad: #e39a8f; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 0 16px; }
+  main { max-width: 560px; margin: 0 auto; padding-block: 32px 48px; display: flex; flex-direction: column; gap: 22px; }
+  .eyebrow { font: 600 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  h1 { font: italic 600 38px/1.1 Georgia, "Iowan Old Style", serif; margin: 6px 0 0; }
+  h2 { font: 600 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  p { margin: 0; color: var(--muted); }
+  p b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
+  input[type=text], input[type=password] { font: 16px/1.3 system-ui, sans-serif; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+  input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .show { flex-direction: row; align-items: center; gap: 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  button { font: 600 16px/1 system-ui, sans-serif; color: var(--card); background: var(--accent); border: 0; border-radius: 999px; padding: 14px 22px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .state { font: 14px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); min-width: 0; }
+  .state.done { color: var(--accent); }
+  .state.bad { color: var(--bad); }
+  .bar { height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <div class="eyebrow">Vellum</div>
+    <h1 data-t="title">Updates</h1>
+  </div>
+  <p><span data-t="running">This reader runs version</span> <b id="version">…</b>.</p>
+
+  <section>
+    <h2 data-t="wifi">Home Wi-Fi</h2>
+    <p data-t="wifilead">The reader uses your home Wi-Fi to look for new versions at night. It is only on while it checks.</p>
+    <form id="wifiform" autocomplete="off">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <label><span data-t="network">Network name</span><input id="ssid" type="text" maxlength="32" required autocapitalize="off" spellcheck="false"></label>
+        <label><span data-t="password">Password</span><input id="pass" type="password" maxlength="63"></label>
+        <label class="show"><input id="showpass" type="checkbox"> <span data-t="showpass">Show password</span></label>
+        <div class="row">
+          <button id="save" type="submit" data-t="save">Save</button>
+          <span id="wifistate" class="state"></span>
+        </div>
+      </div>
+    </form>
+  </section>
+
+  <section>
+    <h2 data-t="file">Update from a file</h2>
+    <p data-t="howto">Choose a file named like vellum-0.1.42.bin from the Vellum releases page.</p>
+    <div class="row">
+      <button id="pickbin" type="button" data-t="pickbin">Choose update file</button>
+      <span id="upstate" class="state"></span>
+    </div>
+    <div class="bar" id="upbar" hidden><i></i></div>
+    <input id="bin" type="file" accept=".bin,application/octet-stream" hidden>
+  </section>
+
+  <p data-t="done">When you're done, press Home on the reader.</p>
+</main>
+<script>
+(() => {
+  const lt = /^lt\b/i.test(navigator.language || "");
+  const T = lt ? {
+    title: "Atnaujinimai", running: "Šioje skaityklėje veikia versija", wifi: "Namų Wi-Fi",
+    wifilead: "Skaityklė naudoja namų Wi-Fi, kad naktį ieškotų naujų versijų. Jis įjungiamas tik tikrinimo metu.",
+    network: "Tinklo pavadinimas", password: "Slaptažodis", showpass: "Rodyti slaptažodį", save: "Išsaugoti",
+    file: "Atnaujinti iš failo",
+    howto: "Pasirinkite failą, pavadintą panašiai kaip vellum-0.1.42.bin, iš Vellum leidimų puslapio.",
+    pickbin: "Pasirinkti atnaujinimo failą", done: "Baigę paspauskite skaityklės Namų mygtuką.",
+    saved: "Išsaugota.", notsaved: "Nepavyko išsaugoti.", notbin: "Tai ne Vellum atnaujinimas.",
+    installing: "Diegiama…", installed: "Įdiegta. Skaityklė paleidžiama iš naujo.",
+    upfailed: "Nepavyko. Skaityklėje niekas nepakeista."
+  } : {
+    saved: "Saved.", notsaved: "Could not save.", notbin: "That is not a Vellum update.", installing: "Installing…",
+    installed: "Installed. The reader is restarting.", upfailed: "It did not work. Nothing changed on the reader."
+  };
+  if (lt) {
+    document.documentElement.lang = "lt";
+    document.querySelectorAll("[data-t]").forEach((el) => { const k = el.dataset.t; if (T[k]) el.textContent = T[k]; });
+    document.title = "Vellum · " + T.title;
+  }
+  const $ = (id) => document.getElementById(id);
+
+  fetch("/info").then((r) => r.json()).then((info) => {
+    $("version").textContent = info.version;
+    if (info.home_network && !$("ssid").value) $("ssid").value = info.home_network;
+  }).catch(() => {});
+
+  $("showpass").addEventListener("change", () => { $("pass").type = $("showpass").checked ? "text" : "password"; });
+  $("wifiform").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const state = $("wifistate");
+    state.className = "state";
+    state.textContent = "…";
+    const body = new URLSearchParams({ ssid: $("ssid").value, password: $("pass").value });
+    fetch("/wifi", { method: "POST", body: body.toString(), headers: { "Content-Type": "application/x-www-form-urlencoded" } })
+      .then((r) => { state.textContent = r.ok ? T.saved : T.notsaved; state.classList.add(r.ok ? "done" : "bad"); })
+      .catch(() => { state.textContent = T.notsaved; state.classList.add("bad"); });
+  });
+
+  // A new version of Vellum: sent whole to the reader, which checks it,
+  // installs it next to the current one and restarts into it.
+  const bin = $("bin"), pickbin = $("pickbin"), upstate = $("upstate"), upbar = $("upbar");
+  pickbin.addEventListener("click", () => bin.click());
+  bin.addEventListener("change", () => {
+    const f = bin.files[0];
+    bin.value = "";
+    if (!f) return;
+    upstate.className = "state";
+    if (!/\.bin$/i.test(f.name)) { upstate.textContent = T.notbin; upstate.classList.add("bad"); return; }
+    pickbin.disabled = true;
+    upbar.hidden = false;
+    upbar.firstChild.style.width = "0";
+    upstate.textContent = "0%";
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/update");
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      upbar.firstChild.style.width = (100 * e.loaded / e.total).toFixed(1) + "%";
+      upstate.textContent = e.loaded < e.total ? Math.floor(100 * e.loaded / e.total) + "%" : T.installing;
+    };
+    xhr.onloadend = () => {
+      const ok = xhr.status === 200;
+      upstate.textContent = ok ? T.installed : /not a Vellum/.test(xhr.responseText) ? T.notbin : T.upfailed;
+      upstate.classList.add(ok ? "done" : "bad");
+      if (ok) upbar.firstChild.style.width = "100%";
+      pickbin.disabled = ok;
+    };
+    xhr.send(f);
+  });
+
+  // The phone knows the time: the reader's clock takes it from here (the
+  // nightly check needs it).
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, "0");
+  const now = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ` +
+              `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+  fetch("/time", { method: "POST", body: now }).catch(() => {});
+})();
+</script>
+</body>
+</html>
