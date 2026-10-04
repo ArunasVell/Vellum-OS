@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "vellum/app.h"
+#include "vellum/battery_log.h"
 #include "vellum/book.h"
 #include "vellum/display_queue.h"
 #include "vellum/epub.h"
@@ -241,7 +242,8 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead}) {
+    for (const char* hint :
+         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -773,6 +775,151 @@ void test_app_contents_and_bookmarks() {
   std::remove("test-card/vellum/state.txt");
 }
 
+void test_dates_and_battery_log() {
+  CHECK(seconds_since_2000({2000, 1, 1, 0, 0, 0}) == 0);
+  CHECK(seconds_since_2000({2000, 1, 2, 0, 0, 1}) == 86401);
+  CHECK(seconds_since_2000({2026, 10, 4, 14, 5, 0}) == 844437900u);
+  for (uint32_t days : {0u, 59u, 60u, 365u, 9773u, 36524u}) {
+    uint16_t y;
+    uint8_t m, d;
+    date_from_days(days, y, m, d);
+    CHECK(seconds_since_2000({y, m, d, 0, 0, 0}) == days * 86400);
+  }
+  uint16_t y;
+  uint8_t m, d;
+  date_from_days(60, y, m, d);
+  CHECK(y == 2000 && m == 3 && d == 1);  // 2000 is a leap year
+
+  DateTime t{};
+  CHECK(parse_datetime("2026-10-04 14:05:09", 19, t));
+  CHECK(t.year == 2026 && t.month == 10 && t.day == 4 && t.hour == 14 && t.minute == 5 && t.second == 9);
+  for (const char* bad : {"2026-13-04 14:05:09", "2026-02-29 10:00:00", "1999-10-04 14:05:09", "2026-10-04T14:05:09",
+                          "2026-10-04 24:00:00", "2026-1-04 14:05:090"}) {
+    CHECK(!parse_datetime(bad, std::strlen(bad), t));
+  }
+  CHECK(parse_datetime("2024-02-29 23:59:59", 19, t));
+
+  // Two hours of reading from 100% to 90%, then a night asleep losing 2%.
+  BatteryLog log;
+  using K = BatterySample::Kind;
+  const uint32_t t0 = 1000000;
+  log.add({t0, 100, K::Wake, false});
+  for (int i = 1; i <= 12; ++i) {
+    log.add({t0 + i * 600u, static_cast<uint8_t>(100 - (i * 10) / 12), K::Awake, false});
+  }
+  CHECK(log.estimate().awake_tenths_per_hour == 50);  // 5% an hour
+  CHECK(log.estimate().asleep_tenths_per_day == -1);  // no night yet
+  log.add({t0 + 7200, 90, K::Sleep, false});
+  log.add({t0 + 7200 + 12 * 3600, 88, K::Wake, false});
+  CHECK(log.count() == 15);
+  BatteryEstimate e = log.estimate();
+  CHECK(e.awake_tenths_per_hour == 50);
+  CHECK(e.asleep_tenths_per_day == 40);  // 2% in 12 hours
+  CHECK(e.hours_left == 88 * 14 / 12);   // 12% in 14 hours
+  // Charging stretches do not count.
+  log.add({t0 + 60000, 95, K::Awake, true});
+  log.add({t0 + 60600, 100, K::Awake, false});
+  CHECK(log.estimate().awake_tenths_per_hour == 50);
+
+  // Saved and read back the same.
+  StdioStorage card("test-card");
+  CHECK(log.save(card));
+  BatteryLog again;
+  again.load(card);
+  CHECK(again.count() == log.count());
+  CHECK(again.latest()->time == t0 + 60600 && again.latest()->percent == 100 && !again.latest()->charging);
+  CHECK(again.at(13).kind == K::Sleep && again.at(15).charging);
+  // The clock set back an hour drops what now lies in the future.
+  again.add({t0 + 60600 - 3600, 99, K::Awake, false});
+  CHECK(again.count() == log.count() - 1);
+  std::remove("test-card/vellum/battery.txt");
+
+  CHECK(std::string(strings(Language::English).per_hour).find("%s") != std::string::npos);
+  char out[32];
+  format_time_left(Language::Lithuanian, 72, out, sizeof(out));
+  CHECK(std::string(out) == "Apie 3 dienas");
+  format_time_left(Language::English, 5, out, sizeof(out));
+  CHECK(std::string(out) == "About 5 hours");
+  format_tenths(Language::Lithuanian, 42, out, sizeof(out));
+  CHECK(std::string(out) == "4,2");
+}
+
+class TestClock : public Clock {
+ public:
+  bool now(DateTime& out) override {
+    if (!known) return false;
+    uint16_t y;
+    uint8_t m, d;
+    date_from_days(seconds / 86400, y, m, d);
+    const uint32_t s = seconds % 86400;
+    out = {y, m, d, static_cast<uint8_t>(s / 3600), static_cast<uint8_t>(s / 60 % 60), static_cast<uint8_t>(s % 60)};
+    return true;
+  }
+  bool known = true;
+  uint32_t seconds = 844437900u;
+};
+
+class DrainingPower : public Power {
+ public:
+  int battery_percent() override { return percent; }
+  bool charging() override { return plugged; }
+  int percent = 80;
+  bool plugged = false;
+};
+
+void test_app_battery_log() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  DrainingPower power;
+  TestClock clock;
+  std::remove("test-card/vellum/battery.txt");
+  std::remove("test-card/vellum/state.txt");
+  StdioStorage card("test-card");
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data()};
+  auto lines = [] {
+    const std::string s = read_all("test-card/vellum/battery.txt");
+    return static_cast<int>(std::count(s.begin(), s.end(), '\n'));
+  };
+  {
+    App app(board);
+    app.start();
+    CHECK(lines() == 1);  // started: written at once
+    press(app, Key::Next);
+    CHECK(lines() == 1);  // too soon for another reading
+    clock.seconds += 600;
+    power.percent = 79;
+    press(app, Key::Next);  // read now, written within the hour
+    clock.seconds += 600;
+    power.plugged = true;
+    press(app, Key::Next);  // plugging in: read and written now
+    CHECK(lines() == 3);
+    power.plugged = false;
+    // Sleeping writes everything, then the screen shows the battery screen.
+    app.handle(key_event(InputEvent::Type::KeyDown, Key::Power));
+    app.timeout();
+    CHECK(lines() == 5);  // the unplug and the sleep
+    CHECK(read_all("test-card/vellum/battery.txt").find("\ts\t") != std::string::npos);
+  }
+  {
+    // A restart carries on from the history on the card.
+    clock.seconds += 3600;
+    App app(board);
+    app.start();
+    CHECK(lines() == 6);
+  }
+  {
+    // Without a clock nothing is recorded, and the battery screen says why.
+    clock.known = false;
+    std::remove("test-card/vellum/battery.txt");
+    App app(board);
+    app.start();
+    CHECK(lines() == 0);
+  }
+  std::remove("test-card/vellum/battery.txt");
+  std::remove("test-card/vellum/state.txt");
+}
+
 }  // namespace
 
 int main() {
@@ -800,6 +947,8 @@ int main() {
   test_app_transfer();
   test_app_sleep();
   test_app_contents_and_bookmarks();
+  test_dates_and_battery_log();
+  test_app_battery_log();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {

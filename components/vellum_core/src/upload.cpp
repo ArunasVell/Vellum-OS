@@ -100,4 +100,28 @@ bool json_escape(const char* s, char* out, size_t size, size_t& len) {
   return true;
 }
 
+bool parse_datetime(const char* in, size_t len, DateTime& out) {
+  // Digits at these offsets, separators between them.
+  static constexpr char kShape[] = "dddd-dd-dd dd:dd:dd";
+  if (len != sizeof(kShape) - 1) return false;
+  for (size_t i = 0; i < len; ++i) {
+    const bool digit = in[i] >= '0' && in[i] <= '9';
+    if (kShape[i] == 'd' ? !digit : in[i] != kShape[i]) return false;
+  }
+  auto num = [&](size_t at, size_t n) {
+    int v = 0;
+    for (size_t i = at; i < at + n; ++i) v = v * 10 + (in[i] - '0');
+    return v;
+  };
+  const int year = num(0, 4), month = num(5, 2), day = num(8, 2);
+  const int hour = num(11, 2), minute = num(14, 2), second = num(17, 2);
+  static constexpr int kDays[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 || day > kDays[month - 1]) return false;
+  if (month == 2 && day == 29 && year % 4 != 0) return false;  // 2000 is a leap year; 2100 is out of range
+  if (hour > 23 || minute > 59 || second > 59) return false;
+  out = {static_cast<uint16_t>(year), static_cast<uint8_t>(month),  static_cast<uint8_t>(day),
+         static_cast<uint8_t>(hour),  static_cast<uint8_t>(minute), static_cast<uint8_t>(second)};
+  return true;
+}
+
 }  // namespace vellum

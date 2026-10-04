@@ -67,6 +67,21 @@ constexpr Strings kEnglish = {
     .bookmarks_label = "BOOKMARKS",
     .chapters_label = "CHAPTERS",
     .chapter_n = "Chapter %d",
+    .battery = "Battery",
+    .on_battery = "On battery",
+    .charging = "Charging",
+    .history_label = "LAST 7 DAYS",
+    .estimates_label = "ESTIMATES",
+    .time_left = "Time left",
+    .while_reading = "While reading",
+    .while_asleep = "While asleep",
+    .measuring = "Still measuring",
+    .per_hour = "%s%% an hour",
+    .per_day = "%s%% a day",
+    .clock_unset =
+        "The clock is not set, so there is no history yet. Open Add books and load the page on your phone once: it "
+        "sets the clock.",
+    .hint_battery = "Power or Home: back",
     .preview_text =
         "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
         "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
@@ -135,6 +150,21 @@ constexpr Strings kLithuanian = {
     .bookmarks_label = "ŽYMĖS",
     .chapters_label = "SKYRIAI",
     .chapter_n = "%d skyrius",
+    .battery = "Baterija",
+    .on_battery = "Veikia iš baterijos",
+    .charging = "Kraunama",
+    .history_label = "PASKUTINĖS 7 DIENOS",
+    .estimates_label = "ĮVERČIAI",
+    .time_left = "Liko",
+    .while_reading = "Skaitant",
+    .while_asleep = "Miegant",
+    .measuring = "Dar matuojama",
+    .per_hour = "%s %% per valandą",
+    .per_day = "%s %% per parą",
+    .clock_unset =
+        "Laikrodis nenustatytas, todėl istorijos dar nėra. Atverkite „Įkelti knygas“ ir vieną kartą įkelkite "
+        "puslapį telefone: jis nustatys laikrodį.",
+    .hint_battery = "Įjungimo ar Namų: atgal",
     .preview_text =
         "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
         "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",
@@ -156,6 +186,25 @@ void format_book_count(Language lang, int n, char* out, size_t size) {
     return;
   }
   std::snprintf(out, size, "%d %s", n, n == 1 ? "book" : "books");
+}
+
+void format_time_left(Language lang, int hours, char* out, size_t size) {
+  const bool days = hours >= 48;
+  const int n = days ? (hours + 12) / 24 : hours < 1 ? 1 : hours;
+  if (lang == Language::Lithuanian) {
+    // After "apie" (accusative): 1, 21 dieną; 2-9 dienas; 10-20 dienų.
+    const int tens = n % 100;
+    const int form = (n % 10 == 1 && tens != 11) ? 0 : (n % 10 >= 2 && (tens < 10 || tens >= 20)) ? 1 : 2;
+    const char* const day_words[] = {"dieną", "dienas", "dienų"};
+    const char* const hour_words[] = {"valandą", "valandas", "valandų"};
+    std::snprintf(out, size, "Apie %d %s", n, (days ? day_words : hour_words)[form]);
+    return;
+  }
+  std::snprintf(out, size, "About %d %s", n, days ? "days" : n == 1 ? "hour" : "hours");
+}
+
+void format_tenths(Language lang, int tenths, char* out, size_t size) {
+  std::snprintf(out, size, "%d%c%d", tenths / 10, lang == Language::Lithuanian ? ',' : '.', tenths % 10);
 }
 
 }  // namespace vellum

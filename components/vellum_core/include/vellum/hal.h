@@ -91,6 +91,8 @@ class Clock {
   // Local wall-clock time. Returns false when the time is not known yet
   // (the clock lost power and has not been set since).
   virtual bool now(DateTime& out) = 0;
+  // Sets the time. Returns false when the clock cannot be set.
+  virtual bool set(const DateTime&) { return false; }
 };
 
 // An open file on storage. Reads are random access; files opened for

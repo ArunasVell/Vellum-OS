@@ -3,6 +3,7 @@
 # the host (simulator and tests).
 set(VELLUM_CORE_SRCS
   src/app.cpp
+  src/battery_log.cpp
   src/books/alice.cpp
   src/books/catalog.cpp
   src/books/father_brown.cpp

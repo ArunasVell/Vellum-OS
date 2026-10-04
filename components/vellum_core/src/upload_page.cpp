@@ -147,6 +147,13 @@ const char kUploadPage[] = R"page(<!doctype html>
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); add([...e.dataTransfer.files]); });
   refresh();
+
+  // The phone knows the time: the reader's clock takes it from here.
+  const d = new Date();
+  const p2 = (n) => String(n).padStart(2, "0");
+  const now = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ` +
+              `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+  fetch("/time", { method: "POST", body: now }).catch(() => {});
 })();
 </script>
 </body>

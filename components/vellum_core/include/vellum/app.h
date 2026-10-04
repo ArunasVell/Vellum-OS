@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vellum/battery_log.h"
 #include "vellum/display_queue.h"
 #include "vellum/document.h"
 #include "vellum/epub.h"
@@ -46,7 +47,7 @@ class App {
   void timeout();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents };
+  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t { Back, Mark, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
@@ -83,6 +84,12 @@ class App {
   // Turns a page in the reader; returns false at the start or end of the book.
   bool turn(int step);
 
+  // Battery history: a reading now (false when the time or level is
+  // unknown), and readings while in use, every BatteryLog::kIntervalS.
+  bool record_battery(BatterySample::Kind kind);
+  void sample_battery();
+  void save_battery();
+
   void open_book(int index);
   void sleep();
   void wake();
@@ -95,6 +102,7 @@ class App {
   void draw_settings();
   void draw_transfer();
   void draw_contents();
+  void draw_battery();
   const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
@@ -123,6 +131,8 @@ class App {
   bool resume_reader_ = false;  // reopen the current book on start
   Screen before_sleep_ = Screen::Home;
   TransferInfo transfer_info_;
+  BatteryLog battery_;
+  uint32_t battery_saved_at_ = 0;  // time of the last sample written to the card
 
   struct Hit {
     Rect r;

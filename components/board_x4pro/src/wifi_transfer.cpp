@@ -31,6 +31,7 @@ constexpr int kMaxDevices = 2;
 struct WifiTransfer::Impl {
   const char* root;
   NotifyFn notify;
+  vellum::Clock* clock;
   SemaphoreHandle_t lock = nullptr;
   vellum::TransferStatus st;
   httpd_handle_t server = nullptr;
@@ -173,6 +174,22 @@ struct WifiTransfer::Impl {
     return httpd_resp_sendstr(req, "ok");
   }
 
+  static esp_err_t post_time(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    char body[32];
+    vellum::DateTime t;
+    const int n = req->content_len < sizeof(body) ? httpd_req_recv(req, body, req->content_len) : -1;
+    if (n <= 0 || !vellum::parse_datetime(body, static_cast<size_t>(n), t)) {
+      return fail(req, "400 Bad Request", "Expected YYYY-MM-DD HH:MM:SS.");
+    }
+    if (self->clock == nullptr || !self->clock->set(t)) {
+      return fail(req, "500 Internal Server Error", "The clock could not be set.");
+    }
+    ESP_LOGI(kTag, "clock set to %.*s", n, body);
+    self->update([](vellum::TransferStatus&) {});  // redraw with the new time
+    return httpd_resp_sendstr(req, "ok");
+  }
+
   bool start_wifi(vellum::TransferInfo& info) {
     static bool once = false;
     if (!once) {
@@ -230,15 +247,17 @@ struct WifiTransfer::Impl {
         {.uri = "/", .method = HTTP_GET, .handler = get_page, .user_ctx = this},
         {.uri = "/books", .method = HTTP_GET, .handler = get_books, .user_ctx = this},
         {.uri = "/upload", .method = HTTP_POST, .handler = post_upload, .user_ctx = this},
+        {.uri = "/time", .method = HTTP_POST, .handler = post_time, .user_ctx = this},
     };
     for (const httpd_uri_t& r : routes) httpd_register_uri_handler(server, &r);
     return true;
   }
 };
 
-WifiTransfer::WifiTransfer(const char* card_root, NotifyFn notify) : impl_(new Impl) {
+WifiTransfer::WifiTransfer(const char* card_root, NotifyFn notify, vellum::Clock* clock) : impl_(new Impl) {
   impl_->root = card_root;
   impl_->notify = notify;
+  impl_->clock = clock;
   impl_->lock = xSemaphoreCreateMutex();
 }
 
