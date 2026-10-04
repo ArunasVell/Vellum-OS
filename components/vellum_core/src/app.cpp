@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "vellum/text.h"
+#include "vellum/textfile.h"
 #include "vellum/ui.h"
 
 namespace vellum {
@@ -32,6 +33,13 @@ constexpr int kSettingsTitleBase = 104;
 constexpr int kSettingsTop = 116;
 constexpr int kSectionGap = 38;  // uppercase section label above a group of rows
 constexpr int kSettingRowHeight = 40;
+
+// Sleep screen geometry.
+constexpr int kSleepCoverTop = 120;
+constexpr int kSleepCoverSide = 90;
+
+constexpr uint32_t kHoldMs = 1000;  // holding Power this long sleeps
+constexpr const char* kStatePath = "vellum/state.txt";
 
 // "Add books" geometry.
 constexpr int kTransferTop = 192;  // baseline of the first step label
@@ -61,15 +69,26 @@ void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
 int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
 
 // One line on the settings screen: a name and a value that Power cycles.
-enum class Row : uint8_t { Language, Clock, TextSize, LineSpacing, WordSpacing, Margins, Alignment, Hyphenation };
-constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::TextSize,  Row::LineSpacing,
-                         Row::WordSpacing, Row::Margins, Row::Alignment, Row::Hyphenation};
+enum class Row : uint8_t {
+  Language,
+  Clock,
+  SleepAfter,
+  TextSize,
+  LineSpacing,
+  WordSpacing,
+  Margins,
+  Alignment,
+  Hyphenation
+};
+constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::SleepAfter, Row::TextSize,   Row::LineSpacing,
+                         Row::WordSpacing, Row::Margins, Row::Alignment,  Row::Hyphenation};
 constexpr int kRowCount = sizeof(kRows) / sizeof(kRows[0]);
-constexpr int kGeneralRows = 2;  // rows before the reading section
+constexpr int kGeneralRows = 3;  // rows before the reading section
 
 int value_count(Row r) {
   switch (r) {
     case Row::TextSize:
+    case Row::SleepAfter:
       return 4;
     case Row::LineSpacing:
     case Row::WordSpacing:
@@ -86,6 +105,8 @@ int get(const Settings& s, Row r) {
       return static_cast<int>(s.language);
     case Row::Clock:
       return static_cast<int>(s.time_format);
+    case Row::SleepAfter:
+      return static_cast<int>(s.sleep_after);
     case Row::TextSize:
       return static_cast<int>(s.text_size);
     case Row::LineSpacing:
@@ -109,6 +130,9 @@ void set(Settings& s, Row r, int v) {
       break;
     case Row::Clock:
       s.time_format = static_cast<TimeFormat>(v);
+      break;
+    case Row::SleepAfter:
+      s.sleep_after = static_cast<SleepAfter>(v);
       break;
     case Row::TextSize:
       s.text_size = static_cast<TextSize>(v);
@@ -137,6 +161,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.language;
     case Row::Clock:
       return t.clock;
+    case Row::SleepAfter:
+      return t.sleep_after;
     case Row::TextSize:
       return t.text_size;
     case Row::LineSpacing:
@@ -159,6 +185,8 @@ const char* value_name(const Strings& t, Row r, int v) {
       return strings(static_cast<Language>(v)).language_name;
     case Row::Clock:
       return v == 0 ? t.clock_24 : t.clock_12;
+    case Row::SleepAfter:
+      return t.sleep_names[v];
     case Row::TextSize:
       return t.size_names[v];
     case Row::LineSpacing:
@@ -182,7 +210,12 @@ App::App(Board& board)
       queue_(board.display, fb_),
       library_() {
   fb_.set_rotation(board.rotation);
-  if (board_.storage != nullptr) load_settings(*board_.storage, settings_);
+  if (board_.storage != nullptr) {
+    load_settings(*board_.storage, settings_);
+    char state[16];
+    const int32_t n = textfile::read(*board_.storage, kStatePath, state, sizeof(state) - 1);
+    resume_reader_ = n >= 6 && std::strncmp(state, "reader", 6) == 0;
+  }
   library_.load(builtin_books(), board_.storage, epub_);
 }
 
@@ -582,16 +615,96 @@ void App::draw() {
 }
 
 void App::start() {
+  // After sleep (a restart on the device), carry on reading where we were.
+  if (resume_reader_ && library_.count() > 0) {
+    resume_reader_ = false;
+    open_book(library_.current());
+    if (screen_ == Screen::Reader) return;
+  }
   draw();
   queue_.submit_full();
 }
 
+// ---- Sleep -------------------------------------------------------------------
+
+uint32_t App::wait_ms() const {
+  constexpr uint32_t kForever = 60 * 60 * 1000;
+  if (asleep_) return kForever;
+  if (power_held_) return kHoldMs;
+  const uint32_t idle = sleep_after_ms(settings_.sleep_after);
+  if (idle == 0 || screen_ == Screen::Transfer) return kForever;  // books may still be arriving
+  return idle;
+}
+
+void App::timeout() {
+  if (asleep_) return;
+  if (power_held_) {
+    power_held_ = false;  // the release that follows does nothing
+    sleep();
+    return;
+  }
+  if (sleep_after_ms(settings_.sleep_after) != 0 && screen_ != Screen::Transfer) sleep();
+}
+
+void App::sleep() {
+  if (screen_ == Screen::Transfer) close_transfer();  // radio off first
+  if (screen_ == Screen::Reader) save_progress();
+  if (board_.storage != nullptr) {
+    const char* state = screen_ == Screen::Reader ? "reader\n" : "home\n";
+    board_.storage->write(kStatePath, state, static_cast<uint32_t>(std::strlen(state)));
+  }
+  before_sleep_ = screen_;
+  asleep_ = true;
+  draw_sleep();
+  queue_.submit_full();
+  board_.power.sleep();  // a deep-sleeping board restarts from here on waking
+}
+
+void App::wake() {
+  asleep_ = false;
+  show(before_sleep_);
+}
+
+void App::draw_sleep() {
+  hit_count_ = 0;
+  const int w = fb_.width();
+  const int h = fb_.height();
+  const Strings& t = text();
+  fb_.clear(Color::White);
+  // The book being read, as a large cover: the screen keeps it while asleep.
+  if (library_.count() > 0) {
+    const LibraryEntry& book = library_.entry(library_.current());
+    const int cw = w - 2 * kSleepCoverSide;
+    const int ch = cw * 3 / 2;
+    ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author);
+  }
+  ui::draw_centered(fb_, fonts::literata_16, h - 96, t.sleeping);
+  ui::draw_hint(fb_, t.wake_hint);
+}
+
+// ---- Input -------------------------------------------------------------------
+
 bool App::handle(const InputEvent& ev) {
+  if (asleep_) {
+    if (ev.type == InputEvent::Type::Quit) return false;
+    if (ev.type == InputEvent::Type::KeyDown) wake();  // its release is ignored
+    return true;
+  }
   switch (ev.type) {
     case InputEvent::Type::Quit:
       return false;
     case InputEvent::Type::KeyDown:
+      // Power acts when released, so holding it can mean sleep instead.
+      if (ev.key == Key::Power) {
+        power_held_ = true;
+        return true;
+      }
       if (!handle_key(ev.key)) return true;
+      break;
+    case InputEvent::Type::KeyUp:
+      if (ev.key != Key::Power || !power_held_) return true;
+      power_held_ = false;
+      if (!handle_key(Key::Power)) return true;
       break;
     case InputEvent::Type::TouchDown:
     case InputEvent::Type::TouchMove:
@@ -712,7 +825,10 @@ void run(Board& board) {
   app.start();
   for (;;) {
     InputEvent ev;
-    if (!board.input.wait(ev, 60 * 1000)) continue;
+    if (!board.input.wait(ev, app.wait_ms())) {
+      app.timeout();
+      continue;
+    }
     if (!app.handle(ev)) return;
   }
 }

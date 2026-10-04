@@ -183,7 +183,7 @@
       <h2>How to use it</h2>
       <dl>
         <dt>Next / Prev</dt><dd>The X4 Pro's side buttons: turn pages, or move the highlight on the home, library and settings screens.</dd>
-        <dt>OK</dt><dd>The power button: opens the highlighted book or screen.</dd>
+        <dt>OK</dt><dd>The power button: opens the highlighted book or screen. Hold it for a second to put the reader to sleep; any button wakes it. The reader also sleeps by itself after 10 idle minutes (Settings › Sleep after).</dd>
         <dt>Square key</dt><dd>Home: back to the home screen from anywhere.</dd>
         <dt>Touch</dt><dd>The screen is a touch screen. Tap a book, link or setting to open or change it. While reading, tap the right side or swipe left to go forward, tap the left third or swipe right to go back. Swipe the library to see more books. With a mouse, click to tap and drag to swipe.</dd>
         <dt>Keyboard</dt><dd>Arrow keys, Space, Enter (OK), H (Home)</dd>
@@ -278,7 +278,24 @@
   document.getElementById("prev").addEventListener("click", () => press(KEY.prev));
   document.getElementById("next").addEventListener("click", () => press(KEY.next));
   document.getElementById("home").addEventListener("click", () => press(KEY.home));
-  document.getElementById("power").addEventListener("click", () => press(KEY.power));
+  // OK is the power button: a press opens, holding it for a second sleeps.
+  const powerBtn = document.getElementById("power");
+  let holdTimer = null, held = false;
+  powerBtn.addEventListener("pointerdown", () => {
+    held = false;
+    clearTimeout(holdTimer);
+    holdTimer = setTimeout(() => {
+      held = true;
+      if (!core || busy) return;
+      core._vellum_hold_power();
+      render();
+      saveSoon();
+    }, 1000);
+  });
+  const cancelHold = () => clearTimeout(holdTimer);
+  powerBtn.addEventListener("pointerup", cancelHold);
+  powerBtn.addEventListener("pointerleave", cancelHold);
+  powerBtn.addEventListener("click", () => { if (!held) press(KEY.power); held = false; });
   // The screen is a touch screen: pointer down, moves and up go to Vellum,
   // which turns them into taps and swipes.
   function touch(kind, e) {

@@ -34,8 +34,8 @@ class StdioStorage : public Storage {
   bool full_path(const char* path);
   bool make_parents(char* full);
 
-  char root_[64];
-  char full_[320];
+  char root_[256];
+  char full_[512];
   StdioFile files_[kMaxOpen];
 };
 

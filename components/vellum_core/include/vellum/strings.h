@@ -33,6 +33,10 @@ struct Strings {
   const char* clock;
   const char* clock_24;
   const char* clock_12;
+  const char* sleep_after;
+  const char* sleep_names[4];  // 5, 10, 30 minutes, never
+  const char* sleeping;        // uppercase label on the sleep screen
+  const char* wake_hint;
   const char* text_size;
   const char* size_names[4];  // small .. extra large
   const char* line_spacing;

@@ -1,5 +1,4 @@
-// User preferences. Kept in RAM for now; saved to storage once the SD card
-// driver lands, together with reading progress.
+// User preferences, saved on the card.
 #pragma once
 
 #include <cstddef>
@@ -17,10 +16,12 @@ enum class TimeFormat : uint8_t {
 
 enum class TextSize : uint8_t { Small, Medium, Large, ExtraLarge };
 enum class Spacing : uint8_t { Narrow, Normal, Wide };
+enum class SleepAfter : uint8_t { Min5, Min10, Min30, Never };
 
 struct Settings {
   Language language = Language::English;
   TimeFormat time_format = TimeFormat::H24;
+  SleepAfter sleep_after = SleepAfter::Min10;  // idle time before the reader sleeps
   // Reading
   TextSize text_size = TextSize::Medium;
   Spacing line_spacing = Spacing::Normal;
@@ -37,6 +38,9 @@ struct Settings {
 constexpr const char* kSettingsPath = "vellum/settings.txt";
 void load_settings(Storage& storage, Settings& out);
 bool save_settings(Storage& storage, const Settings& s);
+
+// Idle time before sleeping, in milliseconds; 0 for never.
+uint32_t sleep_after_ms(SleepAfter s);
 
 // Writes the time of day in `format` into out (at least 9 bytes).
 void format_time(const DateTime& t, TimeFormat format, char* out, size_t size);

@@ -5,9 +5,11 @@
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
 #include "driver/ledc.h"
+#include "driver/rtc_io.h"
 #include "epd_controller.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_sleep.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -206,6 +208,8 @@ class Input : public vellum::InputSource {
   int count_ = 0;
 };
 
+void enter_deep_sleep();
+
 // Charge level from the CW2017 gauge; charging state from the charger's status pin.
 class Power : public vellum::Power {
  public:
@@ -224,6 +228,8 @@ class Power : public vellum::Power {
   }
 
   bool charging() override { return gpio_get_level(static_cast<gpio_num_t>(x4pro::kChargeStatus)) == 1; }
+
+  void sleep() override { enter_deep_sleep(); }
 
  private:
   static constexpr int64_t kCacheUs = 60LL * 1000 * 1000;
@@ -273,7 +279,46 @@ class Frontlight : public vellum::Frontlight {
   }
 };
 
+// Deep sleep until the Power button is pressed; waking restarts the firmware.
+// The e-ink panel keeps showing the sleep screen with no power at all.
+void enter_deep_sleep() {
+  const auto power_btn = static_cast<gpio_num_t>(x4pro::kBtnPower);
+  // Wait for the button that sent us here to be let go, or it would wake us at once.
+  while (gpio_get_level(power_btn) == 0) vTaskDelay(pdMS_TO_TICKS(10));
+  vTaskDelay(pdMS_TO_TICKS(50));
+
+  // Everything off and held off while asleep: frontlight, touch, SD card.
+  // The display controller already powered down after its last refresh.
+  for (int pin : {x4pro::kLightCool, x4pro::kLightWarm}) {
+    const auto g = static_cast<gpio_num_t>(pin);
+    gpio_set_direction(g, GPIO_MODE_OUTPUT);
+    gpio_set_level(g, 0);
+    gpio_hold_en(g);
+  }
+  for (int pin : {x4pro::kTouchPowerN, x4pro::kSdPowerN}) {  // active low: high is off
+    const auto g = static_cast<gpio_num_t>(pin);
+    gpio_set_level(g, 1);
+    gpio_hold_en(g);
+  }
+  gpio_hold_en(static_cast<gpio_num_t>(x4pro::kPeripheralRail));
+  gpio_deep_sleep_hold_en();
+
+  rtc_gpio_pullup_en(power_btn);
+  rtc_gpio_pulldown_dis(power_btn);
+  esp_sleep_enable_ext0_wakeup(power_btn, 0);
+  ESP_LOGI(kTag, "deep sleep");
+  esp_deep_sleep_start();
+}
+
 void init_power_rails() {
+  // Pins held through deep sleep stay frozen until released here.
+  gpio_deep_sleep_hold_dis();
+  for (int pin :
+       {x4pro::kLightCool, x4pro::kLightWarm, x4pro::kTouchPowerN, x4pro::kSdPowerN, x4pro::kPeripheralRail}) {
+    gpio_hold_dis(static_cast<gpio_num_t>(pin));
+  }
+  rtc_gpio_deinit(static_cast<gpio_num_t>(x4pro::kBtnPower));  // back to a normal GPIO for the button
+
   gpio_config_t out = {};
   out.pin_bit_mask = (1ULL << x4pro::kPeripheralRail) | (1ULL << x4pro::kTouchPowerN) | (1ULL << x4pro::kSdPowerN);
   out.mode = GPIO_MODE_OUTPUT;

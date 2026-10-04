@@ -62,6 +62,11 @@ class Power {
   virtual ~Power() = default;
   virtual int battery_percent() = 0;  // 0..100, or -1 when unknown
   virtual bool charging() = 0;
+  // Sleeps until the Power button is pressed, with the screen showing what
+  // was last drawn. A board that restarts on waking (deep sleep) never
+  // returns; one that does not (the simulators) returns at once, and the
+  // app then waits for the next button press.
+  virtual void sleep() {}
 };
 
 class Frontlight {

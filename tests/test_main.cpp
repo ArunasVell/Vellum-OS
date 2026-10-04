@@ -570,6 +570,7 @@ void test_app_transfer() {
   CountingPanel panel;
   NoInput input;
   FixedPower power;
+  std::remove("test-card/vellum/state.txt");  // start on the home screen
   StdioStorage card("test-card");
   FakeTransfer transfer;
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
@@ -597,6 +598,73 @@ void test_app_transfer() {
   delete app;
 }
 
+class SleepyPower : public Power {
+ public:
+  int battery_percent() override { return 50; }
+  bool charging() override { return false; }
+  void sleep() override { ++sleeps; }
+  int sleeps = 0;
+};
+
+InputEvent key_event(InputEvent::Type type, Key key) {
+  InputEvent ev;
+  ev.type = type;
+  ev.key = key;
+  return ev;
+}
+
+void test_app_sleep() {
+  using T = InputEvent::Type;
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  std::remove("test-card/vellum/state.txt");
+  StdioStorage card("test-card");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  {
+    auto* app = new App(board);
+    app->start();
+    // A short Power press opens the current book (on release).
+    app->handle(key_event(T::KeyDown, Key::Power));
+    CHECK(panel.full == 1);
+    CHECK(app->wait_ms() == 1000);  // waiting to see if Power is held
+    app->handle(key_event(T::KeyUp, Key::Power));
+    CHECK(panel.full == 2);
+    CHECK(app->wait_ms() == 10 * 60 * 1000);  // default: sleep after 10 idle minutes
+    app->handle(key_event(T::KeyDown, Key::Next));
+
+    // Holding Power sleeps; its release does nothing more.
+    app->handle(key_event(T::KeyDown, Key::Power));
+    app->timeout();
+    CHECK(power.sleeps == 1);
+    CHECK(panel.full == 3);  // the sleep screen
+    app->handle(key_event(T::KeyUp, Key::Power));
+    CHECK(panel.full == 3);
+    CHECK(read_all("test-card/vellum/state.txt") == "reader\n");
+
+    // Any button wakes it, back in the book.
+    app->handle(key_event(T::KeyDown, Key::Next));
+    CHECK(panel.full == 4);
+    // Idle long enough: sleeps again.
+    app->timeout();
+    CHECK(power.sleeps == 2);
+    delete app;
+  }
+  {
+    // A restart after sleep opens the book again.
+    const int full = panel.full;
+    auto* app = new App(board);
+    app->start();
+    CHECK(panel.full == full + 1);
+    const int fast = panel.fast;
+    app->handle(key_event(T::KeyDown, Key::Prev));  // back a page: only works in the reader
+    CHECK(panel.fast == fast + 1);
+    delete app;
+  }
+  std::remove("test-card/vellum/state.txt");
+}
+
 }  // namespace
 
 int main() {
@@ -621,6 +689,7 @@ int main() {
   test_epub();
   test_card_library_and_progress();
   test_app_transfer();
+  test_app_sleep();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {

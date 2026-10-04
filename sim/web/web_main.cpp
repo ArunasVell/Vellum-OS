@@ -118,12 +118,26 @@ EMSCRIPTEN_KEEPALIVE void vellum_start(int battery) {
   app->start();
 }
 
-// 0 = previous, 1 = next, 2 = home, 3 = power
+// A short press: 0 = previous, 1 = next, 2 = home, 3 = power
 EMSCRIPTEN_KEEPALIVE void vellum_key(int key) {
   if (!app || key < 0 || key > 3) return;
   vellum::InputEvent ev;
   ev.type = vellum::InputEvent::Type::KeyDown;
   ev.key = static_cast<vellum::Key>(key);
+  app->handle(ev);
+  ev.type = vellum::InputEvent::Type::KeyUp;
+  app->handle(ev);
+}
+
+// Power held down long enough to sleep.
+EMSCRIPTEN_KEEPALIVE void vellum_hold_power() {
+  if (!app) return;
+  vellum::InputEvent ev;
+  ev.type = vellum::InputEvent::Type::KeyDown;
+  ev.key = vellum::Key::Power;
+  app->handle(ev);
+  app->timeout();
+  ev.type = vellum::InputEvent::Type::KeyUp;
   app->handle(ev);
 }
 
