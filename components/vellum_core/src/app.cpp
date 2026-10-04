@@ -41,6 +41,11 @@ constexpr int kSleepCoverSide = 90;
 constexpr uint32_t kHoldMs = 1000;  // holding Power this long sleeps
 constexpr const char* kStatePath = "vellum/state.txt";
 
+// Contents geometry.
+constexpr int kContentsRowHeight = 50;
+constexpr int kContentsBottom = 60;  // room for the hint
+constexpr int kIndent = 20;          // per level of a nested contents entry
+
 // "Add books" geometry.
 constexpr int kTransferTop = 192;  // baseline of the first step label
 constexpr int kQrSize = 156;
@@ -540,6 +545,191 @@ void App::draw_transfer() {
   ui::draw_hint(fb_, t.hint_transfer);
 }
 
+// ---- Contents and bookmarks ---------------------------------------------------
+
+void App::open_contents() {
+  contents_mark_count_ = library_.bookmarks_of(reading_, contents_marks_, Library::kMaxBookmarks);
+  contents_sel_ = 0;
+  show(Screen::Contents);
+}
+
+int App::contents_rows_per_page() const { return (fb_.height() - kListTop - kContentsBottom) / kContentsRowHeight; }
+
+int App::contents_row_count() const {
+  const Document& doc = *reader_.document();
+  const int chapters = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
+  return 2 + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) + 1 + chapters;
+}
+
+App::ContentsRow App::contents_row(int i, int& index) const {
+  index = 0;
+  if (i == 0) return ContentsRow::Back;
+  if (i == 1) return ContentsRow::Mark;
+  i -= 2;
+  if (contents_mark_count_ > 0) {
+    if (i == 0) return ContentsRow::BookmarksLabel;
+    if (i <= contents_mark_count_) {
+      index = i - 1;
+      return ContentsRow::Bookmark;
+    }
+    i -= 1 + contents_mark_count_;
+  }
+  if (i == 0) return ContentsRow::ChaptersLabel;
+  index = i - 1;
+  return ContentsRow::Chapter;
+}
+
+int App::current_chapter_row() const {
+  const Document& doc = *reader_.document();
+  if (doc.toc_count() == 0) return reader_.chapter();
+  int current = -1;
+  for (int j = 0; j < doc.toc_count(); ++j) {
+    const TocEntry& e = doc.toc(j);
+    const BookPos p{e.chapter, {e.paragraph == TocEntry::kUnknown ? 0 : e.paragraph, 0}};
+    if (reader_.compare_to_page(p) <= 0) current = j;  // the last one that starts by this page
+  }
+  return current;
+}
+
+int App::page_bookmark() const {
+  if (reading_ < 0) return -1;
+  int marks[Library::kMaxBookmarks];
+  const int n = library_.bookmarks_of(reading_, marks, Library::kMaxBookmarks);
+  for (int k = 0; k < n; ++k) {
+    if (reader_.compare_to_page(library_.bookmark(marks[k]).position) == 0) return marks[k];
+  }
+  return -1;
+}
+
+void App::jump_to(BookPos pos) {
+  Document& doc = *reader_.document();
+  const BookPos before = reader_.position();
+  const ReadingStyle style = reading_style(settings_);
+  if (!reader_.open(doc, reader_.id(), style, pos, fb_)) reader_.open(doc, reader_.id(), style, before, fb_);
+  BookState& state = library_.state(reading_);
+  state.position = reader_.position();
+  state.percent = static_cast<uint8_t>(reader_.percent());
+  save_progress();
+  show(Screen::Reader);
+}
+
+void App::contents_activate() {
+  int index;
+  switch (contents_row(contents_sel_, index)) {
+    case ContentsRow::Back:
+      return show(Screen::Reader);
+    case ContentsRow::Mark: {
+      const int mark = page_bookmark();
+      if (mark >= 0) {
+        library_.remove_bookmark(mark);
+      } else {
+        char snippet[sizeof(Bookmark::snippet)];
+        reader_.snippet(snippet, sizeof(snippet));
+        library_.add_bookmark(reading_, reader_.position(), static_cast<uint8_t>(reader_.percent()), snippet);
+      }
+      if (board_.storage != nullptr) library_.save_bookmarks(*board_.storage);
+      return show(Screen::Reader);
+    }
+    case ContentsRow::Bookmark:
+      return jump_to(library_.bookmark(contents_marks_[index]).position);
+    case ContentsRow::Chapter: {
+      Document& doc = *reader_.document();
+      if (doc.toc_count() == 0) return jump_to({static_cast<uint16_t>(index), {}});
+      const TocEntry& e = doc.toc(index);
+      if (e.paragraph == TocEntry::kUnknown) {
+        Chapter ch;
+        doc.load_chapter(e.chapter, ch);  // finds where the entry points
+      }
+      return jump_to({e.chapter, {e.paragraph == TocEntry::kUnknown ? 0 : e.paragraph, 0}});
+    }
+    case ContentsRow::BookmarksLabel:
+    case ContentsRow::ChaptersLabel:
+      return;
+  }
+}
+
+void App::draw_contents() {
+  const int w = fb_.width();
+  const Strings& t = text();
+  const Document& doc = *reader_.document();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.contents);
+
+  const int per_page = contents_rows_per_page();
+  const int count = contents_row_count();
+  const int pages = (count + per_page - 1) / per_page;
+  const int page = contents_sel_ / per_page;
+  int title_w = w - 2 * kSide;
+  if (pages > 1) {
+    char label[48];
+    std::snprintf(label, sizeof(label), t.page_of, page + 1, pages);
+    ui::draw_right(fb_, fonts::literata_16, w - kSide, kSubtitleBase, label);
+    title_w -= text_width_px(fonts::literata_16, label) + 16;
+  }
+  ui::draw_fitted(fb_, fonts::literata_16, kSide, kSubtitleBase, title_w, library_.entry(reading_).title);
+
+  const int mark = page_bookmark();
+  const int current = current_chapter_row();
+  const int first = page * per_page;
+  const int last = std::min(count, first + per_page);
+  ContentsRow prev_kind = ContentsRow::Back;
+  for (int i = first; i < last; ++i) {
+    int index;
+    const ContentsRow kind = contents_row(i, index);
+    const int y = kListTop + (i - first) * kContentsRowHeight;
+    const Rect r = row_rect(fb_, y, kContentsRowHeight);
+    const int base = y + 33;
+    const bool selected = i == contents_sel_;
+    const bool listed = kind == ContentsRow::Bookmark || kind == ContentsRow::Chapter;
+    if (listed && i > first && prev_kind == kind && !selected && contents_sel_ != i - 1) dotted_rule(fb_, y);
+    prev_kind = kind;
+    switch (kind) {
+      case ContentsRow::BookmarksLabel:
+      case ContentsRow::ChaptersLabel:
+        ui::draw_label(fb_, kSide, base + 6,
+                       kind == ContentsRow::BookmarksLabel ? t.bookmarks_label : t.chapters_label);
+        continue;
+      case ContentsRow::Back:
+      case ContentsRow::Mark:
+        draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight},
+                  kind == ContentsRow::Back ? t.back_to_book
+                  : mark >= 0               ? t.remove_bookmark
+                                            : t.add_bookmark,
+                  selected);
+        break;
+      case ContentsRow::Bookmark: {
+        const Bookmark& b = library_.bookmark(contents_marks_[index]);
+        const Color fg = highlight(fb_, r, selected);
+        char percent[8];
+        std::snprintf(percent, sizeof(percent), "%d%%", b.percent);
+        const int right = r.x + r.w - kPad;
+        ui::draw_right(fb_, fonts::literata_16, right, base, percent, fg);
+        const int x = r.x + kPad;
+        ui::draw_fitted(fb_, fonts::literata_italic_20, x, base, right - 56 - x, b.snippet, fg);
+        break;
+      }
+      case ContentsRow::Chapter: {
+        const Color fg = highlight(fb_, r, selected);
+        char numbered[32];
+        const char* title = numbered;
+        int depth = 0;
+        if (doc.toc_count() > 0) {
+          title = doc.toc(index).title;
+          depth = std::min<int>(doc.toc(index).depth, 3);
+        } else {
+          std::snprintf(numbered, sizeof(numbered), t.chapter_n, index + 1);
+        }
+        const int x = r.x + kPad + depth * kIndent;
+        const int right = r.x + r.w - kPad;
+        ui::draw_fitted(fb_, fonts::literata_20, x, base, right - 24 - x, title, fg);
+        if (index == current) fb_.fill_round_rect({right - 8, base - 12, 8, 8}, 4, fg);  // you are here
+        break;
+      }
+    }
+    add_hit(r, i);
+  }
+  ui::draw_hint(fb_, t.hint_list);
+}
+
 // ---- Navigation --------------------------------------------------------------
 
 void App::open_book(int index) {
@@ -591,7 +781,7 @@ void App::draw() {
   time_text(time, sizeof(time));
   const int battery = board_.power.battery_percent();
   if (screen_ == Screen::Reader) {
-    reader_.draw(fb_, text(), time, battery);
+    reader_.draw(fb_, text(), time, battery, page_bookmark() >= 0);
     return;
   }
   fb_.clear(Color::White);
@@ -608,6 +798,9 @@ void App::draw() {
       break;
     case Screen::Transfer:
       draw_transfer();
+      break;
+    case Screen::Contents:
+      draw_contents();
       break;
     case Screen::Reader:
       break;
@@ -648,9 +841,10 @@ void App::timeout() {
 
 void App::sleep() {
   if (screen_ == Screen::Transfer) close_transfer();  // radio off first
-  if (screen_ == Screen::Reader) save_progress();
+  const bool in_book = screen_ == Screen::Reader || screen_ == Screen::Contents;
+  if (in_book) save_progress();
   if (board_.storage != nullptr) {
-    const char* state = screen_ == Screen::Reader ? "reader\n" : "home\n";
+    const char* state = in_book ? "reader\n" : "home\n";
     board_.storage->write(kStatePath, state, static_cast<uint32_t>(std::strlen(state)));
   }
   before_sleep_ = screen_;
@@ -738,7 +932,7 @@ bool App::handle_key(Key key) {
     if (screen_ == Screen::Home) {
       queue_.submit_full();  // already home: just clean the screen
     } else {
-      if (screen_ == Screen::Reader) save_progress();
+      if (screen_ == Screen::Reader || screen_ == Screen::Contents) save_progress();
       if (screen_ == Screen::Transfer) return close_transfer(), false;
       show(Screen::Home);
     }
@@ -748,7 +942,18 @@ bool App::handle_key(Key key) {
   const int step = key == Key::Next ? 1 : key == Key::Prev ? -1 : 0;
   switch (screen_) {
     case Screen::Reader:
+      if (key == Key::Power) return open_contents(), false;
       return turn(step);
+    case Screen::Contents: {
+      if (key == Key::Power) return contents_activate(), false;
+      const int count = contents_row_count();
+      int index;
+      do {
+        contents_sel_ = wrap_index(contents_sel_ + step, count);
+      } while (step != 0 && (contents_row(contents_sel_, index) == ContentsRow::BookmarksLabel ||
+                             contents_row(contents_sel_, index) == ContentsRow::ChaptersLabel));
+      return true;
+    }
     case Screen::Home:
       if (key == Key::Power) return home_activate(), false;
       home_sel_ = wrap_index(home_sel_ + step, home_item_count());
@@ -774,6 +979,7 @@ bool App::handle_gesture(const Gesture& g) {
   if (screen_ == Screen::Reader) {
     switch (g.kind) {
       case K::Tap:
+        if (g.x >= fb_.width() / 3 && g.x < fb_.width() * 2 / 3) return open_contents(), false;
         return turn(g.x < fb_.width() / 3 ? -1 : 1);
       case K::SwipeLeft:
       case K::SwipeUp:
@@ -787,6 +993,21 @@ bool App::handle_gesture(const Gesture& g) {
     return false;
   }
 
+  if (screen_ == Screen::Contents && g.kind != K::Tap) {
+    // Swipes page through the rows, landing on the first one that opens.
+    const int per_page = contents_rows_per_page();
+    const int count = contents_row_count();
+    const int pages = (count + per_page - 1) / per_page;
+    if (pages <= 1) return false;
+    const int forward = g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1;
+    contents_sel_ = wrap_index(contents_sel_ / per_page + forward, pages) * per_page;
+    int index;
+    while (contents_sel_ + 1 < count && (contents_row(contents_sel_, index) == ContentsRow::BookmarksLabel ||
+                                         contents_row(contents_sel_, index) == ContentsRow::ChaptersLabel)) {
+      ++contents_sel_;
+    }
+    return true;
+  }
   if (screen_ == Screen::Library && g.kind != K::Tap) {
     // Swipes page through the list, keeping the highlight on the same row.
     const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
@@ -813,6 +1034,10 @@ bool App::handle_gesture(const Gesture& g) {
       settings_sel_ = item;
       settings_activate();
       return true;
+    case Screen::Contents:
+      contents_sel_ = item;
+      contents_activate();
+      return false;
     case Screen::Reader:
     case Screen::Transfer:
       break;

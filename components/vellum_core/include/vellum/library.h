@@ -33,11 +33,21 @@ struct LibraryEntry {
   BookState state;
 };
 
+// A page the reader asked to come back to.
+struct Bookmark {
+  char path[160] = {};    // the book's LibraryEntry::path
+  BookPos position;       // start of the page
+  uint8_t percent = 0;    // of the whole book
+  char snippet[80] = {};  // the page's first words
+};
+
 class Library {
  public:
   static constexpr int kMaxBooks = 256;
   static constexpr const char* kProgressPath = "vellum/progress.txt";
   static constexpr const char* kCachePath = "vellum/library.txt";
+  static constexpr const char* kBookmarksPath = "vellum/bookmarks.txt";
+  static constexpr int kMaxBookmarks = 256;
 
   Library();
   ~Library();
@@ -56,6 +66,15 @@ class Library {
   BookState& state(int i) { return entries_[i].state; }
   const BookState& state(int i) const { return entries_[i].state; }
 
+  // Writes the indices of book i's bookmarks to `out` in reading order.
+  // Returns how many were written.
+  int bookmarks_of(int book, int* out, int max) const;
+  const Bookmark& bookmark(int k) const { return bookmarks_[k]; }
+  // Returns false when there is no room for another bookmark.
+  bool add_bookmark(int book, BookPos position, uint8_t percent, const char* snippet);
+  void remove_bookmark(int k);
+  bool save_bookmarks(Storage& storage) const;
+
   // Records that book i was opened just now.
   void touch(int i);
   // The book read most recently, or the first book when none has been opened.
@@ -68,6 +87,7 @@ class Library {
   void scan_folder(Storage& storage, const char* dir, Epub& epub);
   void load_cache(Storage& storage);
   void load_progress(Storage& storage);
+  void load_bookmarks(Storage& storage);
 
   LibraryEntry* entries_;
   int count_ = 0;
@@ -75,6 +95,8 @@ class Library {
   int cache_count_ = 0;
   bool cache_dirty_ = false;
   uint32_t clock_ = 0;
+  Bookmark* bookmarks_;
+  int bookmark_count_ = 0;
 };
 
 }  // namespace vellum

@@ -60,6 +60,13 @@ constexpr Strings kEnglish = {
     .no_wifi = "Wi-Fi could not start. Go back and try again.",
     .no_card = "Insert an SD card to add books.",
     .hint_transfer = "Home: done",
+    .contents = "Contents",
+    .back_to_book = "Back to the page",
+    .add_bookmark = "Bookmark this page",
+    .remove_bookmark = "Remove this bookmark",
+    .bookmarks_label = "BOOKMARKS",
+    .chapters_label = "CHAPTERS",
+    .chapter_n = "Chapter %d",
     .preview_text =
         "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
         "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
@@ -121,6 +128,13 @@ constexpr Strings kLithuanian = {
     .no_wifi = "Nepavyko įjungti Wi-Fi. Grįžkite ir bandykite dar kartą.",
     .no_card = "Įdėkite SD kortelę, kad galėtumėte įkelti knygų.",
     .hint_transfer = "Namų: baigti",
+    .contents = "Turinys",
+    .back_to_book = "Grįžti į puslapį",
+    .add_bookmark = "Pažymėti šį puslapį",
+    .remove_bookmark = "Pašalinti šią žymę",
+    .bookmarks_label = "ŽYMĖS",
+    .chapters_label = "SKYRIAI",
+    .chapter_n = "%d skyrius",
     .preview_text =
         "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
         "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",

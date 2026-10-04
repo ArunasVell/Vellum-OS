@@ -56,11 +56,14 @@ char* file_buffer() {
 }  // namespace
 
 Library::Library()
-    : entries_(new(std::nothrow) LibraryEntry[kMaxBooks]), cache_(new(std::nothrow) LibraryEntry[kMaxBooks]) {}
+    : entries_(new(std::nothrow) LibraryEntry[kMaxBooks]),
+      cache_(new(std::nothrow) LibraryEntry[kMaxBooks]),
+      bookmarks_(new(std::nothrow) Bookmark[kMaxBookmarks]) {}
 
 Library::~Library() {
   delete[] entries_;
   delete[] cache_;
+  delete[] bookmarks_;
 }
 
 void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub& epub) {
@@ -99,7 +102,11 @@ void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub
   }
   std::stable_sort(entries_, entries_ + count_, title_less);
   clock_ = 0;
-  if (storage != nullptr) load_progress(*storage);
+  bookmark_count_ = 0;
+  if (storage != nullptr) {
+    load_progress(*storage);
+    load_bookmarks(*storage);
+  }
 }
 
 void Library::load_cache(Storage& storage) {
@@ -215,6 +222,71 @@ bool Library::save_progress(Storage& storage) const {
     n = put_number(buf, n, kFileBytes, e.state.last_opened, '\n');
   }
   return storage.write(kProgressPath, buf, static_cast<uint32_t>(n));
+}
+
+void Library::load_bookmarks(Storage& storage) {
+  char* buf = file_buffer();
+  if (buf == nullptr || bookmarks_ == nullptr) return;
+  const int32_t n = textfile::read(storage, kBookmarksPath, buf, kFileBytes);
+  if (n <= 0) return;
+  textfile::for_each_line(std::string_view(buf, static_cast<size_t>(n)), [&](const std::string_view* f, int count) {
+    if (count < 5 || bookmark_count_ >= kMaxBookmarks) return;
+    Bookmark& b = bookmarks_[bookmark_count_++];
+    b = {};
+    textfile::copy(f[0], b.path, sizeof(b.path));
+    b.position.chapter = static_cast<uint16_t>(textfile::to_uint(f[1]));
+    b.position.text = {textfile::to_uint(f[2]), textfile::to_uint(f[3])};
+    b.percent = static_cast<uint8_t>(std::min<uint32_t>(textfile::to_uint(f[4]), 100));
+    if (count > 5) textfile::copy(f[5], b.snippet, sizeof(b.snippet));
+  });
+}
+
+bool Library::save_bookmarks(Storage& storage) const {
+  char* buf = file_buffer();
+  if (buf == nullptr || bookmarks_ == nullptr) return false;
+  size_t n = 0;
+  for (int k = 0; k < bookmark_count_; ++k) {
+    const Bookmark& b = bookmarks_[k];
+    n = put(buf, n, kFileBytes, b.path, '\t');
+    n = put_number(buf, n, kFileBytes, b.position.chapter, '\t');
+    n = put_number(buf, n, kFileBytes, b.position.text.paragraph, '\t');
+    n = put_number(buf, n, kFileBytes, b.position.text.offset, '\t');
+    n = put_number(buf, n, kFileBytes, b.percent, '\t');
+    n = put(buf, n, kFileBytes, b.snippet, '\n');
+  }
+  return storage.write(kBookmarksPath, buf, static_cast<uint32_t>(n));
+}
+
+int Library::bookmarks_of(int book, int* out, int max) const {
+  int n = 0;
+  for (int k = 0; k < bookmark_count_ && n < max; ++k) {
+    if (std::strcmp(bookmarks_[k].path, entries_[book].path) == 0) out[n++] = k;
+  }
+  std::sort(out, out + n, [&](int a, int b) {
+    const BookPos& x = bookmarks_[a].position;
+    const BookPos& y = bookmarks_[b].position;
+    if (x.chapter != y.chapter) return x.chapter < y.chapter;
+    if (x.text.paragraph != y.text.paragraph) return x.text.paragraph < y.text.paragraph;
+    return x.text.offset < y.text.offset;
+  });
+  return n;
+}
+
+bool Library::add_bookmark(int book, BookPos position, uint8_t percent, const char* snippet) {
+  if (bookmarks_ == nullptr || bookmark_count_ >= kMaxBookmarks) return false;
+  Bookmark& b = bookmarks_[bookmark_count_++];
+  b = {};
+  std::snprintf(b.path, sizeof(b.path), "%s", entries_[book].path);
+  b.position = position;
+  b.percent = percent;
+  std::snprintf(b.snippet, sizeof(b.snippet), "%s", snippet);
+  return true;
+}
+
+void Library::remove_bookmark(int k) {
+  if (k < 0 || k >= bookmark_count_) return;
+  for (int i = k + 1; i < bookmark_count_; ++i) bookmarks_[i - 1] = bookmarks_[i];
+  --bookmark_count_;
 }
 
 void Library::touch(int i) { entries_[i].state.last_opened = ++clock_; }

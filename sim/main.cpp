@@ -373,7 +373,8 @@ int main(int argc, char** argv) {
   SimInput input(opt);
   SimPower power(opt.battery);
   SimClock clock(opt);
-  vellum::StdioStorage card(opt.card.c_str());
+  // Static so it outlives the app run() keeps, which may still hold a book open at exit.
+  static vellum::StdioStorage card(opt.card.c_str());
   SimTransfer transfer;
   std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
 
