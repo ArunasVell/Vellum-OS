@@ -568,6 +568,19 @@ void App::close_transfer() {
   }
 }
 
+// A new version of Vellum arrived from the upload page and waits in the spare
+// slot: say so, turn the radio off and restart into it. Boards that cannot
+// restart (the simulators) carry on at the home screen.
+void App::finish_update() {
+  if (board_.storage != nullptr) board_.storage->write(kStatePath, "home\n", 5);
+  save_battery();
+  fb_.clear(Color::White);
+  ui::draw_centered(fb_, fonts::literata_20, fb_.height() / 2, text().update_done);
+  queue_.submit_full();
+  close_transfer();
+  board_.power.restart();
+}
+
 // Escapes the characters a Wi-Fi QR code treats as syntax.
 static void append_wifi_escaped(char* out, size_t size, size_t& len, const char* s) {
   for (; *s != '\0' && len + 2 < size; ++s) {
@@ -643,8 +656,13 @@ void App::draw_transfer() {
     ui::draw_right(fb_, fonts::literata_16, w - kSide, y, count);
   }
   char line[160];
-  if (st.receiving[0] != '\0') {
+  using Update = TransferStatus::Update;
+  if (st.update == Update::Receiving) {
+    std::snprintf(line, sizeof(line), t.updating, st.update_percent);
+  } else if (st.receiving[0] != '\0') {
     std::snprintf(line, sizeof(line), t.receiving, st.receiving);
+  } else if (st.update == Update::NotVellum || st.update == Update::Broken) {
+    std::snprintf(line, sizeof(line), "%s", st.update == Update::NotVellum ? t.update_not_vellum : t.update_broken);
   } else if (st.card_full) {
     std::snprintf(line, sizeof(line), "%s", t.card_full);
   } else if (st.received > 0) {
@@ -1353,15 +1371,16 @@ void App::draw_check() {
   } else {
     std::snprintf(card, sizeof(card), "%s", t.missing);
   }
-  const char* names[] = {t.device, t.screen, t.battery, t.clock, t.memory_card, t.front_light, t.wifi};
+  const char* names[] = {t.device, t.version, t.screen, t.battery, t.clock, t.memory_card, t.front_light, t.wifi};
   const char* values[] = {board_.name,
+                          board_.version,
                           screen,
                           battery,
                           clock,
                           card,
                           board_.frontlight != nullptr ? t.present : t.missing,
                           board_.transfer != nullptr ? t.present : t.missing};
-  for (int i = 0; i < 7; ++i) {
+  for (int i = 0; i < 8; ++i) {
     const int y = kAboutLabelBase + 10 + i * kAboutRowHeight;
     if (i > 0) dotted_rule(fb_, y);
     draw_text(fb_, fonts::literata_16, kSide * 64, y + 25, names[i]);
@@ -1410,6 +1429,14 @@ bool App::handle(const InputEvent& ev) {
       break;
     case InputEvent::Type::Transfer:
       if (screen_ != Screen::Transfer) return true;
+      if (transfer_state_ == TransferState::Running) {
+        TransferStatus st;
+        board_.transfer->status(st);
+        if (st.update == TransferStatus::Update::Installed) {
+          finish_update();
+          break;
+        }
+      }
       break;
     default:
       return true;

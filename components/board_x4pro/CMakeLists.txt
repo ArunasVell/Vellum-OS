@@ -3,5 +3,5 @@ idf_component_register(
   INCLUDE_DIRS include
   PRIV_INCLUDE_DIRS src
   REQUIRES vellum_core
-  PRIV_REQUIRES esp_driver_gpio esp_driver_ledc esp_driver_spi esp_driver_i2c esp_driver_sdmmc fatfs sdmmc esp_timer esp_wifi esp_netif esp_event esp_http_server nvs_flash esp_pm
+  PRIV_REQUIRES esp_driver_gpio esp_driver_ledc esp_driver_spi esp_driver_i2c esp_driver_sdmmc fatfs sdmmc esp_timer esp_wifi esp_netif esp_event esp_http_server nvs_flash esp_pm app_update
 )

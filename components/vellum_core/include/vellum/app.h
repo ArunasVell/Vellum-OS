@@ -70,6 +70,7 @@ class App {
   // Starts or stops receiving books over Wi-Fi (the "Add books" screen).
   void open_transfer();
   void close_transfer();
+  void finish_update();
   // The contents screen: rows are back, bookmark toggle, bookmarks, chapters.
   void open_contents();
   int contents_row_count() const;

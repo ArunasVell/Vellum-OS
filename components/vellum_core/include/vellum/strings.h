@@ -66,6 +66,10 @@ struct Strings {
   const char* no_wifi;
   const char* no_card;
   const char* hint_transfer;
+  const char* updating;           // printf: percent
+  const char* update_done;        // full screen, before the restart
+  const char* update_not_vellum;  // the file sent was something else
+  const char* update_broken;      // it stopped part way
   // Contents and bookmarks, opened from the reader
   const char* contents;  // screen title
   const char* back_to_book;
@@ -107,6 +111,7 @@ struct Strings {
   const char* screen;
   const char* memory_card;
   const char* wifi;
+  const char* version;
   const char* present;
   const char* missing;
   const char* not_set;

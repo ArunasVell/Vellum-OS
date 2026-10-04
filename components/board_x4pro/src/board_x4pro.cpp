@@ -7,9 +7,12 @@
 #include "driver/ledc.h"
 #include "driver/rtc_io.h"
 #include "epd_controller.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -230,6 +233,7 @@ class Power : public vellum::Power {
   bool charging() override { return gpio_get_level(static_cast<gpio_num_t>(x4pro::kChargeStatus)) == 1; }
 
   void sleep() override { enter_deep_sleep(); }
+  void restart() override { esp_restart(); }
 
  private:
   static constexpr int64_t kCacheUs = 60LL * 1000 * 1000;
@@ -349,6 +353,24 @@ i2c_master_bus_handle_t init_i2c() {
   return bus;
 }
 
+// After an update the new version runs on trial: if it restarts before this
+// timer fires (a crash, a hang caught by the watchdog), the bootloader goes
+// back to the previous version. A minute of running normally keeps it.
+void keep_this_version_once_settled() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(running, &state) != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY) return;
+  ESP_LOGI(kTag, "new version on trial");
+  static esp_timer_handle_t timer = nullptr;
+  esp_timer_create_args_t args = {};
+  args.callback = [](void*) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    ESP_LOGI(kTag, "new version kept");
+  };
+  args.name = "keep_version";
+  if (esp_timer_create(&args, &timer) == ESP_OK) esp_timer_start_once(timer, 60LL * 1000 * 1000);
+}
+
 }  // namespace
 
 vellum::Board& board_x4pro_init() {
@@ -383,6 +405,8 @@ vellum::Board& board_x4pro_init() {
   static vellum::Board board{
       "XTEINK X4 Pro",       display, input,    power, &light, &clock, have_card ? &card : nullptr,
       vellum::Rotation::R90, fb,      &transfer};
+  board.version = esp_app_get_description()->version;
+  keep_this_version_once_settled();
   ESP_LOGI(kTag, "board ready");
   return board;
 }

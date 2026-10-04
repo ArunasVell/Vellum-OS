@@ -250,6 +250,12 @@ void test_interface_text_fits() {
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
     }
+    // Software update lines on the Add books screen.
+    for (const char* line : {t.updating, t.update_done, t.update_not_vellum, t.update_broken}) {
+      const int w = text_width_px(fonts::literata_20, line);
+      if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, line);
+      CHECK(w <= kH - 2 * 28);
+    }
   }
 }
 
@@ -625,6 +631,53 @@ void test_app_transfer() {
   home.key = Key::Home;
   app->handle(home);
   CHECK(transfer.stops == 1);
+  delete app;
+}
+
+class RestartingPower : public FixedPower {
+ public:
+  void restart() override { ++restarts; }
+  int restarts = 0;
+};
+
+void test_app_update() {
+  using U = TransferStatus::Update;
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  RestartingPower power;
+  std::remove("test-card/vellum/state.txt");
+  StdioStorage card("test-card");
+  FakeTransfer transfer;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
+  board.version = "0.1.42";
+  auto* app = new App(board);
+  app->start();
+  tap(*app, 240, 640);  // "Add books"
+  CHECK(transfer.starts == 1);
+
+  InputEvent ev;
+  ev.type = InputEvent::Type::Transfer;
+  transfer.st.update = U::Receiving;
+  transfer.st.update_percent = 40;
+  int fast = panel.fast;
+  app->handle(ev);  // progress shows, nothing restarts
+  CHECK(panel.fast > fast && power.restarts == 0 && transfer.stops == 0);
+
+  transfer.st.update = U::NotVellum;
+  fast = panel.fast;
+  app->handle(ev);  // a wrong file: says so, carries on
+  CHECK(panel.fast > fast && power.restarts == 0 && transfer.stops == 0);
+
+  transfer.st.update = U::Installed;
+  const int full = panel.full;
+  app->handle(ev);  // a full-screen notice, the radio off, then the restart
+  CHECK(panel.full > full);
+  CHECK(transfer.stops == 1 && power.restarts == 1);
+  CHECK(read_all("test-card/vellum/state.txt") == "home\n");
+
+  app->handle(ev);  // the simulators carry on at home; later events are ignored
+  CHECK(power.restarts == 1);
   delete app;
 }
 
@@ -1148,6 +1201,7 @@ int main() {
   test_card_library_and_progress();
   test_covers();
   test_app_transfer();
+  test_app_update();
   test_app_sleep();
   test_app_contents_and_bookmarks();
   test_dates_and_battery_log();

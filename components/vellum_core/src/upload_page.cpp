@@ -34,6 +34,12 @@ const char kUploadPage[] = R"page(<!doctype html>
   .bar { height: 3px; background: var(--line); border-radius: 2px; margin-top: 6px; overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
   .empty { color: var(--muted); padding: 10px 0; }
+  .update { border-top: 1px solid var(--line); padding-top: 22px; display: flex; flex-direction: column; gap: 12px; }
+  .update b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .update .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: center; }
+  .update .state { font: 14px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); min-width: 0; }
+  .update .state.done { color: var(--accent); }
+  .update .state.bad { color: var(--bad); }
 </style>
 </head>
 <body>
@@ -57,6 +63,17 @@ const char kUploadPage[] = R"page(<!doctype html>
     <ul id="books"></ul>
   </section>
   <p data-t="done">When you're done, press Home on the reader. The new books appear in its library.</p>
+  <section id="update" class="update" hidden>
+    <h2 data-t="update">Update Vellum</h2>
+    <p><span data-t="running">This reader runs version</span> <b id="version"></b>.
+      <span data-t="howto">To update, choose a file named like vellum-0.1.42.bin from the Vellum releases page.</span></p>
+    <div class="row">
+      <button id="pickbin" type="button" data-t="pickbin">Choose update file</button>
+      <span id="upstate" class="state"></span>
+    </div>
+    <div class="bar" id="upbar" hidden><i></i></div>
+    <input id="bin" type="file" accept=".bin,application/octet-stream" hidden>
+  </section>
 </main>
 <script>
 (() => {
@@ -66,9 +83,16 @@ const char kUploadPage[] = R"page(<!doctype html>
     lead: "Pasirinkite EPUB knygas šiame telefone ar kompiuteryje. Jos įrašomos tiesiai į skaityklės SD kortelę.",
     pick: "Pasirinkti knygas", drop: "arba įmeskite EPUB failus čia", sending: "Siunčiama",
     onreader: "Skaityklėje", done: "Baigę paspauskite skaityklės Namų mygtuką. Naujos knygos atsiras bibliotekoje.",
-    waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "ne EPUB", none: "Knygų dar nėra."
+    waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "ne EPUB", none: "Knygų dar nėra.",
+    update: "Atnaujinti Vellum", running: "Šioje skaityklėje veikia versija",
+    howto: "Norėdami atnaujinti, pasirinkite failą, pavadintą panašiai kaip vellum-0.1.42.bin, iš Vellum leidimų puslapio.",
+    pickbin: "Pasirinkti atnaujinimo failą", notbin: "Tai ne Vellum atnaujinimas.",
+    installing: "Įdiegiama…", installed: "Įdiegta. Skaityklė paleidžiama iš naujo.",
+    upfailed: "Nepavyko. Skaityklėje niekas nepakeista."
   } : {
-    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not EPUB", none: "No books yet."
+    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not EPUB", none: "No books yet.",
+    notbin: "That is not a Vellum update.", installing: "Installing…",
+    installed: "Installed. The reader is restarting.", upfailed: "It did not work. Nothing changed on the reader."
   };
   if (lt) {
     document.documentElement.lang = "lt";
@@ -147,6 +171,45 @@ const char kUploadPage[] = R"page(<!doctype html>
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); add([...e.dataTransfer.files]); });
   refresh();
+
+  // A new version of Vellum: sent whole to the reader, which checks it,
+  // installs it next to the current one and restarts into it.
+  const updateEl = document.getElementById("update");
+  const bin = document.getElementById("bin");
+  const pickbin = document.getElementById("pickbin");
+  const upstate = document.getElementById("upstate");
+  const upbar = document.getElementById("upbar");
+  fetch("/info").then((r) => r.json()).then((info) => {
+    document.getElementById("version").textContent = info.version;
+    updateEl.hidden = false;
+  }).catch(() => {});
+  pickbin.addEventListener("click", () => bin.click());
+  bin.addEventListener("change", () => {
+    const f = bin.files[0];
+    bin.value = "";
+    if (!f) return;
+    upstate.className = "state";
+    if (!/\.bin$/i.test(f.name)) { upstate.textContent = T.notbin; upstate.classList.add("bad"); return; }
+    pickbin.disabled = true;
+    upbar.hidden = false;
+    upbar.firstChild.style.width = "0";
+    upstate.textContent = "0%";
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/update");
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      upbar.firstChild.style.width = (100 * e.loaded / e.total).toFixed(1) + "%";
+      upstate.textContent = e.loaded < e.total ? Math.floor(100 * e.loaded / e.total) + "%" : T.installing;
+    };
+    xhr.onloadend = () => {
+      const ok = xhr.status === 200;
+      upstate.textContent = ok ? T.installed : /not a Vellum/.test(xhr.responseText) ? T.notbin : T.upfailed;
+      upstate.classList.add(ok ? "done" : "bad");
+      if (ok) upbar.firstChild.style.width = "100%";
+      pickbin.disabled = ok;
+    };
+    xhr.send(f);
+  });
 
   // The phone knows the time: the reader's clock takes it from here.
   const d = new Date();

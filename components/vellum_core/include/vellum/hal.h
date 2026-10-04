@@ -67,6 +67,9 @@ class Power {
   // returns; one that does not (the simulators) returns at once, and the
   // app then waits for the next button press.
   virtual void sleep() {}
+  // Starts the device again, after a software update. Boards that cannot
+  // (the simulators) return and the app carries on.
+  virtual void restart() {}
 };
 
 class Frontlight {
@@ -133,11 +136,23 @@ struct TransferInfo {
 };
 
 struct TransferStatus {
+  // A software update sent from the upload page.
+  enum class Update : uint8_t {
+    None,
+    Receiving,  // update_percent tells how far
+    Installed,  // the next start runs it
+    NotVellum,  // the file was not a Vellum update for this device; nothing changed
+    Broken,     // it did not arrive whole; nothing changed
+  };
+
   int devices = 0;           // phones or computers joined to the network
   int received = 0;          // books saved since start()
   char last[128] = {};       // file name of the newest book saved
   char receiving[128] = {};  // file name being received now, or ""
   bool card_full = false;    // the last book did not fit
+  Update update = Update::None;
+  int update_percent = 0;
+  char update_version[32] = {};  // version of the update being installed
 };
 
 class Transfer {
@@ -161,6 +176,7 @@ struct Board {
   Rotation rotation;             // logical orientation for reading
   uint8_t* framebuffer;          // Framebuffer::bytes_for(display size) bytes
   Transfer* transfer = nullptr;  // nullptr when the device has no Wi-Fi
+  const char* version = "dev";   // the software version running
 };
 
 }  // namespace vellum
