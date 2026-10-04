@@ -15,7 +15,7 @@ constexpr int kEpdMosi = 11;
 constexpr int kEpdCs = 13;
 constexpr int kEpdDc = 18;
 constexpr int kEpdRst = 14;
-constexpr int kEpdBusy = 6;  // high while busy
+constexpr int kEpdBusy = 6;  // busy level depends on the controller
 constexpr int kPanelWidth = 800;
 constexpr int kPanelHeight = 480;
 
@@ -27,6 +27,7 @@ constexpr int kBtnPower = 3;
 // Shared I2C bus: GT911 touch 0x5D, BM8563 RTC 0x51, CW2017 fuel gauge 0x63.
 constexpr int kI2cSda = 39;
 constexpr int kI2cScl = 38;
+constexpr int kI2cHz = 400000;
 constexpr int kTouchInt = 10;
 constexpr int kTouchRst = 4;
 constexpr int kTouchPowerN = 2;  // active low
