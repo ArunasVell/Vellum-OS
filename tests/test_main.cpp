@@ -13,6 +13,7 @@
 #include "vellum/epub.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
+#include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/settings.h"
 #include "vellum/stdio_storage.h"
@@ -922,6 +923,232 @@ void test_app_battery_log() {
 
 }  // namespace
 
+// Two readers on one desk: packets go into the other's queue, and every
+// `drop_every`-th one is lost on the way.
+struct DeskRadio {
+  struct End : Peers {
+    DeskRadio* desk = nullptr;
+    int index = 0;
+    const char* label = "";
+    std::vector<PeerPacket> inbox;
+    bool start() override { return true; }
+    void stop() override {}
+    const char* name() override { return label; }
+    bool send(const PeerAddress* to, const void* data, uint32_t len) override {
+      CHECK(len <= PeerPacket::kMaxSize);
+      if (desk->drop_every > 0 && ++desk->sent % desk->drop_every == 0) return true;
+      End& other = desk->ends[1 - index];
+      if (to != nullptr && !(*to == other.address())) return true;
+      PeerPacket p;
+      p.from = address();
+      p.size = static_cast<uint16_t>(len);
+      std::memcpy(p.data, data, len);
+      other.inbox.push_back(p);
+      return true;
+    }
+    bool receive(PeerPacket& out) override {
+      if (inbox.empty()) return false;
+      out = inbox.front();
+      inbox.erase(inbox.begin());
+      return true;
+    }
+    PeerAddress address() const {
+      PeerAddress a;
+      a.bytes[5] = static_cast<uint8_t>(index + 1);
+      return a;
+    }
+  };
+  End ends[2];
+  int drop_every = 0;
+  int sent = 0;
+  DeskRadio() {
+    for (int i = 0; i < 2; ++i) {
+      ends[i].desk = this;
+      ends[i].index = i;
+    }
+    ends[0].label = "Vellum-AAAA";
+    ends[1].label = "Vellum-BBBB";
+  }
+};
+
+// Delivers packets until both sides are quiet, then ticks once; repeats.
+void run_desk(DeskRadio& desk, PeerSender& tx, PeerReceiver& rx, int rounds) {
+  for (int r = 0; r < rounds && tx.active(); ++r) {
+    PeerPacket p;
+    bool moved = true;
+    while (moved) {
+      moved = false;
+      while (desk.ends[1].receive(p)) moved = true, rx.on_packet(p);
+      while (desk.ends[0].receive(p)) moved = true, tx.on_packet(p);
+    }
+    if (tx.state() == PeerSender::State::Looking && tx.reader_count() > 0) tx.send_to(0);
+    tx.tick();
+    rx.tick();
+  }
+}
+
+void test_peer_transfer() {
+  CHECK(crc32_update(0, "123456789", 9) == 0xCBF43926u);
+  StdioStorage card_a("test-card");
+  StdioStorage card_b("test-card-b");
+  std::string book;
+  for (int i = 0; book.size() < 20000; ++i) book += "Page " + std::to_string(i) + " of a book sent across. ";
+  CHECK(card_a.write("books/Sent Over.epub", book.data(), static_cast<uint32_t>(book.size())));
+
+  for (int drop : {0, 7, 3}) {
+    std::remove("test-card-b/books/Sent Over.epub");
+    DeskRadio desk;
+    desk.drop_every = drop;
+    PeerSender tx;
+    PeerReceiver rx;
+    rx.begin(desk.ends[1], card_b);
+    CHECK(tx.begin(desk.ends[0], card_a, "books/Sent Over.epub"));
+    CHECK(tx.state() == PeerSender::State::Looking);
+    run_desk(desk, tx, rx, 2000);
+    if (tx.state() != PeerSender::State::Sent) std::printf("drop %d: state %d\n", drop, static_cast<int>(tx.state()));
+    CHECK(tx.state() == PeerSender::State::Sent);
+    CHECK(std::string(tx.target_name()) == "Vellum-BBBB");
+    CHECK(rx.received() == 1 && std::string(rx.last()) == "Sent Over.epub");
+    CHECK(std::string(rx.sender()) == "Vellum-AAAA");
+    CHECK(read_all("test-card-b/books/Sent Over.epub") == book);
+    CHECK(rx.state() == PeerReceiver::State::Listening);
+  }
+
+  // Nobody listening: the sender gives up after a while.
+  {
+    DeskRadio desk;
+    PeerSender tx;
+    CHECK(tx.begin(desk.ends[0], card_a, "books/Sent Over.epub"));
+    for (int i = 0; i < 400 && tx.active(); ++i) tx.tick();
+    CHECK(tx.state() == PeerSender::State::Failed && tx.error() == PeerSender::Error::NoAnswer);
+  }
+  // The receiver goes away halfway: the sender fails, and the receiver
+  // throws its half of the book away.
+  {
+    std::remove("test-card-b/books/Sent Over.epub");
+    DeskRadio desk;
+    PeerSender tx;
+    PeerReceiver rx;
+    rx.begin(desk.ends[1], card_b);
+    CHECK(tx.begin(desk.ends[0], card_a, "books/Sent Over.epub"));
+    PeerPacket p;
+    for (int i = 0; i < 8; ++i) {  // about six pieces of fifteen
+      while (desk.ends[1].receive(p)) rx.on_packet(p);
+      while (desk.ends[0].receive(p)) tx.on_packet(p);
+      if (tx.state() == PeerSender::State::Looking && tx.reader_count() > 0) tx.send_to(0);
+      if (tx.state() == PeerSender::State::Looking) tx.tick();
+    }
+    CHECK(rx.busy() && rx.percent() > 0 && rx.percent() < 100);
+    for (int i = 0; i < 60; ++i) {
+      tx.tick();
+      rx.tick();
+      desk.ends[1].inbox.clear();  // out of range
+    }
+    CHECK(tx.state() == PeerSender::State::Failed && tx.error() == PeerSender::Error::NoAnswer);
+    CHECK(!rx.busy() && rx.received() == 0);
+    CHECK(read_all("test-card-b/books/Sent Over.epub").empty());
+    CHECK(read_all("test-card-b/books/Sent Over.epub.part").empty());
+  }
+  // Not a book: refused.
+  {
+    DeskRadio desk;
+    PeerSender tx;
+    PeerReceiver rx;
+    rx.begin(desk.ends[1], card_b);
+    CHECK(card_a.write("books/notes.txt", "hi", 2));
+    CHECK(tx.begin(desk.ends[0], card_a, "books/notes.txt"));
+    run_desk(desk, tx, rx, 50);
+    CHECK(tx.state() == PeerSender::State::Failed && tx.error() == PeerSender::Error::Refused);
+  }
+  std::remove("test-card/books/Sent Over.epub");
+  std::remove("test-card/books/notes.txt");
+}
+
+// Two whole apps: one sends the book it is reading, the other receives it
+// on its "Add books" screen.
+void test_app_send_book() {
+  std::remove("test-card/vellum/state.txt");
+  std::remove("test-card-b/vellum/state.txt");
+  std::remove("test-card-b/vellum/library.txt");
+  std::remove("test-card-b/books/sample.epub");
+  StdioStorage card_a("test-card");
+  StdioStorage card_b("test-card-b");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(card_a.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
+  const char* progress = "books/sample.epub\t0\t0\t0\t0\t1\n";  // the book read last
+  CHECK(card_a.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
+
+  DeskRadio desk;
+  desk.drop_every = 5;
+  std::vector<uint8_t> buf_a(Framebuffer::bytes_for(kW, kH)), buf_b(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel_a, panel_b;
+  NoInput input;
+  FixedPower power;
+  FakeTransfer transfer;
+  Board board_a{"a",     panel_a,       input,        power,   nullptr,      nullptr,
+                &card_a, Rotation::R90, buf_a.data(), nullptr, &desk.ends[0]};
+  Board board_b{"b",     panel_b,       input,        power,     nullptr,      nullptr,
+                &card_b, Rotation::R90, buf_b.data(), &transfer, &desk.ends[1]};
+  auto* a = new App(board_a);
+  auto* b = new App(board_b);
+  a->start();
+  b->start();
+
+  for (int i = 0; i < 4; ++i) press(*b, Key::Next);  // the current book, 2 more, All books: Add books
+  press(*b, Key::Power);
+  CHECK(transfer.starts == 1);
+
+  press(*a, Key::Power);  // open the book
+  press(*a, Key::Power);  // contents: back, bookmark, send
+  press(*a, Key::Next);
+  press(*a, Key::Next);
+  const int full = panel_a.full;
+  press(*a, Key::Power);
+  CHECK(panel_a.full == full + 1);  // the send screen
+  CHECK(a->wait_ms() == peer::kTickMs);
+
+  // Run both until quiet; while looking, choose the first reader found.
+  InputEvent peer_event;
+  peer_event.type = InputEvent::Type::Peer;
+  bool chose = false;
+  for (int round = 0; round < 3000; ++round) {
+    bool moved = false;
+    while (!desk.ends[1].inbox.empty() || !desk.ends[0].inbox.empty()) {
+      moved = true;
+      if (!desk.ends[1].inbox.empty()) b->handle(peer_event);
+      if (!desk.ends[0].inbox.empty()) a->handle(peer_event);
+    }
+    if (!chose && panel_a.fast > 0) {
+      press(*a, Key::Power);  // a reader is listed: send to it
+      chose = true;
+      continue;
+    }
+    if (moved) continue;
+    const bool a_ticks = a->wait_ms() == peer::kTickMs;
+    if (a_ticks) a->timeout();
+    if (b->wait_ms() == peer::kTickMs) b->timeout();
+    if (!a_ticks && chose) break;
+  }
+  CHECK(chose);
+  CHECK(read_all("test-card-b/books/sample.epub") == book);
+  CHECK(a->wait_ms() != peer::kTickMs);  // done: back to the usual idle time
+
+  const int full_a = panel_a.full;
+  press(*a, Key::Power);  // sent: back to the book
+  CHECK(panel_a.full == full_a + 1);
+  press(*b, Key::Home);  // done adding: the library now has the book
+  CHECK(transfer.stops == 1);
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card_b, epub);
+  bool found = false;
+  for (int i = 0; i < lib.count(); ++i) found |= std::string(lib.entry(i).path) == "books/sample.epub";
+  CHECK(found);
+  delete a;
+  delete b;
+  std::remove("test-card-b/books/sample.epub");
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -949,6 +1176,8 @@ int main() {
   test_app_contents_and_bookmarks();
   test_dates_and_battery_log();
   test_app_battery_log();
+  test_peer_transfer();
+  test_app_send_book();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {

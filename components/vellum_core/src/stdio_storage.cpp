@@ -80,6 +80,30 @@ bool StdioStorage::write(const char* path, const void* data, uint32_t len) {
   return std::rename(tmp, full_) == 0;
 }
 
+Writer* StdioStorage::create(const char* path) {
+  if (writer_.fp != nullptr || !full_path(path)) return nullptr;
+  make_parents(full_);
+  std::snprintf(writer_.path, sizeof(writer_.path), "%s", full_);
+  char part[sizeof(writer_.path) + 8];
+  std::snprintf(part, sizeof(part), "%s.part", writer_.path);
+  writer_.fp = std::fopen(part, "wb");
+  return writer_.fp != nullptr ? &writer_ : nullptr;
+}
+
+bool StdioStorage::finish(Writer* w, bool keep) {
+  if (w != &writer_ || writer_.fp == nullptr) return false;
+  char part[sizeof(writer_.path) + 8];
+  std::snprintf(part, sizeof(part), "%s.part", writer_.path);
+  const bool closed = std::fclose(writer_.fp) == 0;
+  writer_.fp = nullptr;
+  if (!keep || !closed) {
+    std::remove(part);
+    return false;
+  }
+  std::remove(writer_.path);  // FAT cannot rename over an existing file
+  return std::rename(part, writer_.path) == 0;
+}
+
 bool StdioStorage::list(const char* dir, ListFn fn, void* ctx) {
   if (!full_path(dir)) return false;
   DIR* d = opendir(full_);

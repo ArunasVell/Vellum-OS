@@ -213,7 +213,10 @@
       </ul>
     </div>
 
-    <p class="foot">Coming next: sending books from one Vellum reader to another.</p>
+    <div class="block">
+      <h2>Send a book to another Vellum</h2>
+      <p class="lead" style="margin:0">Readers nearby can pass books to each other directly, with no Wi-Fi network or password. To try it, open this page in a second browser tab: that tab is the other reader. On one, open <b>Add books</b>. On the other, open a book you added, press OK for its contents, and choose <b>Send to another Vellum</b>.</p>
+    </div>
   </section>
 </main>
 
@@ -370,6 +373,38 @@
     screen.classList.remove("drop");
     if (e.dataTransfer && e.dataTransfer.files.length) addBooks(e.dataTransfer.files);
   });
+
+  // Other tabs with this page open are other readers nearby: books can be
+  // sent between them (Contents › Send to another Vellum, and Add books).
+  let peerChannel = null;
+  try { peerChannel = new BroadcastChannel("vellum-peers"); } catch (_) {}
+  window.vellumPeerSend = (toPtr, fromPtr, dataPtr, len) => {
+    if (!peerChannel || !core) return;
+    const h = core.HEAPU8;
+    peerChannel.postMessage({
+      to: toPtr ? Array.from(h.slice(toPtr, toPtr + 6)) : null,
+      from: Array.from(h.slice(fromPtr, fromPtr + 6)),
+      data: h.slice(dataPtr, dataPtr + len),
+    });
+  };
+  if (peerChannel) {
+    peerChannel.onmessage = (e) => {
+      if (!core) return;
+      const m = e.data;
+      const me = core.HEAPU8.slice(core._vellum_peer_address(), core._vellum_peer_address() + 6);
+      if (m.to && !m.to.every((b, i) => b === me[i])) return;
+      const buf = core._vellum_peer_buffer();
+      core.HEAPU8.set(m.from, buf);
+      core.HEAPU8.set(m.data, buf + 6);
+      core._vellum_peer_packet(m.data.length);
+      if (!busy) render();
+    };
+  }
+  setInterval(() => {
+    if (!core) return;
+    core._vellum_poll();
+    if (!busy) render();
+  }, 300);
 
   VellumCore().then(async (m) => {
     core = m;

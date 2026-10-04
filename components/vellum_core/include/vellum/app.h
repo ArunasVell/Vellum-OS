@@ -6,6 +6,7 @@
 #include "vellum/epub.h"
 #include "vellum/hal.h"
 #include "vellum/library.h"
+#include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/settings.h"
 #include "vellum/strings.h"
@@ -27,6 +28,9 @@ namespace vellum {
 // the left third or swipe right to go back, the right third or swipe left
 // to go forward, the middle for the contents. Swipes page through lists.
 //
+// A book's Contents can send it to another Vellum nearby (Board::peers);
+// the other one receives while its "Add books" screen is open.
+//
 // "Add books" opens a Wi-Fi network and an upload page (Board::transfer);
 // Home closes it and reloads the library.
 class App {
@@ -47,9 +51,9 @@ class App {
   void timeout();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery };
+  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery, Send };
   // One line of the contents screen.
-  enum class ContentsRow : uint8_t { Back, Mark, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
+  enum class ContentsRow : uint8_t { Back, Mark, Send, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
   static constexpr int kHomeRows = 2;     // other books listed under the current one
@@ -103,6 +107,16 @@ class App {
   void draw_transfer();
   void draw_contents();
   void draw_battery();
+  // Sending the open book to another reader, and receiving on "Add books".
+  bool can_send() const;
+  void open_send();
+  void close_send();
+  bool send_activate();  // false when it switched screens (and drew)
+  void draw_send();
+  // Hands waiting packets to the sender or receiver; with `tick`, also tells
+  // them a quiet spell passed. Returns true when the screen should change.
+  bool service_peers(bool tick);
+  bool peers_ticking() const;
   const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
@@ -133,6 +147,10 @@ class App {
   TransferInfo transfer_info_;
   BatteryLog battery_;
   uint32_t battery_saved_at_ = 0;  // time of the last sample written to the card
+  PeerSender sender_;
+  PeerReceiver receiver_;
+  int send_sel_ = 0;
+  bool radio_failed_ = false;  // Peers::start() failed for the send screen
 
   struct Hit {
     Rect r;
