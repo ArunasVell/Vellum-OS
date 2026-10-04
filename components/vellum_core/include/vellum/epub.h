@@ -43,6 +43,10 @@ class Epub : public Document {
   void close();
   bool is_open() const { return file_ != nullptr; }
   const EpubInfo& info() const { return info_; }
+  // The cover picture (JPEG or PNG) as stored in the book, or -1 when the
+  // book names none. The data stays valid until the next chapter or cover
+  // is read.
+  int32_t read_cover(const uint8_t** data);
 
   const char* language() const override { return info_.language; }
   int chapter_count() const override { return spine_count_; }
@@ -81,6 +85,7 @@ class Epub : public Document {
   TocEntry* toc_;
   char (*toc_anchor_)[48];  // fragment each entry points to; empty for a chapter's start
   int toc_count_ = 0;
+  int cover_ = -1;  // archive entry of the cover picture
   EpubInfo info_{};
 };
 

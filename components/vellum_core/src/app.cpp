@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "vellum/text.h"
 #include "vellum/textfile.h"
@@ -54,6 +55,11 @@ constexpr int kChartAxis = 40;  // room left of the chart for 0, 50, 100
 constexpr int kEstimatesBase = 512;
 constexpr int kChartDays = 7;
 
+// Front light geometry.
+constexpr int kLightTop = 156;    // first slider block
+constexpr int kLightBlock = 130;  // one slider: name, value, track and end labels
+constexpr int kLightTrack = 72;   // track, below the block's top
+constexpr int kKnob = 16;
 // Device check geometry.
 constexpr int kKeysLabelBase = 152;
 constexpr int kKeysTop = 166;
@@ -122,6 +128,7 @@ enum class Row : uint8_t {
   Language,
   Clock,
   SleepAfter,
+  Light,    // opens the front light screen
   Battery,  // opens the battery screen
   Check,    // opens the device check
   TextSize,
@@ -131,11 +138,11 @@ enum class Row : uint8_t {
   Alignment,
   Hyphenation
 };
-constexpr Row kRows[] = {Row::Language, Row::Clock,     Row::SleepAfter,  Row::Battery,
-                         Row::Check,    Row::TextSize,  Row::LineSpacing, Row::WordSpacing,
-                         Row::Margins,  Row::Alignment, Row::Hyphenation};
+constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::SleepAfter, Row::Light,
+                         Row::Battery,     Row::Check,   Row::TextSize,   Row::LineSpacing,
+                         Row::WordSpacing, Row::Margins, Row::Alignment,  Row::Hyphenation};
 constexpr int kRowCount = sizeof(kRows) / sizeof(kRows[0]);
-constexpr int kGeneralRows = 5;  // rows before the reading section
+constexpr int kGeneralRows = 6;  // rows before the reading section
 
 int value_count(Row r) {
   switch (r) {
@@ -171,6 +178,7 @@ int get(const Settings& s, Row r) {
       return s.justify ? 0 : 1;
     case Row::Hyphenation:
       return s.hyphenate ? 0 : 1;
+    case Row::Light:
     case Row::Battery:
     case Row::Check:
       break;
@@ -207,6 +215,7 @@ void set(Settings& s, Row r, int v) {
     case Row::Hyphenation:
       s.hyphenate = v == 0;
       break;
+    case Row::Light:
     case Row::Battery:
     case Row::Check:
       break;
@@ -233,6 +242,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.alignment;
     case Row::Hyphenation:
       return t.hyphenation;
+    case Row::Light:
+      return t.front_light;
     case Row::Battery:
       return t.battery;
     case Row::Check:
@@ -260,6 +271,7 @@ const char* value_name(const Strings& t, Row r, int v) {
       return v == 0 ? t.justified : t.left;
     case Row::Hyphenation:
       return v == 0 ? t.on : t.off;
+    case Row::Light:
     case Row::Battery:
     case Row::Check:
       break;
@@ -274,6 +286,8 @@ App::App(Board& board)
       fb_(board.framebuffer, board.display.width(), board.display.height()),
       queue_(board.display, fb_),
       library_() {
+  large_cover_.px = new (std::nothrow) uint8_t[covers::kLargeW * covers::kLargeH];
+  small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   fb_.set_rotation(board.rotation);
   if (board_.storage != nullptr) {
     load_settings(*board_.storage, settings_);
@@ -283,6 +297,20 @@ App::App(Board& board)
     battery_.load(*board_.storage);
   }
   library_.load(builtin_books(), board_.storage, epub_);
+}
+
+App::~App() {
+  delete[] large_cover_.px;
+  delete[] small_cover_.px;
+}
+
+const CoverImage* App::cover_of(int book, bool large) {
+  const LibraryEntry& e = library_.entry(book);
+  CoverImage& img = large ? large_cover_ : small_cover_;
+  if (e.cover <= 0 || board_.storage == nullptr || img.px == nullptr) return nullptr;
+  char path[64];
+  covers::path_for(e.path, e.file_size, path, sizeof(path));
+  return covers::load(*board_.storage, path, large, img) ? &img : nullptr;
 }
 
 void App::reload_library() {
@@ -330,7 +358,7 @@ void App::draw_home() {
     fb_.fill_round_rect({hero.x + 3, hero.y + 3, hero.w - 6, hero.h - 6}, 9, Color::White);
   }
   const Rect cover{kSide, kHeroTop + (kHeroHeight - kCoverH) / 2, kCoverW, kCoverH};
-  ui::draw_cover(fb_, cover, book.title, book.author);
+  ui::draw_cover(fb_, cover, book.title, book.author, cover_of(current, true));
   const int col_x = cover.x + cover.w + 22;
   const int col_w = w - kSide - col_x;
   int y = ui::draw_wrapped(fb_, fonts::literata_italic_26, col_x, cover.y + 28, col_w, 3, book.title, false);
@@ -372,7 +400,8 @@ void App::draw_home() {
     if (order[k] == current) continue;
     const bool selected = home_sel_ == item;
     if (item > 1 && !selected && home_sel_ != item - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.entry(order[k]), t, selected);
+    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.entry(order[k]), t, selected,
+                      cover_of(order[k], false));
     add_hit(row_rect(fb_, y, kHomeRowHeight), item);
     y += kHomeRowHeight;
     ++item;
@@ -428,7 +457,7 @@ void App::draw_library() {
     const int y = kListTop + (i - first) * ui::kRowHeight;
     const bool selected = i == library_sel_;
     if (i > first && !selected && library_sel_ != i - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.entry(i), t, selected);
+    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.entry(i), t, selected, cover_of(i, false));
     add_hit(row_rect(fb_, y, ui::kRowHeight), i);
   }
   ui::draw_hint(fb_, t.hint_list);
@@ -456,7 +485,15 @@ void App::draw_settings() {
     const Color fg = highlight(fb_, r, selected);
     const int base = r.y + 26;
     draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, row_name(t, row), fg);
-    if (row == Row::Battery) {
+    if (row == Row::Light) {
+      char level[24];
+      if (settings_.light == 0) {
+        std::snprintf(level, sizeof(level), "%s \xE2\x80\xBA", t.off);  // ›
+      } else {
+        std::snprintf(level, sizeof(level), "%d%% \xE2\x80\xBA", settings_.light * 100 / kLightSteps);
+      }
+      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, level, fg);
+    } else if (row == Row::Battery) {
       // The level now, and a way in to the history.
       char level[16] = "\xE2\x80\x93 \xE2\x80\xBA";  // – ›
       if (const int percent = board_.power.battery_percent(); percent >= 0) {
@@ -489,6 +526,7 @@ void App::draw_settings() {
 void App::settings_activate() {
   const Row row = kRows[settings_sel_];
   if (row == Row::Battery) return show(Screen::Battery);
+  if (row == Row::Light) return open_light(Screen::Settings);
   if (row == Row::Check) return open_check();
   set(settings_, row, (get(settings_, row) + 1) % value_count(row));
   if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
@@ -632,14 +670,15 @@ int App::contents_rows_per_page() const { return (fb_.height() - kListTop - kCon
 int App::contents_row_count() const {
   const Document& doc = *reader_.document();
   const int chapters = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
-  return 2 + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) + 1 + chapters;
+  return 3 + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) + 1 + chapters;
 }
 
 App::ContentsRow App::contents_row(int i, int& index) const {
   index = 0;
   if (i == 0) return ContentsRow::Back;
   if (i == 1) return ContentsRow::Mark;
-  i -= 2;
+  if (i == 2) return ContentsRow::Light;
+  i -= 3;
   if (contents_mark_count_ > 0) {
     if (i == 0) return ContentsRow::BookmarksLabel;
     if (i <= contents_mark_count_) {
@@ -704,6 +743,8 @@ void App::contents_activate() {
       if (board_.storage != nullptr) library_.save_bookmarks(*board_.storage);
       return show(Screen::Reader);
     }
+    case ContentsRow::Light:
+      return open_light(Screen::Reader);
     case ContentsRow::Bookmark:
       return jump_to(library_.bookmark(contents_marks_[index]).position);
     case ContentsRow::Chapter: {
@@ -764,10 +805,12 @@ void App::draw_contents() {
         continue;
       case ContentsRow::Back:
       case ContentsRow::Mark:
+      case ContentsRow::Light:
         draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight},
-                  kind == ContentsRow::Back ? t.back_to_book
-                  : mark >= 0               ? t.remove_bookmark
-                                            : t.add_bookmark,
+                  kind == ContentsRow::Back    ? t.back_to_book
+                  : kind == ContentsRow::Light ? t.front_light
+                  : mark >= 0                  ? t.remove_bookmark
+                                               : t.add_bookmark,
                   selected);
         break;
       case ContentsRow::Bookmark: {
@@ -924,6 +967,81 @@ void App::draw_battery() {
   ui::draw_hint(fb_, t.hint_battery);
 }
 
+// ---- Front light --------------------------------------------------------------
+
+void App::apply_light() {
+  if (board_.frontlight == nullptr) return;
+  board_.frontlight->set(static_cast<uint8_t>(settings_.light * 255 / kLightSteps),
+                         static_cast<uint8_t>(settings_.warmth * 255 / kLightSteps));
+}
+
+void App::open_light(Screen back) {
+  light_back_ = back;
+  light_sel_ = 0;
+  show(Screen::Light);
+}
+
+void App::close_light() {
+  if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
+  show(light_back_);
+}
+
+void App::draw_light() {
+  const int w = fb_.width();
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.front_light);
+
+  const int x0 = kSide + kKnob / 2;
+  const int track_w = w - 2 * kSide - kKnob;
+  for (int i = 0; i < 2; ++i) {
+    const int y = kLightTop + i * kLightBlock;
+    const Rect r = row_rect(fb_, y, kLightBlock - 12);
+    add_hit(r, i);
+    if (light_sel_ == i) {
+      fb_.fill_round_rect(r, 12, Color::Black);
+      fb_.fill_round_rect({r.x + 3, r.y + 3, r.w - 6, r.h - 6}, 9, Color::White);
+    }
+    const int value = i == 0 ? settings_.light : settings_.warmth;
+    char label[16];
+    if (i == 0 && value == 0) {
+      std::snprintf(label, sizeof(label), "%s", t.off);
+    } else {
+      std::snprintf(label, sizeof(label), "%d%%", value * 100 / kLightSteps);
+    }
+    draw_text(fb_, fonts::literata_20, kSide * 64, y + 36, i == 0 ? t.brightness : t.warmth);
+    ui::draw_right(fb_, fonts::literata_20, w - kSide, y + 36, label);
+    const int track_y = y + kLightTrack;
+    ui::draw_progress(fb_, x0, track_y, track_w, value, kLightSteps);
+    const int knob_x = x0 + value * track_w / kLightSteps;
+    fb_.fill_round_rect({knob_x - kKnob / 2, track_y - kKnob / 2, kKnob, kKnob}, kKnob / 2, Color::Black);
+    if (i == 1) {
+      draw_text(fb_, fonts::literata_16, kSide * 64, track_y + 26, t.cool);
+      ui::draw_right(fb_, fonts::literata_16, w - kSide, track_y + 26, t.warm);
+    }
+  }
+  const Rect done = row_rect(fb_, kLightTop + 2 * kLightBlock, kLinkHeight);
+  draw_link(fb_, done, t.done, light_sel_ == 2);
+  add_hit(done, 2);
+  ui::draw_hint(fb_, t.hint_light);
+}
+
+bool App::light_tap(int x, int y) {
+  const int item = hit_at(x, y);
+  if (item < 0) return false;
+  if (item == 2) {
+    close_light();
+    return false;
+  }
+  // A tap on a slider sets it to the nearest step.
+  const int x0 = kSide + kKnob / 2;
+  const int track_w = fb_.width() - 2 * kSide - kKnob;
+  const int step = std::clamp((x - x0) * kLightSteps * 2 / track_w + 1, 0, 2 * kLightSteps) / 2;
+  (item == 0 ? settings_.light : settings_.warmth) = static_cast<uint8_t>(step);
+  light_sel_ = item;
+  apply_light();
+  return true;
+}
+
 // ---- Navigation --------------------------------------------------------------
 
 void App::open_book(int index) {
@@ -999,6 +1117,9 @@ void App::draw() {
     case Screen::Battery:
       draw_battery();
       break;
+    case Screen::Light:
+      draw_light();
+      break;
     case Screen::Check:
       draw_check();
       break;
@@ -1008,6 +1129,7 @@ void App::draw() {
 }
 
 void App::start() {
+  apply_light();
   record_battery(BatterySample::Kind::Wake);
   save_battery();
   // After sleep (a restart on the device), carry on reading where we were.
@@ -1055,11 +1177,13 @@ void App::sleep() {
   asleep_ = true;
   draw_sleep();
   queue_.submit_full();
+  if (board_.frontlight != nullptr) board_.frontlight->set(0, 0);
   board_.power.sleep();  // a deep-sleeping board restarts from here on waking
 }
 
 void App::wake() {
   asleep_ = false;
+  apply_light();
   record_battery(BatterySample::Kind::Wake);
   show(before_sleep_);
 }
@@ -1075,7 +1199,8 @@ void App::draw_sleep() {
     const LibraryEntry& book = library_.entry(library_.current());
     const int cw = w - 2 * kSleepCoverSide;
     const int ch = cw * 3 / 2;
-    ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author);
+    ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author,
+                   cover_of(library_.current(), true));
   }
   ui::draw_centered(fb_, fonts::literata_16, h - 96, t.sleeping);
   ui::draw_hint(fb_, t.wake_hint);
@@ -1228,7 +1353,7 @@ void App::draw_check() {
   } else {
     std::snprintf(card, sizeof(card), "%s", t.missing);
   }
-  const char* names[] = {t.device, t.screen, t.battery, t.clock, t.memory_card, t.front_light_row, t.wifi};
+  const char* names[] = {t.device, t.screen, t.battery, t.clock, t.memory_card, t.front_light, t.wifi};
   const char* values[] = {board_.name,
                           screen,
                           battery,
@@ -1311,6 +1436,7 @@ bool App::handle_key(Key key) {
       queue_.submit_full();  // already home: just clean the screen
     } else {
       if (screen_ == Screen::Reader || screen_ == Screen::Contents) save_progress();
+      if (screen_ == Screen::Light && board_.storage != nullptr) save_settings(*board_.storage, settings_);
       if (screen_ == Screen::Transfer) return close_transfer(), false;
       show(Screen::Home);
     }
@@ -1347,6 +1473,21 @@ bool App::handle_key(Key key) {
     case Screen::Battery:
       if (key == Key::Power) show(Screen::Settings);
       return false;
+    case Screen::Light: {
+      if (key == Key::Power) {
+        if (light_sel_ == 2) return close_light(), false;
+        ++light_sel_;
+        return true;
+      }
+      if (light_sel_ == 2) {
+        light_sel_ = step > 0 ? 0 : 1;  // back to a slider
+        return true;
+      }
+      uint8_t& v = light_sel_ == 0 ? settings_.light : settings_.warmth;
+      v = static_cast<uint8_t>(std::clamp(v + step, 0, kLightSteps));
+      apply_light();
+      return true;
+    }
     case Screen::Check:
       return false;  // check_event() takes its keys
     case Screen::Transfer:
@@ -1402,6 +1543,7 @@ bool App::handle_gesture(const Gesture& g) {
   }
   if (g.kind != K::Tap) return false;
   if (screen_ == Screen::Battery) return show(Screen::Settings), false;  // a tap anywhere goes back
+  if (screen_ == Screen::Light) return light_tap(g.x, g.y);
 
   const int item = hit_at(g.x, g.y);
   if (item < 0) return false;
@@ -1425,6 +1567,7 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Reader:
     case Screen::Transfer:
     case Screen::Battery:
+    case Screen::Light:
     case Screen::Check:
       break;
   }

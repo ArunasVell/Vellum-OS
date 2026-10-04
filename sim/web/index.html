@@ -79,6 +79,8 @@
     user-select: none;
   }
   .screen canvas { width: 100%; height: 100%; display: block; image-rendering: auto; }
+  /* The front light: a glow over the page, cool to warm. */
+  .glow { position: absolute; inset: 0; pointer-events: none; mix-blend-mode: screen; opacity: 0; transition: opacity .2s, background-color .2s; }
   .screen:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
   .loading {
     position: absolute; inset: 0; display: grid; place-items: center;
@@ -156,6 +158,7 @@
     <div class="device">
       <div class="screen" id="screen" tabindex="0" role="img" aria-label="Simulated e-ink touch screen. Tap a book or setting to open it. While reading, tap or swipe to turn pages.">
         <canvas id="canvas" width="480" height="800"></canvas>
+        <div class="glow" id="glow"></div>
         <div class="loading" id="loading">Starting Vellum…</div>
       </div>
       <div class="keys">
@@ -183,7 +186,7 @@
       <h2>How to use it</h2>
       <dl>
         <dt>Next / Prev</dt><dd>The X4 Pro's side buttons: turn pages, or move the highlight on the home, library and settings screens.</dd>
-        <dt>OK</dt><dd>The power button: opens the highlighted book or screen. While reading, it opens the book's contents: jump to a chapter, bookmark the page, or go back to a bookmark. Hold it for a second to put the reader to sleep; any button wakes it. The reader also sleeps by itself after 10 idle minutes (Settings › Sleep after).</dd>
+        <dt>OK</dt><dd>The power button: opens the highlighted book or screen. While reading, it opens the book's contents: jump to a chapter, bookmark the page, go back to a bookmark, or change the front light. Hold it for a second to put the reader to sleep; any button wakes it. The reader also sleeps by itself after 10 idle minutes (Settings › Sleep after).</dd>
         <dt>Square key</dt><dd>Home: back to the home screen from anywhere.</dd>
         <dt>Touch</dt><dd>The screen is a touch screen. Tap a book, link or setting to open or change it. While reading, tap the right third or swipe left to go forward, tap the left third or swipe right to go back, and tap the middle for the contents. Swipe the library or the contents to see more. With a mouse, click to tap and drag to swipe.</dd>
         <dt>Keyboard</dt><dd>Arrow keys, Space, Enter (OK), H (Home)</dd>
@@ -228,6 +231,14 @@
 
   const canvas = document.getElementById("canvas");
   const ctx = canvas.getContext("2d");
+  const glow = document.getElementById("glow");
+  // Called by the core's front light: level and warmth are 0-255.
+  window.vellumLight = (level, warmth) => {
+    const w = warmth / 255;
+    const mix = (a, b) => Math.round(a + (b - a) * w);
+    glow.style.backgroundColor = `rgb(${mix(170, 255)}, ${mix(200, 170)}, ${mix(255, 90)})`;
+    glow.style.opacity = (level / 255) * 0.5;
+  };
   const screen = document.getElementById("screen");
   const modeChip = document.getElementById("mode-chip");
   const modeText = document.getElementById("mode");

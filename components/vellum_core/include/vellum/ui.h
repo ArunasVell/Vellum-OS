@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "vellum/book.h"
+#include "vellum/covers.h"
 #include "vellum/fonts.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
@@ -47,11 +48,18 @@ void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total);
 // the text is too long to encode.
 bool draw_qr(Framebuffer& fb, int x, int y, int size, std::string_view text);
 
-// A typographic cover: frame, title and author. Small covers show the
-// title's initial only. Each book keeps the same look on every screen.
-void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_view author);
+// A book's cover: its own picture when there is one (scaled to fill r,
+// cropped to fit and dithered), else a typographic cover with frame, title
+// and author. Small typographic covers show the title's initial only. Each
+// book keeps the same look on every screen.
+void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_view author,
+                const CoverImage* picture = nullptr);
+// A grey picture scaled to fill r (cropping what does not fit), dithered to
+// black and white.
+void draw_picture(Framebuffer& fb, Rect r, const CoverImage& picture);
 // One book in a list: small cover, title, author and how far it is read.
 // A selected row is drawn inverted.
-void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected);
+void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected,
+                   const CoverImage* picture = nullptr);
 
 }  // namespace vellum::ui

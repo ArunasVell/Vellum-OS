@@ -5,6 +5,7 @@
 #include <cstring>
 #include <new>
 
+#include "vellum/covers.h"
 #include "vellum/textfile.h"
 
 namespace vellum {
@@ -95,7 +96,8 @@ void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub
         n = put(buf, n, kFileBytes, e.path, '\t');
         n = put(buf, n, kFileBytes, e.title, '\t');
         n = put(buf, n, kFileBytes, e.author, '\t');
-        n = put(buf, n, kFileBytes, e.language, '\n');
+        n = put(buf, n, kFileBytes, e.language, '\t');
+        n = put(buf, n, kFileBytes, e.cover > 0 ? "1" : "0", '\n');
       }
       if (buf != nullptr) storage->write(kCachePath, buf, static_cast<uint32_t>(n));
     }
@@ -124,6 +126,7 @@ void Library::load_cache(Storage& storage) {
     textfile::copy(f[2], e.title, sizeof(e.title));
     textfile::copy(f[3], e.author, sizeof(e.author));
     textfile::copy(f[4], e.language, sizeof(e.language));
+    e.cover = count > 5 ? static_cast<int8_t>(f[5] == "1") : -1;  // older caches: look again
   });
 }
 
@@ -165,18 +168,27 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub) {
         std::memcpy(e.title, cache_[c].title, sizeof(e.title));
         std::memcpy(e.author, cache_[c].author, sizeof(e.author));
         std::memcpy(e.language, cache_[c].language, sizeof(e.language));
+        e.cover = cache_[c].cover;
         cached = true;
         break;
       }
     }
-    if (!cached) {
+    if (!cached || e.cover < 0) {
       if (!epub.open(storage, e.path)) continue;  // not a readable EPUB: leave it out
-      std::memcpy(e.title, epub.info().title, sizeof(e.title));
-      std::memcpy(e.author, epub.info().author, sizeof(e.author));
-      std::memcpy(e.language, epub.info().language, sizeof(e.language));
+      if (!cached) {
+        std::memcpy(e.title, epub.info().title, sizeof(e.title));
+        std::memcpy(e.author, epub.info().author, sizeof(e.author));
+        std::memcpy(e.language, epub.info().language, sizeof(e.language));
+      }
+      // The cover, once: decoded and shrunk now so screens only read thumbnails.
+      const uint8_t* picture = nullptr;
+      const int32_t len = epub.read_cover(&picture);
+      char cover_path[64];
+      covers::path_for(e.path, e.file_size, cover_path, sizeof(cover_path));
+      e.cover = len > 0 && covers::make(storage, cover_path, picture, static_cast<uint32_t>(len)) ? 1 : 0;
       epub.close();
+      cache_dirty_ = true;
     }
-    cache_dirty_ = cache_dirty_ || !cached;
     ++count_;
   }
   // A book that left the card also makes the cache stale.
