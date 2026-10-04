@@ -2128,6 +2128,7 @@ void test_app_words() {
                         "test-card-words/vellum/progress.txt", "test-card-words/vellum/settings.txt"}) {
     std::remove(p);
   }
+  std::filesystem::remove_all("test-card-words/vellum/dictionaries");  // indexes from earlier runs
   copy_sample_dictionary(card, "dictionaries");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
   auto* app = new App(board);
@@ -2138,7 +2139,7 @@ void test_app_words() {
   const WordBox sister = alice_word("sister");
   int fast = panel.fast;
   hold(*app, sister.x + sister.w / 2, sister.y + sister.h / 2);
-  CHECK(panel.fast == fast + 1);
+  CHECK(panel.fast == fast + 2);  // "Preparing the dictionary…" first: no index yet
   CHECK(black_run(screen, sister.x, sister.x + sister.w, sister.y, sister.y + sister.h));  // inverted
   CHECK(black_run(screen, 0, kH, 420, kW - 1));                                            // the panel's edge
   // Highlight, then tap where the passage ends: it is saved and underlined.
