@@ -162,13 +162,16 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
 
   while (pos.paragraph < count && baseline + font.descent <= bottom) {
     const std::string_view text(paragraphs[pos.paragraph]);
+    const bool heading = !text.empty() && text[0] == kHeadingMark;
     const bool first_line = pos.offset == 0;
-    const int32_t indent = (first_line && pos.paragraph > 0) ? style.indent * 64 : 0;
+    // Indent every paragraph but the first and those after a heading.
+    const bool after_heading = pos.paragraph > 0 && paragraphs[pos.paragraph - 1][0] == kHeadingMark;
+    const int32_t indent = (first_line && pos.paragraph > 0 && !heading && !after_heading) ? style.indent * 64 : 0;
 
     Word words[kMaxWords];
     int n = 0;
     int32_t natural = indent;
-    uint32_t i = skip_spaces(text, pos.offset);
+    uint32_t i = skip_spaces(text, (heading && first_line) ? 1 : pos.offset);
     while (i < text.size() && n < kMaxWords) {
       uint32_t end = i;
       while (end < text.size() && !is_space(text[end])) ++end;
@@ -199,9 +202,10 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
 
     const bool last_line = i >= text.size();
     if (fb != nullptr) {
-      int32_t x = style.area.x * 64 + indent;
+      // Headings are centred; other lines justified unless ragged right is chosen.
+      int32_t x = style.area.x * 64 + indent + (heading ? (line_width - natural) / 2 : 0);
       const int gaps = n - 1;
-      const int32_t extra = (!style.justify || last_line || gaps <= 0) ? 0 : line_width - natural;
+      const int32_t extra = (heading || !style.justify || last_line || gaps <= 0) ? 0 : line_width - natural;
       for (int k = 0; k < n; ++k) {
         const int32_t after =
             draw_text(*fb, font, x, baseline, text.substr(words[k].begin, words[k].end - words[k].begin));

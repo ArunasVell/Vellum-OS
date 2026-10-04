@@ -32,27 +32,6 @@ int Framebuffer::width() const { return (rotation_ == Rotation::R90 || rotation_
 
 int Framebuffer::height() const { return (rotation_ == Rotation::R90 || rotation_ == Rotation::R270) ? pw_ : ph_; }
 
-void Framebuffer::to_physical(int x, int y, int& px, int& py) const {
-  switch (rotation_) {
-    case Rotation::R0:
-      px = x;
-      py = y;
-      break;
-    case Rotation::R90:
-      px = pw_ - 1 - y;
-      py = x;
-      break;
-    case Rotation::R180:
-      px = pw_ - 1 - x;
-      py = ph_ - 1 - y;
-      break;
-    case Rotation::R270:
-      px = y;
-      py = ph_ - 1 - x;
-      break;
-  }
-}
-
 Rect Framebuffer::to_physical(Rect r) const {
   if (r.empty()) return {};
   int ax, ay, bx, by;

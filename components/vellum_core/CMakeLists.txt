@@ -9,6 +9,7 @@ set(VELLUM_CORE_SRCS
   src/books/moby_dick.cpp
   src/books/persuasion.cpp
   src/display_queue.cpp
+  src/epub.cpp
   src/framebuffer.cpp
   src/hyphenation.cpp
   src/hyphenation/en_us.cpp
@@ -16,9 +17,15 @@ set(VELLUM_CORE_SRCS
   src/library.cpp
   src/reader.cpp
   src/settings.cpp
+  src/stdio_storage.cpp
   src/strings.cpp
   src/text.cpp
+  src/textfile.cpp
+  src/touch.cpp
   src/ui.cpp
+  src/xml.cpp
+  src/zip.cpp
+  third_party/miniz/miniz_tinfl.c
   src/fonts/literata_16.cpp
   src/fonts/literata_20.cpp
   src/fonts/literata_23.cpp
@@ -31,10 +38,13 @@ set(VELLUM_CORE_SRCS
 )
 
 if(ESP_PLATFORM)
-  idf_component_register(SRCS ${VELLUM_CORE_SRCS} INCLUDE_DIRS include)
+  idf_component_register(SRCS ${VELLUM_CORE_SRCS} INCLUDE_DIRS include PRIV_INCLUDE_DIRS third_party/miniz)
 else()
   add_library(vellum_core STATIC ${VELLUM_CORE_SRCS})
-  target_include_directories(vellum_core PUBLIC include)
+  target_include_directories(vellum_core PUBLIC include PRIVATE third_party/miniz)
   target_compile_features(vellum_core PUBLIC cxx_std_20)
   target_compile_options(vellum_core PRIVATE -Wall -Wextra -Werror)
 endif()
+
+# Vendored code keeps its own style; do not hold it to our warning flags.
+set_source_files_properties(third_party/miniz/miniz_tinfl.c PROPERTIES COMPILE_OPTIONS "-w")

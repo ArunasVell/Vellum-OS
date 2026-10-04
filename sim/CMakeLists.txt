@@ -1,7 +1,7 @@
 # Host build: desktop simulator and unit tests.
 #   cmake -S sim -B build/sim && cmake --build build/sim && ctest --test-dir build/sim
 cmake_minimum_required(VERSION 3.20)
-project(vellum_host CXX)
+project(vellum_host C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,7 +20,11 @@ enable_testing()
 add_executable(vellum-tests ../tests/test_main.cpp)
 target_link_libraries(vellum-tests PRIVATE vellum_core)
 target_compile_options(vellum-tests PRIVATE -Wall -Wextra -Werror)
+target_compile_definitions(vellum-tests PRIVATE VELLUM_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
 add_test(NAME core COMMAND vellum-tests)
 # Home, open the current book, turn pages, back home, library, settings.
 add_test(NAME sim-headless COMMAND vellum-sim --headless --time 14:05 --keys onnnpnhnnnnohnnnnnono
          --screenshot sim-test.png)
+# The same by touch: tap the current book, tap and swipe pages, then Settings.
+add_test(NAME sim-touch COMMAND vellum-sim --headless --time 14:05
+         --keys "[240,200][400,400][400,400>100,410]h[240,700][240,330]" --screenshot sim-touch.png)

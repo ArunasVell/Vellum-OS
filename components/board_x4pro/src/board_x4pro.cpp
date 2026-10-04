@@ -11,6 +11,9 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "gt911.h"
+#include "sd_card.h"
+#include "vellum/stdio_storage.h"
 
 namespace {
 
@@ -56,8 +59,11 @@ class Display : public vellum::DisplayPanel {
   epd::Controller* controller_ = nullptr;
 };
 
-// Buttons raise a GPIO interrupt; the waiting task debounces and reads the level.
-class Buttons : public vellum::InputSource {
+// Buttons and the touch controller raise GPIO interrupts; the waiting task
+// debounces buttons and reads the touch controller. While a finger or the
+// Home pad is down the touch controller is also polled, so a lost interrupt
+// never leaves a press stuck.
+class Input : public vellum::InputSource {
  public:
   void init() {
     queue_ = xQueueCreate(16, sizeof(uint32_t));
@@ -73,9 +79,31 @@ class Buttons : public vellum::InputSource {
     }
   }
 
+  // Call after the I2C bus is up and the touch rail is powered.
+  void init_touch(i2c_master_bus_handle_t i2c) {
+    if (!touch_.attach(i2c, x4pro::kI2cHz, x4pro::kTouchRst, x4pro::kTouchInt)) {
+      ESP_LOGW(kTag, "touch controller not found; buttons only");
+      return;
+    }
+    have_touch_ = true;
+    const auto irq = static_cast<gpio_num_t>(x4pro::kTouchInt);
+    gpio_set_intr_type(irq, GPIO_INTR_ANYEDGE);
+    ESP_ERROR_CHECK(gpio_isr_handler_add(irq, on_edge, reinterpret_cast<void*>(static_cast<uintptr_t>(kTouchSource))));
+  }
+
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
+    if (pop(out)) return true;
+    const bool held = touching_ || home_;
     uint32_t i;
-    if (xQueueReceive(queue_, &i, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) return false;
+    if (xQueueReceive(queue_, &i, pdMS_TO_TICKS(held ? kPollMs : timeout_ms)) != pdTRUE) {
+      if (!held) return false;
+      i = kTouchSource;
+    }
+    if (i == kTouchSource) {
+      read_touch();
+      if (!pop(out)) out.type = vellum::InputEvent::Type::None;
+      return true;
+    }
     vTaskDelay(pdMS_TO_TICKS(kDebounceMs));
     const bool down = gpio_get_level(static_cast<gpio_num_t>(kPins[i].gpio)) == 0;
     if (down == pressed_[i]) {  // bounce: no change once settled
@@ -99,16 +127,71 @@ class Buttons : public vellum::InputSource {
       {x4pro::kBtnNext, vellum::Key::Next},
       {x4pro::kBtnPower, vellum::Key::Power},
   };
+  static constexpr uint32_t kTouchSource = kCount;
+  static constexpr uint32_t kPollMs = 25;
 
   static void IRAM_ATTR on_edge(void* arg) {
     const uint32_t i = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
     BaseType_t woken = pdFALSE;
-    xQueueSendFromISR(queue_, &i, &woken);
+    xQueueSendFromISR(queue_, &i, &woken);  // a full queue drops the edge; polling covers it
     if (woken) portYIELD_FROM_ISR();
+  }
+
+  // Turns the controller's newest report into Home key and touch events.
+  void read_touch() {
+    Gt911::Report r;
+    if (!have_touch_ || !touch_.read(r)) return;
+    using T = vellum::InputEvent::Type;
+    if (r.home != home_) {
+      home_ = r.home;
+      vellum::InputEvent ev;
+      ev.type = r.home ? T::KeyDown : T::KeyUp;
+      ev.key = vellum::Key::Home;
+      push(ev);
+    }
+    if (r.touching) {
+      int x = x4pro::kTouchSwapXY ? r.y : r.x;
+      int y = x4pro::kTouchSwapXY ? r.x : r.y;
+      if (x4pro::kTouchFlipX) x = x4pro::kPanelWidth - 1 - x;
+      if (x4pro::kTouchFlipY) y = x4pro::kPanelHeight - 1 - y;
+      vellum::InputEvent ev;
+      ev.type = touching_ ? T::TouchMove : T::TouchDown;
+      ev.x = static_cast<int16_t>(x < 0 ? 0 : x >= x4pro::kPanelWidth ? x4pro::kPanelWidth - 1 : x);
+      ev.y = static_cast<int16_t>(y < 0 ? 0 : y >= x4pro::kPanelHeight ? x4pro::kPanelHeight - 1 : y);
+      if (!touching_) ESP_LOGI(kTag, "touch raw %d,%d -> panel %d,%d", r.x, r.y, ev.x, ev.y);
+      touching_ = true;
+      last_ = ev;
+      push(ev);
+    } else if (touching_) {
+      touching_ = false;
+      vellum::InputEvent ev = last_;  // lift where the finger last was
+      ev.type = T::TouchUp;
+      push(ev);
+    }
+  }
+
+  void push(const vellum::InputEvent& ev) {
+    if (count_ < kPending) pending_[(head_ + count_++) % kPending] = ev;
+  }
+  bool pop(vellum::InputEvent& out) {
+    if (count_ == 0) return false;
+    out = pending_[head_];
+    head_ = (head_ + 1) % kPending;
+    --count_;
+    return true;
   }
 
   static inline QueueHandle_t queue_ = nullptr;
   bool pressed_[kCount] = {};
+  Gt911 touch_;
+  bool have_touch_ = false;
+  bool touching_ = false;
+  bool home_ = false;
+  vellum::InputEvent last_;
+  static constexpr int kPending = 4;
+  vellum::InputEvent pending_[kPending];
+  int head_ = 0;
+  int count_ = 0;
 };
 
 // Charge level from the CW2017 gauge; charging state from the charger's status pin.
@@ -184,8 +267,9 @@ void init_power_rails() {
   out.mode = GPIO_MODE_OUTPUT;
   ESP_ERROR_CHECK(gpio_config(&out));
   gpio_set_level(static_cast<gpio_num_t>(x4pro::kPeripheralRail), 1);
-  // Touch and SD stay powered off until their drivers exist (both active low).
-  gpio_set_level(static_cast<gpio_num_t>(x4pro::kTouchPowerN), 1);
+  // Touch is powered from the start (it also carries the Home pad); the SD
+  // card is powered when it is mounted. Both enables are active low.
+  gpio_set_level(static_cast<gpio_num_t>(x4pro::kTouchPowerN), 0);
   gpio_set_level(static_cast<gpio_num_t>(x4pro::kSdPowerN), 1);
 
   gpio_config_t in = {};
@@ -194,7 +278,7 @@ void init_power_rails() {
   ESP_ERROR_CHECK(gpio_config(&in));
 }
 
-// Shared by the fuel gauge and the clock now, and the touch controller later.
+// Shared by the touch controller, the fuel gauge and the clock.
 i2c_master_bus_handle_t init_i2c() {
   i2c_master_bus_config_t cfg = {};
   cfg.i2c_port = I2C_NUM_0;
@@ -212,18 +296,19 @@ i2c_master_bus_handle_t init_i2c() {
 
 vellum::Board& board_x4pro_init() {
   static Display display;
-  static Buttons buttons;
+  static Input input;
   static Power power;
   static Frontlight light;
   static Bm8563 clock;
 
   init_power_rails();
-  ESP_ERROR_CHECK(gpio_install_isr_service(0));  // buttons and display BUSY
-  buttons.init();
+  ESP_ERROR_CHECK(gpio_install_isr_service(0));  // buttons, touch and display BUSY
+  input.init();
   light.init();
   const i2c_master_bus_handle_t i2c = init_i2c();
   power.init(i2c);
   if (!clock.attach(i2c, x4pro::kI2cHz)) ESP_LOGW(kTag, "clock not added");
+  input.init_touch(i2c);
   display.init();
 
   // Internal, DMA-capable RAM so the panel driver can stream it over SPI.
@@ -232,7 +317,11 @@ vellum::Board& board_x4pro_init() {
   assert(fb);
 
   // Portrait reading orientation; the exact rotation is to be confirmed on hardware.
-  static vellum::Board board{"XTEINK X4 Pro", display, buttons, power, &light, &clock, vellum::Rotation::R90, fb};
+  static vellum::StdioStorage card(kSdMountPoint);
+  const bool have_card = mount_sd_card();
+
+  static vellum::Board board{"XTEINK X4 Pro",       display, input, power, &light, &clock, have_card ? &card : nullptr,
+                             vellum::Rotation::R90, fb};
   ESP_LOGI(kTag, "board ready");
   return board;
 }

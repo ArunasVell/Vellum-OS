@@ -132,8 +132,7 @@ void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total) {
   if (total > 0) fb.fill_rect({x, y - 1, w * std::clamp(done, 0, total) / total, 3}, Color::Black);
 }
 
-void draw_cover(Framebuffer& fb, Rect r, const Book& book) {
-  const std::string_view title = book.title;
+void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_view author) {
   const int style = static_cast<int>(hash(title) % 3);  // 0 framed, 1 ink, 2 banded
   const bool ink = style == 1;
   const Color bg = ink ? Color::Black : Color::White;
@@ -178,27 +177,27 @@ void draw_cover(Framebuffer& fb, Rect r, const Book& book) {
   fb.hline(r.x + r.w / 2 - 10, after - title_font.line_height + 18, 20, fg);
   const Font& author_font = fonts::literata_16;
   const int author_w = inner.w - 4;
-  const Fit f = fit(author_font, book.author, author_w);
-  draw_fit(fb, author_font, inner.x + 2 + (author_w - fit_width_px(author_font, book.author, f)) / 2,
-           inner.y + inner.h - 14, book.author, f, fg);
+  const Fit f = fit(author_font, author, author_w);
+  draw_fit(fb, author_font, inner.x + 2 + (author_w - fit_width_px(author_font, author, f)) / 2, inner.y + inner.h - 14,
+           author, f, fg);
 }
 
-void draw_book_row(Framebuffer& fb, Rect r, const Book& book, const BookState& state, const Strings& text,
-                   bool selected) {
+void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected) {
   const Color fg = selected ? Color::White : Color::Black;
   if (selected) fb.fill_round_rect(r, 10, Color::Black);
 
   const Rect cover{r.x + 12, r.y + (r.h - 60) / 2, 42, 60};
   if (selected) fb.fill_rect({cover.x - 2, cover.y - 2, cover.w + 4, cover.h + 4}, Color::White);
-  draw_cover(fb, cover, book);
+  draw_cover(fb, cover, book.title, book.author);
 
+  const BookState& state = book.state;
   char status[32];
   if (!state.started()) {
     std::snprintf(status, sizeof(status), "%s", text.status_new);
-  } else if (state.page_count && state.page + 1 >= state.page_count) {
+  } else if (state.percent >= 100) {
     std::snprintf(status, sizeof(status), "%s", text.status_finished);
   } else {
-    std::snprintf(status, sizeof(status), "%d%%", state.percent(book.paragraph_count));
+    std::snprintf(status, sizeof(status), "%d%%", state.percent);
   }
   const int text_x = cover.x + cover.w + 18;
   const int right = r.x + r.w - 14;

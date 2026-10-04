@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 
 #include "vellum/text.h"
 #include "vellum/ui.h"
@@ -175,8 +176,23 @@ App::App(Board& board)
     : board_(board),
       fb_(board.framebuffer, board.display.width(), board.display.height()),
       queue_(board.display, fb_),
-      library_(builtin_books()) {
+      library_() {
   fb_.set_rotation(board.rotation);
+  if (board_.storage != nullptr) load_settings(*board_.storage, settings_);
+  library_.load(builtin_books(), board_.storage, epub_);
+}
+
+void App::reload_library() {
+  epub_.close();
+  epub_path_[0] = '\0';
+  reading_ = -1;
+  library_.load(builtin_books(), board_.storage, epub_);
+  show(Screen::Home);
+}
+
+void App::save_progress() {
+  turns_since_save_ = 0;
+  if (board_.storage != nullptr) library_.save_progress(*board_.storage);
 }
 
 void App::time_text(char* out, size_t size) const {
@@ -197,40 +213,39 @@ int App::home_item_count() const {
 void App::draw_home() {
   const int w = fb_.width();
   const int current = library_.current();
-  const Book& book = library_.book(current);
-  const BookState& state = library_.state(current);
+  const LibraryEntry& book = library_.entry(current);
+  const BookState& state = book.state;
   const Strings& t = text();
 
   ui::draw_label(fb_, kSide, kHeroLabelBase, state.started() ? t.continue_reading : t.start_reading);
 
   // The current book: cover, title, author, chapter and progress.
   const Rect hero = row_rect(fb_, kHeroTop, kHeroHeight);
+  add_hit(hero, 0);
   if (home_sel_ == 0) {
     fb_.fill_round_rect(hero, 12, Color::Black);
     fb_.fill_round_rect({hero.x + 3, hero.y + 3, hero.w - 6, hero.h - 6}, 9, Color::White);
   }
   const Rect cover{kSide, kHeroTop + (kHeroHeight - kCoverH) / 2, kCoverW, kCoverH};
-  ui::draw_cover(fb_, cover, book);
+  ui::draw_cover(fb_, cover, book.title, book.author);
   const int col_x = cover.x + cover.w + 22;
   const int col_w = w - kSide - col_x;
   int y = ui::draw_wrapped(fb_, fonts::literata_italic_26, col_x, cover.y + 28, col_w, 3, book.title, false);
   ui::draw_fitted(fb_, fonts::literata_20, col_x, y + 4, col_w, book.author);
-  char chapter[96];
-  if (book.chapter_title[0] != '\0') {
-    std::snprintf(chapter, sizeof(chapter), "%s \xC2\xB7 %s", book.chapter_label, book.chapter_title);  // ·
-  } else {
-    std::snprintf(chapter, sizeof(chapter), "%s", book.chapter_label);
+  if (book.builtin != nullptr) {
+    char chapter[96];
+    const Book& b = *book.builtin;
+    if (b.chapter_title[0] != '\0') {
+      std::snprintf(chapter, sizeof(chapter), "%s \xC2\xB7 %s", b.chapter_label, b.chapter_title);  // ·
+    } else {
+      std::snprintf(chapter, sizeof(chapter), "%s", b.chapter_label);
+    }
+    ui::draw_wrapped(fb_, fonts::literata_16, col_x, y + 32, col_w, 2, chapter, false);
   }
-  ui::draw_wrapped(fb_, fonts::literata_16, col_x, y + 32, col_w, 2, chapter, false);
 
   const int track_y = cover.y + cover.h - 6;
   if (state.started()) {
-    if (state.page_count > 0) {
-      char page[48];
-      std::snprintf(page, sizeof(page), t.page_of, state.page + 1, state.page_count);
-      draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, page);
-    }
-    const int percent = state.percent(book.paragraph_count);
+    const int percent = state.percent;
     char label[16];
     std::snprintf(label, sizeof(label), "%d%%", percent);
     ui::draw_right(fb_, fonts::literata_16, col_x + col_w, track_y - 14, label);
@@ -254,14 +269,16 @@ void App::draw_home() {
     if (order[k] == current) continue;
     const bool selected = home_sel_ == item;
     if (item > 1 && !selected && home_sel_ != item - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.book(order[k]), library_.state(order[k]), t,
-                      selected);
+    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.entry(order[k]), t, selected);
+    add_hit(row_rect(fb_, y, kHomeRowHeight), item);
     y += kHomeRowHeight;
     ++item;
   }
   y += 4;
   draw_link(fb_, row_rect(fb_, y, kLinkHeight), t.all_books, home_sel_ == item);
   draw_link(fb_, row_rect(fb_, y + kLinkHeight, kLinkHeight), t.settings, home_sel_ == item + 1);
+  add_hit(row_rect(fb_, y, kLinkHeight), item);
+  add_hit(row_rect(fb_, y + kLinkHeight, kLinkHeight), item + 1);
 
   ui::draw_hint(fb_, t.hint_home);
 }
@@ -305,7 +322,8 @@ void App::draw_library() {
     const int y = kListTop + (i - first) * ui::kRowHeight;
     const bool selected = i == library_sel_;
     if (i > first && !selected && library_sel_ != i - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.book(i), library_.state(i), t, selected);
+    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.entry(i), t, selected);
+    add_hit(row_rect(fb_, y, ui::kRowHeight), i);
   }
   ui::draw_hint(fb_, t.hint_list);
 }
@@ -328,6 +346,7 @@ void App::draw_settings() {
     const Row row = kRows[i];
     const bool selected = i == settings_sel_;
     const Rect r = row_rect(fb_, y, kSettingRowHeight);
+    add_hit(r, i);
     const Color fg = highlight(fb_, r, selected);
     const int base = r.y + 28;
     draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, row_name(t, row), fg);
@@ -342,9 +361,8 @@ void App::draw_settings() {
   dotted_rule(fb_, top);
   dotted_rule(fb_, bottom);
   const char* preview[] = {t.preview_text};
-  const Book sample{"", "", "", "", t.preview_language, preview, 1};
   const ReadingStyle style = reading_style(settings_);
-  PageStyle page = page_style(style, fb_, sample, false);
+  PageStyle page = page_style(style, fb_, t.preview_language, false);
   page.area = {style.margin, top + 10, w - 2 * style.margin, bottom - top - 14};
   typeset_page(page, preview, 1, {}, &fb_);
 
@@ -353,20 +371,33 @@ void App::draw_settings() {
 
 void App::settings_activate() {
   const Row row = kRows[settings_sel_];
-  const ReadingStyle before = reading_style(settings_);
   set(settings_, row, (get(settings_, row) + 1) % value_count(row));
-  if (!(reading_style(settings_) == before)) library_.forget_page_counts();
+  if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
 }
 
 // ---- Navigation --------------------------------------------------------------
 
 void App::open_book(int index) {
-  library_.touch(index);
+  const LibraryEntry& entry = library_.entry(index);
+  Document* doc = &builtin_;
+  if (entry.builtin != nullptr) {
+    builtin_.set(*entry.builtin);
+  } else {
+    if (board_.storage == nullptr) return;
+    if (!epub_.is_open() || std::strcmp(epub_path_, entry.path) != 0) {
+      epub_path_[0] = '\0';
+      if (!epub_.open(*board_.storage, entry.path)) return;  // unreadable: stay where we are
+      std::snprintf(epub_path_, sizeof(epub_path_), "%s", entry.path);
+    }
+    doc = &epub_;
+  }
   BookState& state = library_.state(index);
-  reader_.open(library_.book(index), reading_style(settings_), state.position, fb_);
+  if (!reader_.open(*doc, static_cast<uint32_t>(index) + 1, reading_style(settings_), state.position, fb_)) return;
+  library_.touch(index);
   reading_ = index;
-  state.page = static_cast<uint16_t>(reader_.page());
-  state.page_count = static_cast<uint16_t>(reader_.page_count());
+  state.position = reader_.position();
+  state.percent = static_cast<uint8_t>(reader_.percent());
+  save_progress();
   show(Screen::Reader);
 }
 
@@ -377,7 +408,20 @@ void App::show(Screen s) {
   queue_.submit_full();  // a new screen: clear the previous one's ghosting
 }
 
+void App::add_hit(Rect r, int item) {
+  if (hit_count_ < kMaxHits) hits_[hit_count_++] = {r, item};
+}
+
+int App::hit_at(int x, int y) const {
+  for (int i = 0; i < hit_count_; ++i) {
+    const Rect& r = hits_[i].r;
+    if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return hits_[i].item;
+  }
+  return -1;
+}
+
 void App::draw() {
+  hit_count_ = 0;
   char time[16];
   time_text(time, sizeof(time));
   const int battery = board_.power.battery_percent();
@@ -408,44 +452,117 @@ void App::start() {
 }
 
 bool App::handle(const InputEvent& ev) {
-  if (ev.type == InputEvent::Type::Quit) return false;
-  if (ev.type != InputEvent::Type::KeyDown) return true;
-
-  if (ev.key == Key::Home) {
-    if (screen_ == Screen::Home) {
-      queue_.submit_full();  // already home: just clean the screen
-    } else {
-      show(Screen::Home);
-    }
-    return true;
-  }
-
-  const int step = ev.key == Key::Next ? 1 : ev.key == Key::Prev ? -1 : 0;
-  switch (screen_) {
-    case Screen::Reader:
-      if (step == 0 || !(step > 0 ? reader_.next() : reader_.prev())) return true;
-      {
-        BookState& state = library_.state(reading_);
-        state.position = reader_.position();
-        state.page = static_cast<uint16_t>(reader_.page());
-      }
+  switch (ev.type) {
+    case InputEvent::Type::Quit:
+      return false;
+    case InputEvent::Type::KeyDown:
+      if (!handle_key(ev.key)) return true;
       break;
-    case Screen::Home:
-      if (ev.key == Key::Power) return home_activate(), true;
-      home_sel_ = wrap_index(home_sel_ + step, home_item_count());
+    case InputEvent::Type::TouchDown:
+    case InputEvent::Type::TouchMove:
+    case InputEvent::Type::TouchUp:
+      if (!handle_gesture(touch_.feed(ev, fb_))) return true;
       break;
-    case Screen::Library:
-      if (ev.key == Key::Power) return library_activate(), true;
-      library_sel_ = wrap_index(library_sel_ + step, library_.count());
-      break;
-    case Screen::Settings:
-      if (ev.key == Key::Power) settings_activate();
-      settings_sel_ = wrap_index(settings_sel_ + step, kRowCount);
-      break;
+    default:
+      return true;
   }
   draw();
   queue_.submit();
   return true;
+}
+
+bool App::turn(int step) {
+  if (step == 0 || !(step > 0 ? reader_.next() : reader_.prev())) return false;
+  BookState& state = library_.state(reading_);
+  state.position = reader_.position();
+  state.percent = static_cast<uint8_t>(reader_.percent());
+  // Save now and then, not on every turn: card writes cost power.
+  if (++turns_since_save_ >= 10) save_progress();
+  return true;
+}
+
+// Returns true when the screen needs a redraw; screen changes draw themselves.
+bool App::handle_key(Key key) {
+  if (key == Key::Home) {
+    if (screen_ == Screen::Home) {
+      queue_.submit_full();  // already home: just clean the screen
+    } else {
+      if (screen_ == Screen::Reader) save_progress();
+      show(Screen::Home);
+    }
+    return false;
+  }
+
+  const int step = key == Key::Next ? 1 : key == Key::Prev ? -1 : 0;
+  switch (screen_) {
+    case Screen::Reader:
+      return turn(step);
+    case Screen::Home:
+      if (key == Key::Power) return home_activate(), false;
+      home_sel_ = wrap_index(home_sel_ + step, home_item_count());
+      return true;
+    case Screen::Library:
+      if (key == Key::Power) return library_activate(), false;
+      library_sel_ = wrap_index(library_sel_ + step, library_.count());
+      return true;
+    case Screen::Settings:
+      if (key == Key::Power) settings_activate();
+      settings_sel_ = wrap_index(settings_sel_ + step, kRowCount);
+      return true;
+  }
+  return false;
+}
+
+bool App::handle_gesture(const Gesture& g) {
+  using K = Gesture::Kind;
+  if (g.kind == K::None) return false;
+
+  if (screen_ == Screen::Reader) {
+    switch (g.kind) {
+      case K::Tap:
+        return turn(g.x < fb_.width() / 3 ? -1 : 1);
+      case K::SwipeLeft:
+      case K::SwipeUp:
+        return turn(1);
+      case K::SwipeRight:
+      case K::SwipeDown:
+        return turn(-1);
+      case K::None:
+        break;
+    }
+    return false;
+  }
+
+  if (screen_ == Screen::Library && g.kind != K::Tap) {
+    // Swipes page through the list, keeping the highlight on the same row.
+    const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
+    if (pages <= 1) return false;
+    const int forward = g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1;
+    const int page = wrap_index(library_sel_ / kLibraryRows + forward, pages);
+    library_sel_ = std::min(page * kLibraryRows + library_sel_ % kLibraryRows, library_.count() - 1);
+    return true;
+  }
+  if (g.kind != K::Tap) return false;
+
+  const int item = hit_at(g.x, g.y);
+  if (item < 0) return false;
+  switch (screen_) {
+    case Screen::Home:
+      home_sel_ = item;
+      home_activate();
+      return false;
+    case Screen::Library:
+      library_sel_ = item;
+      library_activate();
+      return false;
+    case Screen::Settings:
+      settings_sel_ = item;
+      settings_activate();
+      return true;
+    case Screen::Reader:
+      break;
+  }
+  return false;
 }
 
 void run(Board& board) {

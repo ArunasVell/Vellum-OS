@@ -1,16 +1,22 @@
 // Host unit tests for the portable core. Plain asserts, no framework.
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "vellum/app.h"
 #include "vellum/book.h"
 #include "vellum/display_queue.h"
+#include "vellum/epub.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
 #include "vellum/reader.h"
 #include "vellum/settings.h"
+#include "vellum/stdio_storage.h"
 #include "vellum/strings.h"
 #include "vellum/text.h"
+#include "vellum/touch.h"
+#include "vellum/xml.h"
 
 using namespace vellum;
 
@@ -170,7 +176,9 @@ void test_pagination_covers_text_once() {
 }
 
 void test_library_order() {
-  Library lib(builtin_books());
+  Library lib;
+  Epub epub;
+  lib.load(builtin_books(), nullptr, epub);
   CHECK(lib.count() == 4);
   CHECK(lib.current() == 0);  // nothing opened: the first book
   int order[Library::kMaxBooks];
@@ -208,7 +216,8 @@ void test_reading_style_changes_layout() {
     TextPos pos{};
     int n = 0;
     while (pos.paragraph < book.paragraph_count && n < 1000) {
-      pos = typeset_page(page_style(style, f.fb, book, n == 0), book.paragraphs, book.paragraph_count, pos, nullptr);
+      pos = typeset_page(page_style(style, f.fb, book.language, n == 0), book.paragraphs, book.paragraph_count, pos,
+                         nullptr);
       ++n;
     }
     return n;
@@ -235,6 +244,124 @@ void test_interface_text_fits() {
       CHECK(w <= kH - 2 * 28);
     }
   }
+}
+
+std::string read_all(const char* path) {
+  std::string out;
+  if (std::FILE* f = std::fopen(path, "rb")) {
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+    std::fclose(f);
+  }
+  return out;
+}
+
+void test_xml_entities() {
+  char out[4];
+  size_t len = 0;
+  size_t pos = 0;
+  CHECK(xml::decode_entity("&amp;x", pos, out, len) && len == 1 && out[0] == '&' && pos == 5);
+  pos = 0;
+  CHECK(xml::decode_entity("&#x2014;", pos, out, len) && len == 3);
+  pos = 0;
+  CHECK(xml::decode_entity("&shy;", pos, out, len) && len == 0);
+  pos = 0;
+  CHECK(!xml::decode_entity("&nosuch;", pos, out, len) && pos == 0);
+  CHECK(xml::attr(" id=\"c1\" href='a b.xhtml'", "href") == "a b.xhtml");
+}
+
+void test_epub() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  Epub epub;
+  CHECK(epub.open(data, "sample.epub"));
+  CHECK(std::string(epub.info().title) == "Vellum & the Test Book");
+  CHECK(std::string(epub.info().author) == "Arūnas Tester");
+  CHECK(std::string(epub.info().language) == "lt");
+  CHECK(epub.chapter_count() == 2);
+
+  Chapter ch{};
+  CHECK(epub.load_chapter(0, ch));
+  const std::vector<std::string> want = {
+      "\x01Pirmas skyrius",
+      "Labas, pasauli & draugai—sveiki!",
+      "Nelaužti tarpai\xC2\xA0čia. Antra eilutė.",
+      "Eilėraštis:",
+      "pirma eilė",
+      "antra eilė",
+      "",
+      "Paskutinis „sakinys“.",
+  };
+  CHECK(ch.paragraph_count == want.size());
+  for (size_t i = 0; i < want.size() && i < ch.paragraph_count; ++i) {
+    if (want[i] != ch.paragraphs[i]) std::printf("paragraph %zu: [%s]\n", i, ch.paragraphs[i]);
+    CHECK(want[i] == ch.paragraphs[i]);
+  }
+  CHECK(epub.load_chapter(1, ch));
+  CHECK(ch.paragraph_count == 2 && std::string(ch.paragraphs[0]) == "\x01Second");
+  CHECK(!epub.load_chapter(2, ch));
+  CHECK(!epub.open(data, "missing.epub"));
+}
+
+void test_card_library_and_progress() {
+  // A fresh card folder with one book on it.
+  StdioStorage card("test-card");
+  std::remove("test-card/vellum/progress.txt");
+  std::remove("test-card/vellum/library.txt");
+  std::remove("test-card/vellum/settings.txt");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(!book.empty());
+  CHECK(card.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
+
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  CHECK(lib.count() == 5);
+  int found = -1;
+  for (int i = 0; i < lib.count(); ++i) {
+    if (std::string(lib.entry(i).title) == "Vellum & the Test Book") found = i;
+  }
+  CHECK(found >= 0);
+  if (found < 0) return;
+  CHECK(read_all("test-card/vellum/library.txt").find("books/sample.epub") != std::string::npos);
+
+  lib.touch(found);
+  lib.state(found).position = {1, {3, 7}};
+  lib.state(found).percent = 42;
+  CHECK(lib.save_progress(card));
+
+  Library again;
+  again.load(builtin_books(), &card, epub);
+  CHECK(again.current() == found);
+  const BookState& s = again.state(found);
+  CHECK(s.position.chapter == 1 && s.position.text.paragraph == 3 && s.position.text.offset == 7);
+  CHECK(s.percent == 42);
+
+  Settings settings;
+  settings.language = Language::Lithuanian;
+  settings.text_size = TextSize::Large;
+  settings.justify = false;
+  CHECK(save_settings(card, settings));
+  Settings loaded;
+  load_settings(card, loaded);
+  CHECK(loaded == settings);
+}
+
+void test_reader_crosses_chapters() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  Epub epub;
+  CHECK(epub.open(data, "sample.epub"));
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  Reader reader;
+  CHECK(reader.open(epub, 1, reading_style(Settings{}), {}, f.fb));
+  CHECK(reader.position().chapter == 0);
+  int turns = 0;
+  while (reader.next()) ++turns;
+  CHECK(reader.position().chapter == 1);
+  CHECK(reader.percent() == 100);
+  while (reader.prev()) --turns;
+  CHECK(turns == 0 && reader.position().chapter == 0);
 }
 
 void test_time_format() {
@@ -275,10 +402,117 @@ void test_hyphenation() {
   CHECK(hyphenator_for("de") == nullptr);
 }
 
+void test_rotation_round_trip() {
+  for (Rotation r : {Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270}) {
+    Fixture f;
+    f.fb.set_rotation(r);
+    for (auto [x, y] : {std::pair{0, 0}, {5, 9}, {f.fb.width() - 1, f.fb.height() - 1}}) {
+      int px, py, lx, ly;
+      f.fb.to_physical(x, y, px, py);
+      CHECK(px >= 0 && px < kW && py >= 0 && py < kH);
+      f.fb.to_logical(px, py, lx, ly);
+      CHECK(lx == x && ly == y);
+    }
+  }
+}
+
+// A touch event at a logical point on an R90 (portrait) screen.
+InputEvent touch_at(InputEvent::Type type, int x, int y) {
+  InputEvent ev;
+  ev.type = type;
+  int px, py;
+  rotate_to_physical(Rotation::R90, kW, kH, x, y, px, py);
+  ev.x = static_cast<int16_t>(px);
+  ev.y = static_cast<int16_t>(py);
+  return ev;
+}
+
+Gesture stroke(TouchTracker& t, const Framebuffer& fb, int x0, int y0, int x1, int y1) {
+  using T = InputEvent::Type;
+  t.feed(touch_at(T::TouchDown, x0, y0), fb);
+  t.feed(touch_at(T::TouchMove, (x0 + x1) / 2, (y0 + y1) / 2), fb);
+  return t.feed(touch_at(T::TouchUp, x1, y1), fb);
+}
+
+void test_gestures() {
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  TouchTracker t;
+  Gesture g = stroke(t, f.fb, 100, 200, 108, 195);
+  CHECK(g.kind == Gesture::Kind::Tap && g.x == 100 && g.y == 200);
+  CHECK(stroke(t, f.fb, 400, 300, 150, 320).kind == Gesture::Kind::SwipeLeft);
+  CHECK(stroke(t, f.fb, 100, 300, 350, 280).kind == Gesture::Kind::SwipeRight);
+  CHECK(stroke(t, f.fb, 240, 600, 250, 200).kind == Gesture::Kind::SwipeUp);
+  CHECK(stroke(t, f.fb, 240, 200, 230, 600).kind == Gesture::Kind::SwipeDown);
+  CHECK(stroke(t, f.fb, 100, 100, 200, 200).kind == Gesture::Kind::None);  // diagonal
+  // A wander that comes back is not a tap.
+  using T = InputEvent::Type;
+  t.feed(touch_at(T::TouchDown, 100, 100), f.fb);
+  t.feed(touch_at(T::TouchMove, 200, 100), f.fb);
+  CHECK(t.feed(touch_at(T::TouchUp, 100, 100), f.fb).kind == Gesture::Kind::None);
+  // A release with no press does nothing.
+  CHECK(t.feed(touch_at(T::TouchUp, 100, 100), f.fb).kind == Gesture::Kind::None);
+}
+
+class NoInput : public InputSource {
+ public:
+  bool wait(InputEvent&, uint32_t) override { return false; }
+};
+
+class FixedPower : public Power {
+ public:
+  int battery_percent() override { return 80; }
+  bool charging() override { return false; }
+};
+
+void tap(App& app, int x, int y) {
+  app.handle(touch_at(InputEvent::Type::TouchDown, x, y));
+  app.handle(touch_at(InputEvent::Type::TouchUp, x, y));
+}
+
+void swipe(App& app, int x0, int y0, int x1, int y1) {
+  app.handle(touch_at(InputEvent::Type::TouchDown, x0, y0));
+  app.handle(touch_at(InputEvent::Type::TouchMove, x1, y1));
+  app.handle(touch_at(InputEvent::Type::TouchUp, x1, y1));
+}
+
+void test_app_touch() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  Board board{"test", panel, input, power, nullptr, nullptr, nullptr, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  CHECK(panel.full == 1);
+
+  tap(*app, 10, 790);  // empty space at the bottom: nothing happens
+  CHECK(panel.full == 1 && panel.fast == 0);
+
+  tap(*app, 240, 200);  // the current book's card opens it
+  CHECK(panel.full == 2);
+
+  tap(*app, 50, 400);  // left third on the first page: no page before it
+  CHECK(panel.fast == 0);
+  tap(*app, 400, 400);  // forward
+  CHECK(panel.fast == 1);
+  swipe(*app, 400, 400, 100, 410);  // swipe left: forward
+  CHECK(panel.fast == 2);
+  swipe(*app, 100, 400, 400, 410);  // swipe right: back
+  tap(*app, 50, 400);               // back again, to the first page
+  CHECK(panel.fast == 4);
+  tap(*app, 50, 400);
+  CHECK(panel.fast == 4);
+  delete app;
+}
+
 }  // namespace
 
 int main() {
   test_rotation_mapping();
+  test_rotation_round_trip();
+  test_gestures();
+  test_app_touch();
   test_fill_rect_matches_set_pixel();
   test_fill_rect_clips();
   test_display_queue_cadence();
@@ -290,6 +524,10 @@ int main() {
   test_time_format();
   test_book_count_plurals();
   test_interface_text_fits();
+  test_xml_entities();
+  test_epub();
+  test_card_library_and_progress();
+  test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);

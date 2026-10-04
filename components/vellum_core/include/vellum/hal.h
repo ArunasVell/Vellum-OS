@@ -29,10 +29,15 @@ class DisplayPanel {
 
 enum class Key : uint8_t { Prev, Next, Home, Power };
 
+// A key press or release, or one sample of a finger on the touch screen.
+// Touch coordinates are physical panel pixels, like the framebuffer's
+// storage; the app maps them to logical coordinates.
 struct InputEvent {
-  enum class Type : uint8_t { None, KeyDown, KeyUp, Quit };
+  enum class Type : uint8_t { None, KeyDown, KeyUp, TouchDown, TouchMove, TouchUp, Quit };
   Type type = Type::None;
   Key key = Key::Next;
+  int16_t x = 0;
+  int16_t y = 0;
 };
 
 class InputSource {
@@ -74,6 +79,33 @@ class Clock {
   virtual bool now(DateTime& out) = 0;
 };
 
+// An open file on storage. Reads are random access; files opened for
+// reading cannot be written.
+class File {
+ public:
+  virtual ~File() = default;
+  virtual uint32_t size() const = 0;
+  // Reads up to len bytes at offset. Returns the bytes read, or -1 on error.
+  virtual int32_t read_at(uint32_t offset, void* buf, uint32_t len) = 0;
+};
+
+// The memory card. Paths are relative to its root and use '/', e.g.
+// "books/Alice.epub".
+class Storage {
+ public:
+  virtual ~Storage() = default;
+  // Opens a file for reading; nullptr when missing. At most kMaxOpen files
+  // are open at once.
+  static constexpr int kMaxOpen = 4;
+  virtual File* open(const char* path) = 0;
+  virtual void close(File* f) = 0;
+  // Replaces a whole file, creating parent directories as needed.
+  virtual bool write(const char* path, const void* data, uint32_t len) = 0;
+  // Calls fn for each entry in dir. Returns false when dir cannot be read.
+  using ListFn = void (*)(void* ctx, const char* name, bool is_dir, uint32_t size);
+  virtual bool list(const char* dir, ListFn fn, void* ctx) = 0;
+};
+
 struct Board {
   const char* name;
   DisplayPanel& display;
@@ -81,6 +113,7 @@ struct Board {
   Power& power;
   Frontlight* frontlight;  // nullptr when the device has none
   Clock* clock;            // nullptr when the device has none
+  Storage* storage;        // nullptr when there is no card
   Rotation rotation;       // logical orientation for reading
   uint8_t* framebuffer;    // Framebuffer::bytes_for(display size) bytes
 };
