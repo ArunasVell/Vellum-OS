@@ -243,7 +243,7 @@ void test_interface_text_fits() {
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
     for (const char* hint :
-         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery}) {
+         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery, t.hint_light}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -731,9 +731,9 @@ void test_app_contents_and_bookmarks() {
   CHECK(count_lines(marks) == 1 && marks.starts_with("books/sample.epub\t0\t0\t0\t"));
   CHECK(marks.find("\tLabas, pasauli") != std::string::npos);  // the page's first words, after the heading
 
-  // Rows now: back, remove, BOOKMARKS, the bookmark, CHAPTERS, three entries.
+  // Rows now: back, remove, light, BOOKMARKS, the bookmark, CHAPTERS, three entries.
   press(*app, Key::Power);
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // labels are skipped
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);  // labels are skipped
   press(*app, Key::Power);                             // "Second"
   CHECK(progress_has("books/sample.epub\t1\t0\t0\t"));
 
@@ -744,7 +744,7 @@ void test_app_contents_and_bookmarks() {
 
   // Back to the first bookmark (the bookmarks come in reading order), then remove it.
   press(*app, Key::Power);
-  for (int i = 0; i < 2; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(progress_has("books/sample.epub\t0\t0\t0\t"));
   press(*app, Key::Power);
@@ -920,6 +920,65 @@ void test_app_battery_log() {
   std::remove("test-card/vellum/state.txt");
 }
 
+class RecordingLight : public Frontlight {
+ public:
+  void set(uint8_t l, uint8_t w) override {
+    level = l;
+    warmth = w;
+  }
+  int level = -1;
+  int warmth = -1;
+};
+
+void test_app_front_light() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  RecordingLight light;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/state.txt");
+  StdioStorage card("test-card");
+  Board board{"test", panel, input, power, &light, nullptr, &card, Rotation::R90, buf.data()};
+  {
+    App app(board);
+    app.start();
+    CHECK(light.level == 0);  // off until asked for
+    press(app, Key::Power);   // open the current book
+    press(app, Key::Power);   // contents
+    press(app, Key::Next);
+    press(app, Key::Next);
+    press(app, Key::Power);  // front light
+    for (int i = 0; i < 4; ++i) press(app, Key::Next);
+    CHECK(light.level == 4 * 255 / 10);  // applied at once
+    CHECK(light.warmth == 3 * 255 / 10);
+    press(app, Key::Power);  // warmth
+    for (int i = 0; i < 5; ++i) press(app, Key::Prev);
+    CHECK(light.warmth == 0 && light.level == 102);
+    press(app, Key::Power);  // done
+    press(app, Key::Power);  // back in the book, settings saved
+    const std::string saved = read_all("test-card/vellum/settings.txt");
+    CHECK(saved.find("light=4\n") != std::string::npos && saved.find("warmth=0\n") != std::string::npos);
+
+    // Off while asleep, back on waking.
+    app.handle(key_event(InputEvent::Type::KeyDown, Key::Power));
+    app.timeout();
+    CHECK(light.level == 0);
+    app.handle(key_event(InputEvent::Type::KeyUp, Key::Power));
+    press(app, Key::Next);
+    CHECK(light.level == 102);
+  }
+  {
+    // A restart turns it on as it was left.
+    light.level = -1;
+    App app(board);
+    app.start();
+    CHECK(light.level == 102 && light.warmth == 0);
+  }
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/state.txt");
+}
+
 }  // namespace
 
 int main() {
@@ -949,6 +1008,7 @@ int main() {
   test_app_contents_and_bookmarks();
   test_dates_and_battery_log();
   test_app_battery_log();
+  test_app_front_light();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {
