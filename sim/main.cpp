@@ -9,7 +9,8 @@
 //
 // Headless (for CI and screenshots):
 //   vellum-sim --headless --keys onnp --time 14:05 --screenshot page.png
-// where n = next, p = prev, h = home, o = power, [X,Y] taps the logical
+// where n = next, p = prev, h = home, o = power, z = hold power (sleep),
+// [X,Y] taps the logical
 // point (X,Y) and [X,Y>X2,Y2] swipes from one point to the other.
 // --time fixes the clock.
 // --card DIR uses a folder as the SD card: EPUBs go in DIR/books.
@@ -21,6 +22,7 @@
 #include <cstring>
 #include <ctime>
 #include <deque>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -179,8 +181,10 @@ class SimInput : public vellum::InputSource {
     using T = vellum::InputEvent::Type;
     for (;;) {
       if (!pending_.empty()) {
-        out = pending_.front();
+        const std::optional<vellum::InputEvent> next = pending_.front();
         pending_.pop_front();
+        if (!next) return false;
+        out = *next;
         return true;
       }
       if (pos_ >= opt_.keys.size()) break;
@@ -200,8 +204,14 @@ class SimInput : public vellum::InputSource {
           out.key = vellum::Key::Home;
           return true;
         case 'o':
+        case 'z': {
           out.key = vellum::Key::Power;
+          vellum::InputEvent up = out;
+          up.type = T::KeyUp;
+          if (c == 'z') pending_.push_back(std::nullopt);  // a wait that times out: held
+          pending_.push_back(up);
           return true;
+        }
         default:
           break;  // ignore unknown characters
       }
@@ -270,7 +280,7 @@ class SimInput : public vellum::InputSource {
 
   const Options& opt_;
   size_t pos_ = 0;
-  std::deque<vellum::InputEvent> pending_;
+  std::deque<std::optional<vellum::InputEvent>> pending_;  // nullopt: a timeout
   bool mouse_down_ = false;
 };
 

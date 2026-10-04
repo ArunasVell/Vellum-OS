@@ -18,6 +18,8 @@ namespace vellum {
 //
 // Controls: the side buttons (Prev/Next) move through lists and turn pages,
 // Power opens the highlighted item, Home returns to the home screen.
+// Holding Power for a second sleeps; so does leaving the reader idle for
+// the time set in Settings. Any button wakes it, back where it was.
 // Touch: tap an item to open it (or change a setting); in the reader, tap
 // the left third or swipe right to go back, tap elsewhere or swipe left to
 // go forward. Swipes page through the library.
@@ -34,6 +36,12 @@ class App {
   bool handle(const InputEvent& ev);
   // Rereads the card's books (after books were added) and shows the home screen.
   void reload_library();
+
+  // How long the host may wait for input before calling timeout(): the
+  // Power hold time while Power is down, else the idle time before sleep.
+  uint32_t wait_ms() const;
+  // No input for wait_ms(): sleeps (Power held, or idle long enough).
+  void timeout();
 
  private:
   enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer };
@@ -60,6 +68,9 @@ class App {
   bool turn(int step);
 
   void open_book(int index);
+  void sleep();
+  void wake();
+  void draw_sleep();
   void save_progress();
   void show(Screen s);  // switches screen with a full refresh
   void draw();
@@ -87,6 +98,10 @@ class App {
   int library_sel_ = 0;
   int settings_sel_ = 0;
   TransferState transfer_state_ = TransferState::Off;
+  bool power_held_ = false;  // Power is down and has not acted yet
+  bool asleep_ = false;
+  bool resume_reader_ = false;  // reopen the current book on start
+  Screen before_sleep_ = Screen::Home;
   TransferInfo transfer_info_;
 
   struct Hit {

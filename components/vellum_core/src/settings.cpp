@@ -30,6 +30,8 @@ constexpr SettingKey kKeys[] = {
      [](Settings& s, int v) { s.language = static_cast<Language>(v); }},
     {"clock", 2, [](const Settings& s) { return static_cast<int>(s.time_format); },
      [](Settings& s, int v) { s.time_format = static_cast<TimeFormat>(v); }},
+    {"sleep_after", 4, [](const Settings& s) { return static_cast<int>(s.sleep_after); },
+     [](Settings& s, int v) { s.sleep_after = static_cast<SleepAfter>(v); }},
     {"text_size", 4, [](const Settings& s) { return static_cast<int>(s.text_size); },
      [](Settings& s, int v) { s.text_size = static_cast<TextSize>(v); }},
     {"line_spacing", 3, [](const Settings& s) { return static_cast<int>(s.line_spacing); },
@@ -44,6 +46,20 @@ constexpr SettingKey kKeys[] = {
 };
 
 }  // namespace
+
+uint32_t sleep_after_ms(SleepAfter s) {
+  switch (s) {
+    case SleepAfter::Min5:
+      return 5 * 60 * 1000;
+    case SleepAfter::Min10:
+      return 10 * 60 * 1000;
+    case SleepAfter::Min30:
+      return 30 * 60 * 1000;
+    case SleepAfter::Never:
+      break;
+  }
+  return 0;
+}
 
 void load_settings(Storage& storage, Settings& out) {
   char buf[1024];
