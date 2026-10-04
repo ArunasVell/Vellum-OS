@@ -151,8 +151,24 @@ uint32_t hyphen_break(const Font& font, const Hyphenator& h, std::string_view s,
 
 }  // namespace
 
+int PageWords::at(int x, int y, int slop) const {
+  int best = -1;
+  int best_d = slop + 1;
+  for (int i = 0; i < count; ++i) {
+    const WordBox& b = words[i];
+    if (y < b.y - slop / 2 || y >= b.y + b.h + slop / 2) continue;
+    const int d = x < b.x ? b.x - x : x >= b.x + b.w ? x - (b.x + b.w) + 1 : 0;
+    if (d < best_d) {
+      best = i;
+      best_d = d;
+    }
+  }
+  return best;
+}
+
 TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint32_t count, TextPos pos,
-                     Framebuffer* fb) {
+                     Framebuffer* fb, PageWords* boxes) {
+  if (boxes != nullptr) boxes->count = 0;
   const Font& font = *style.font;
   const int32_t line_width = style.area.w * 64;
   const int32_t space = font.glyphs[font.find(' ')].advance * style.word_space / 100;
@@ -201,15 +217,29 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
     }
 
     const bool last_line = i >= text.size();
-    if (fb != nullptr) {
+    if (fb != nullptr || boxes != nullptr) {
       // Headings are centred; other lines justified unless ragged right is chosen.
       int32_t x = style.area.x * 64 + indent + (heading ? (line_width - natural) / 2 : 0);
       const int gaps = n - 1;
       const int32_t extra = (heading || !style.justify || last_line || gaps <= 0) ? 0 : line_width - natural;
       for (int k = 0; k < n; ++k) {
-        const int32_t after =
-            draw_text(*fb, font, x, baseline, text.substr(words[k].begin, words[k].end - words[k].begin));
-        if (words[k].hyphen) draw_text(*fb, font, after, baseline, "-");
+        if (fb != nullptr) {
+          const int32_t after =
+              draw_text(*fb, font, x, baseline, text.substr(words[k].begin, words[k].end - words[k].begin));
+          if (words[k].hyphen) draw_text(*fb, font, after, baseline, "-");
+        }
+        if (boxes != nullptr && boxes->count < PageWords::kMax) {
+          const int left = (x + 32) >> 6;
+          boxes->words[boxes->count++] = {static_cast<int16_t>(left),
+                                          static_cast<int16_t>(baseline - font.ascent),
+                                          static_cast<int16_t>(((x + words[k].width + 32) >> 6) - left),
+                                          static_cast<int16_t>(font.ascent + font.descent),
+                                          static_cast<int16_t>(baseline),
+                                          words[k].hyphen,
+                                          x,
+                                          {pos.paragraph, words[k].begin},
+                                          words[k].end};
+        }
         // Spread the leftover space evenly; earlier gaps take the remainder.
         if (k < gaps) x += words[k].width + space + extra / gaps + (k < extra % gaps ? 1 : 0);
       }

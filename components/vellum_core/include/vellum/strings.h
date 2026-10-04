@@ -164,6 +164,20 @@ struct Strings {
   const char* hint_sent;
   const char* hint_retry;
   const char* peer_hint;  // on "Add books"
+  // Words: dictionaries and highlights
+  const char* look_up_word;      // contents row
+  const char* highlights_label;  // uppercase label in the contents
+  const char* highlight;         // button under a definition
+  const char* remove_highlight;  // the same, on a highlighted word
+  const char* close;
+  const char* save;
+  const char* cancel;
+  const char* no_dictionary;  // no dictionary on the card
+  const char* not_in_dictionary;
+  const char* preparing_dictionary;
+  const char* hint_pick_line;  // choosing a line with the side buttons
+  const char* hint_pick_word;  // then a word
+  const char* hint_extend;     // choosing where a highlight ends
   // Reading stats and time left
   const char* footer;           // reading settings row: the middle of the reader's footer
   const char* footer_names[3];  // page number, time left in chapter, percent read

@@ -5,7 +5,9 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 
 #include "esp_app_desc.h"
 #include "esp_app_format.h"
@@ -21,6 +23,8 @@
 #include "esp_random.h"
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
+#include "vellum/highlights.h"
+#include "vellum/stdio_storage.h"
 #include "vellum/upload_page.h"
 #include "wifi_common.h"
 
@@ -45,6 +49,18 @@ struct WifiTransfer::Impl {
   bool awake_held = false;
   bool wifi_on = false;
   char* buffer = nullptr;  // kChunk bytes, allocated once
+  // The highlights file, for the phone page's notes. Made the first time the
+  // page asks; the server's own storage, so it never shares the app's.
+  vellum::StdioStorage* card = nullptr;
+  vellum::Highlights* highlights = nullptr;
+
+  bool load_highlights() {
+    if (card == nullptr) card = new (std::nothrow) vellum::StdioStorage(root);
+    if (highlights == nullptr) highlights = new (std::nothrow) vellum::Highlights;
+    if (card == nullptr || highlights == nullptr) return false;
+    highlights->load(*card);
+    return true;
+  }
 
   template <typename F>
   void update(F&& change) {
@@ -139,11 +155,12 @@ struct WifiTransfer::Impl {
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
         httpd_query_key_value(query, "name", raw, sizeof(raw)) != ESP_OK ||
         !vellum::url_decode(raw, std::strlen(raw), decoded, sizeof(decoded))) {
-      return fail(req, "400 Bad Request", "Only EPUB books and fonts can be added.");
+      return fail(req, "400 Bad Request", "Only EPUB books, fonts and dictionaries can be added.");
     }
     const bool font = vellum::safe_font_name(decoded, name, sizeof(name));
-    if (!font && !vellum::safe_book_name(decoded, name, sizeof(name))) {
-      return fail(req, "400 Bad Request", "Only EPUB books and fonts can be added.");
+    const bool dictionary = !font && vellum::safe_dictionary_name(decoded, name, sizeof(name));
+    if (!font && !dictionary && !vellum::safe_book_name(decoded, name, sizeof(name))) {
+      return fail(req, "400 Bad Request", "Only EPUB books, fonts and dictionaries can be added.");
     }
 
     // Room on the card?
@@ -155,8 +172,8 @@ struct WifiTransfer::Impl {
     }
 
     char dir_path[64];
-    if (font) {
-      std::snprintf(dir_path, sizeof(dir_path), "%s/fonts", self->root);
+    if (font || dictionary) {
+      std::snprintf(dir_path, sizeof(dir_path), "%s/%s", self->root, font ? "fonts" : "dictionaries");
     } else {
       self->books_dir(dir_path, sizeof(dir_path));
     }
@@ -206,6 +223,59 @@ struct WifiTransfer::Impl {
     done(ok);
     ESP_LOGI(kTag, "%s %s (%u bytes)", ok ? "saved" : "failed", name, static_cast<unsigned>(req->content_len));
     if (!ok) return fail(req, "500 Internal Server Error", "The book could not be saved.");
+    return httpd_resp_sendstr(req, "ok");
+  }
+
+  // Highlights for the phone page: listed as JSON, notes set, removed.
+  static esp_err_t get_highlights(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    if (!self->load_highlights()) return fail(req, "500 Internal Server Error", "Out of memory.");
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    self->highlights->write_json(
+        [](void* ctx, const char* text, size_t len) {
+          httpd_resp_send_chunk(static_cast<httpd_req_t*>(ctx), text, static_cast<ssize_t>(len));
+        },
+        req);
+    return httpd_resp_send_chunk(req, nullptr, 0);
+  }
+
+  // The form body of a highlights request, and the highlight it names.
+  static bool read_form(httpd_req_t* req, char* body, size_t size, size_t& len, uint32_t& id) {
+    char number[16];
+    const int n = req->content_len < size ? httpd_req_recv(req, body, req->content_len) : -1;
+    if (n <= 0 || !vellum::form_field(body, static_cast<size_t>(n), "id", number, sizeof(number))) return false;
+    len = static_cast<size_t>(n);
+    id = static_cast<uint32_t>(std::strtoul(number, nullptr, 10));
+    return id != 0;
+  }
+
+  static esp_err_t post_note(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    static char body[2048];  // one request at a time: the server has one task
+    static char note[1024];
+    size_t len = 0;
+    uint32_t id = 0;
+    if (!read_form(req, body, sizeof(body), len, id) || !vellum::form_field(body, len, "note", note, sizeof(note))) {
+      return fail(req, "400 Bad Request", "Expected a highlight and a note.");
+    }
+    if (!self->load_highlights()) return fail(req, "500 Internal Server Error", "Out of memory.");
+    if (!self->highlights->set_note(id, note)) return fail(req, "404 Not Found", "No such highlight.");
+    if (!self->highlights->save(*self->card)) return fail(req, "500 Internal Server Error", "Could not save.");
+    return httpd_resp_sendstr(req, "ok");
+  }
+
+  static esp_err_t post_remove(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    char body[64];
+    size_t len = 0;
+    uint32_t id = 0;
+    if (!read_form(req, body, sizeof(body), len, id)) return fail(req, "400 Bad Request", "Expected a highlight.");
+    if (!self->load_highlights()) return fail(req, "500 Internal Server Error", "Out of memory.");
+    const int k = self->highlights->find(id);
+    if (k < 0) return fail(req, "404 Not Found", "No such highlight.");
+    self->highlights->remove(k);
+    if (!self->highlights->save(*self->card)) return fail(req, "500 Internal Server Error", "Could not save.");
     return httpd_resp_sendstr(req, "ok");
   }
 
@@ -388,7 +458,7 @@ struct WifiTransfer::Impl {
     cfg.recv_wait_timeout = 15;
     cfg.send_wait_timeout = 15;
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 10;
+    cfg.max_uri_handlers = 14;
     if (httpd_start(&server, &cfg) != ESP_OK) return false;
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = get_page, .user_ctx = this},
@@ -399,6 +469,9 @@ struct WifiTransfer::Impl {
         {.uri = "/update", .method = HTTP_POST, .handler = post_update, .user_ctx = this},
         {.uri = "/setup", .method = HTTP_GET, .handler = get_setup, .user_ctx = this},
         {.uri = "/wifi", .method = HTTP_POST, .handler = post_wifi, .user_ctx = this},
+        {.uri = "/highlights", .method = HTTP_GET, .handler = get_highlights, .user_ctx = this},
+        {.uri = "/highlights/note", .method = HTTP_POST, .handler = post_note, .user_ctx = this},
+        {.uri = "/highlights/remove", .method = HTTP_POST, .handler = post_remove, .user_ctx = this},
     };
     for (const httpd_uri_t& r : routes) httpd_register_uri_handler(server, &r);
     return true;

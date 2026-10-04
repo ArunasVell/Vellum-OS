@@ -28,3 +28,6 @@ add_test(NAME sim-headless COMMAND vellum-sim --headless --time 14:05 --keys onn
 # The same by touch: tap the current book, tap and swipe pages, then Settings.
 add_test(NAME sim-touch COMMAND vellum-sim --headless --time 14:05
          --keys "[240,200][400,400][400,400>100,410]h[240,700][240,330]" --screenshot sim-touch.png)
+# Hold a word in the book: the dictionary panel, then Highlight and a tap on the passage's end.
+add_test(NAME sim-words COMMAND vellum-sim --headless --time 14:05 --keys "o[400,240~][60,762][130,315]"
+         --screenshot sim-words.png)

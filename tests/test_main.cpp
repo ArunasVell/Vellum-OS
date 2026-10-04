@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <utility>
 #include <vector>
@@ -10,11 +11,13 @@
 #include "vellum/battery_log.h"
 #include "vellum/book.h"
 #include "vellum/covers.h"
+#include "vellum/dictionary.h"
 #include "vellum/display_queue.h"
 #include "vellum/epub.h"
 #include "vellum/font_library.h"
 #include "vellum/font_raster.h"
 #include "vellum/framebuffer.h"
+#include "vellum/highlights.h"
 #include "vellum/library.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
@@ -249,8 +252,9 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead,
-                             t.hint_battery, t.hint_light, t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead}) {
+    for (const char* hint :
+         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery, t.hint_light,
+          t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead, t.hint_pick_line, t.hint_pick_word}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -797,9 +801,9 @@ void test_app_contents_and_bookmarks() {
   CHECK(count_lines(marks) == 1 && marks.starts_with("books/sample.epub\t0\t0\t0\t"));
   CHECK(marks.find("\tLabas, pasauli") != std::string::npos);  // the page's first words, after the heading
 
-  // Rows now: back, remove, light, BOOKMARKS, the bookmark, CHAPTERS, three entries.
+  // Rows now: back, remove, light, look up, BOOKMARKS, the bookmark, CHAPTERS, three entries.
   press(*app, Key::Power);
-  for (int i = 0; i < 6; ++i) press(*app, Key::Next);  // labels are skipped
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);  // labels are skipped
   press(*app, Key::Power);                             // "Second"
   CHECK(progress_has("books/sample.epub\t1\t0\t0\t"));
 
@@ -810,7 +814,7 @@ void test_app_contents_and_bookmarks() {
 
   // Back to the first bookmark (the bookmarks come in reading order), then remove it.
   press(*app, Key::Power);
-  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(progress_has("books/sample.epub\t0\t0\t0\t"));
   press(*app, Key::Power);
@@ -1706,7 +1710,8 @@ void test_app_send_book() {
   CHECK(transfer.starts == 1);
 
   press(*a, Key::Power);  // open the book
-  press(*a, Key::Power);  // contents: back, bookmark, light, send
+  press(*a, Key::Power);  // contents: back, bookmark, light, look up, send
+  press(*a, Key::Next);
   press(*a, Key::Next);
   press(*a, Key::Next);
   press(*a, Key::Next);
@@ -1755,6 +1760,475 @@ void test_app_send_book() {
   delete a;
   delete b;
   std::remove("test-card-b/books/sample.epub");
+}
+
+InputEvent timed(InputEvent::Type type, int x, int y, uint32_t ms) {
+  InputEvent ev = touch_at(type, x, y);
+  ev.ms = ms;
+  return ev;
+}
+
+void test_long_press() {
+  using T = InputEvent::Type;
+  using K = Gesture::Kind;
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  TouchTracker t;
+  // A board that keeps reporting a resting finger: the long press comes
+  // while it is still down, once; its release is nothing.
+  t.feed(timed(T::TouchDown, 200, 300, 1000), f.fb);
+  CHECK(t.feed(timed(T::TouchMove, 202, 301, 1300), f.fb).kind == K::None);
+  const Gesture g = t.feed(timed(T::TouchMove, 203, 302, 1650), f.fb);
+  CHECK(g.kind == K::LongPress && g.x == 200 && g.y == 300);
+  CHECK(t.feed(timed(T::TouchMove, 203, 302, 1700), f.fb).kind == K::None);
+  CHECK(t.feed(timed(T::TouchUp, 203, 302, 1800), f.fb).kind == K::None);
+  // A quick touch is still a tap; a slow one released still is a long press.
+  t.feed(timed(T::TouchDown, 200, 300, 5000), f.fb);
+  CHECK(t.feed(timed(T::TouchUp, 200, 300, 5150), f.fb).kind == K::Tap);
+  t.feed(timed(T::TouchDown, 200, 300, 6000), f.fb);
+  CHECK(t.feed(timed(T::TouchUp, 200, 300, 6700), f.fb).kind == K::LongPress);
+  // A slow swipe is a swipe.
+  t.feed(timed(T::TouchDown, 400, 300, 7000), f.fb);
+  CHECK(t.feed(timed(T::TouchMove, 300, 300, 7500), f.fb).kind == K::None);
+  CHECK(t.feed(timed(T::TouchUp, 150, 300, 8000), f.fb).kind == K::SwipeLeft);
+  // Without times (the simulators), the host asks once the finger rested.
+  t.feed(touch_at(T::TouchDown, 100, 100), f.fb);
+  CHECK(t.holding());
+  CHECK(t.hold().kind == K::LongPress);
+  CHECK(!t.holding());
+  CHECK(t.feed(touch_at(T::TouchUp, 100, 100), f.fb).kind == K::None);
+  // A finger that moved is not held.
+  t.feed(touch_at(T::TouchDown, 100, 100), f.fb);
+  t.feed(touch_at(T::TouchMove, 180, 100), f.fb);
+  CHECK(!t.holding() && t.hold().kind == K::None);
+  t.feed(touch_at(T::TouchUp, 180, 100), f.fb);
+}
+
+void test_word_boxes() {
+  const Book& book = books::alice;
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  f.fb.clear(Color::White);
+  const PageStyle style{&fonts::literata_26, {28, 70, 424, 660}, 26, &hyphenation::en_us};
+  PageWords drawn;
+  PageWords measured;
+  const TextPos next = typeset_page(style, book.paragraphs, book.paragraph_count, {}, &f.fb, &drawn);
+  CHECK(typeset_page(style, book.paragraphs, book.paragraph_count, {}, nullptr, &measured) == next);
+  CHECK(drawn.count > 50 && drawn.count == measured.count);
+  int hyphens = 0;
+  for (int i = 0; i < drawn.count; ++i) {
+    const WordBox& b = drawn.words[i];
+    CHECK(b.x == measured.words[i].x && b.y == measured.words[i].y && b.begin == measured.words[i].begin);
+    // Inside the text area, in reading order, and exactly the word's bytes.
+    CHECK(b.x >= style.area.x && b.x + b.w <= style.area.x + style.area.w + 2 && b.y >= style.area.y);
+    CHECK(b.w > 0 && b.h > 0 && b.end > b.begin.offset);
+    if (i > 0) CHECK(drawn.words[i - 1].begin < b.begin);
+    const std::string_view word(book.paragraphs[b.begin.paragraph] + b.begin.offset, b.end - b.begin.offset);
+    CHECK(word.find(' ') == std::string_view::npos);
+    // The box is where the word is: ink inside it, and it is found there.
+    bool ink = false;
+    for (int y = b.y; y < b.y + b.h && !ink; ++y) {
+      for (int x = b.x; x < b.x + b.w && !ink; ++x) ink = f.fb.pixel(x, y) == Color::Black;
+    }
+    CHECK(ink);
+    CHECK(drawn.at(b.x + b.w / 2, b.y + b.h / 2) == i);
+    if (b.hyphen) {
+      ++hyphens;
+      CHECK(i + 1 < drawn.count && drawn.words[i + 1].begin.offset == b.end);
+      CHECK(drawn.words[i + 1].baseline > b.baseline);
+    }
+  }
+  CHECK(hyphens > 0);           // "noth-ing" on the first page
+  CHECK(drawn.at(2, 2) == -1);  // the margin is no word
+  // Near a word on its line still finds it; far off does not.
+  const WordBox& first = drawn.words[0];
+  CHECK(drawn.at(first.x - 6, first.y + 4) == 0);
+  CHECK(drawn.at(first.x - 40, first.y + 4) == -1);
+
+  // The reader joins a hyphenated word and gives passages as text.
+  BuiltinDocument doc;
+  doc.set(book);
+  Reader reader;
+  Settings s;
+  CHECK(reader.open(doc, 1, reading_style(s), {}, f.fb));
+  const PageWords& w = reader.words();
+  CHECK(w.count > 50);
+  int nothing = -1;
+  for (int i = 0; i < w.count && nothing < 0; ++i) {
+    char text[64];
+    reader.word_text(i, text, sizeof(text));
+    if (std::string(text) == "nothing") nothing = i;
+  }
+  CHECK(nothing >= 0 && w.words[nothing].hyphen);  // "noth-" + "ing", whole
+  char passage[64];
+  reader.passage(w.words[0].begin, {0, w.words[3].end}, passage, sizeof(passage));
+  CHECK(std::string(passage) == "Alice was beginning to");
+  reader.passage({0, 0}, {2, 10}, passage, 24);
+  CHECK(std::string(passage).ends_with("\xE2\x80\xA6") && std::strlen(passage) < 24);
+}
+
+void test_word_forms() {
+  char forms[12][dict::kFormBytes];
+  auto has = [&](int n, const char* s) {
+    for (int i = 0; i < n; ++i) {
+      if (std::string(forms[i]) == s) return true;
+    }
+    return false;
+  };
+  int n = dict::word_forms("\xE2\x80\x9CRunning,\xE2\x80\x9D", "en", forms, 12);  // “Running,”
+  CHECK(n >= 3 && std::string(forms[0]) == "Running" && std::string(forms[1]) == "running" && has(n, "run"));
+  n = dict::word_forms("studies", "en-GB", forms, 12);
+  CHECK(has(n, "study"));
+  n = dict::word_forms("loved.", "en", forms, 12);
+  CHECK(has(n, "love") && has(n, "lov"));
+  n = dict::word_forms("stopped", "en", forms, 12);
+  CHECK(has(n, "stop"));
+  n = dict::word_forms("making", "en", forms, 12);
+  CHECK(has(n, "make"));
+  n = dict::word_forms("cats", "en", forms, 12);
+  CHECK(has(n, "cat"));
+  n = dict::word_forms("Alice\xE2\x80\x99s", "en", forms, 12);  // Alice’s
+  CHECK(has(n, "alice"));
+  n = dict::word_forms("(rabbit-hole)", "en", forms, 12);
+  CHECK(n >= 1 && std::string(forms[0]) == "rabbit-hole");
+  // Lithuanian: as written and lowercase, with its own letters.
+  n = dict::word_forms("\xE2\x80\x9E\xC4\x84\xC5\xBEuolas,", "lt", forms, 12);  // „Ąžuolas,
+  CHECK(n == 2 && std::string(forms[0]) == "\xC4\x84\xC5\xBEuolas" && std::string(forms[1]) == "\xC4\x85\xC5\xBEuolas");
+  n = dict::word_forms("namas", "lt", forms, 12);
+  CHECK(n == 1);                                                  // already lowercase; no English endings
+  CHECK(dict::word_forms("\xE2\x80\x94", "en", forms, 12) == 0);  // a dash alone is no word
+
+  char lower[64];
+  dict::to_lower("\xC4\x8CIU\xC5\xBDINYS \xC4\x96", lower, sizeof(lower));  // ČIUŽINYS Ė
+  CHECK(std::string(lower) == "\xC4\x8Diu\xC5\xBEinys \xC4\x97");
+
+  char text[128];
+  dict::markup_to_text("<b>bank</b><br>1. The  land &amp; river.<br/>2. <i>money</i>", text, sizeof(text));
+  CHECK(std::string(text) == "bank\n1. The land & river.\n2. money");
+  dict::markup_to_text("<k>word</k>A <c c=\"red\">meaning</c>&nbsp;here", text, sizeof(text));
+  CHECK(std::string(text) == "A meaning here");
+  dict::markup_to_text("a < b\nnext  line", text, sizeof(text), true);
+  CHECK(std::string(text) == "a < b\nnext line");
+
+  char lang[8];
+  dict::language_of("dictionaries/en/WordNet", lang, sizeof(lang));
+  CHECK(std::string(lang) == "en");
+  dict::language_of("dictionaries/stardict-lt-en-2.4.2/lt-en", lang, sizeof(lang));
+  CHECK(std::string(lang) == "lt");
+  dict::language_of("dictionaries/Websters 1913", lang, sizeof(lang));
+  CHECK(std::string(lang).empty());
+}
+
+void put_be32(std::string& s, uint32_t v) {
+  for (int shift = 24; shift >= 0; shift -= 8) s += static_cast<char>((v >> shift) & 0xFF);
+}
+
+// A StarDict dictionary of `words` (in StarDict order) written to the card.
+void write_dictionary(StdioStorage& card, const std::string& base, const std::string& ifo_extra,
+                      const std::vector<std::pair<std::string, std::string>>& words) {
+  std::string idx, data;
+  for (const auto& [word, body] : words) {
+    idx += word;
+    idx += '\0';
+    put_be32(idx, static_cast<uint32_t>(data.size()));
+    put_be32(idx, static_cast<uint32_t>(body.size()));
+    data += body;
+  }
+  const std::string ifo = "StarDict's dict ifo file\nversion=2.4.2\nwordcount=" + std::to_string(words.size()) +
+                          "\nidxfilesize=" + std::to_string(idx.size()) + "\n" + ifo_extra;
+  CHECK(card.write((base + ".ifo").c_str(), ifo.data(), static_cast<uint32_t>(ifo.size())));
+  CHECK(card.write((base + ".idx").c_str(), idx.data(), static_cast<uint32_t>(idx.size())));
+  CHECK(card.write((base + ".dict").c_str(), data.data(), static_cast<uint32_t>(data.size())));
+}
+
+void copy_sample_dictionary(StdioStorage& card, const char* folder) {
+  for (const char* ext : {".ifo", ".idx", ".dict.dz"}) {
+    const std::string data = read_all((std::string(VELLUM_TEST_DATA "/dictionary/en-sample") + ext).c_str());
+    CHECK(!data.empty());
+    CHECK(card.write((std::string(folder) + "/en-sample" + ext).c_str(), data.data(),
+                     static_cast<uint32_t>(data.size())));
+  }
+}
+
+void test_stardict() {
+  StdioStorage card("test-card-dict");
+  std::filesystem::remove_all("test-card-dict/vellum/dictionaries");  // indexes from earlier runs
+  // The checked-in English sample (a dictzip), in a folder of its own.
+  copy_sample_dictionary(card, "dictionaries/en");
+  // A Lithuanian one whose fields name their types, a binary one among them.
+  std::string namas = "mPastatas gyventi.";
+  namas += '\0';
+  namas += "W";
+  put_be32(namas, 3);
+  namas += "abc";
+  namas += "h<i>daiktavardis</i>";
+  namas += '\0';
+  write_dictionary(card, "dictionaries/lt-sample", "bookname=Pavyzdinis\n",
+                   {{"namas", namas}, {"\xC4\x85\xC5\xBEuolas", std::string("mDidelis medis.") + '\0'}});
+  // A large one, so the index keeps only every few words.
+  std::vector<std::pair<std::string, std::string>> many;
+  for (int i = 0; i < 20000; ++i) {
+    char word[16];
+    std::snprintf(word, sizeof(word), "w%05d", i);
+    many.push_back({word, "word " + std::to_string(i)});
+  }
+  write_dictionary(card, "dictionaries/big-test", "bookname=Big\nsametypesequence=m\n", many);
+
+  Dictionaries d;
+  d.scan(&card);
+  CHECK(d.count() == 3);
+  Dictionaries::Result r;
+  char text[512];
+  int slow = 0;
+  auto count_slow = [](void* ctx) { ++*static_cast<int*>(ctx); };
+  CHECK(d.lookup("bank,", "en", "lt", r, text, sizeof(text), count_slow, &slow));
+  CHECK(std::string(r.headword) == "bank" && std::string(r.dictionary) == "Sample English");
+  CHECK(std::string(text) == "bank\n1. The land beside a river.\n2. A place that keeps money.");
+  CHECK(d.lookup("Rabbit", "en", "lt", r, text, sizeof(text)));
+  CHECK(std::string(text) == "A small animal with long ears <Leporidae>.");
+  CHECK(d.lookup("Alice", "en", "lt", r, text, sizeof(text)) && std::string(r.headword) == "Alice");
+  for (auto [asked, found] : {std::pair{"studies", "study"},
+                              {"loved", "love"},
+                              {"running", "run"},
+                              {"Tired", "tired"},
+                              {"conversations", "conversation"},
+                              {"sister\xE2\x80\x99s", "sister"}}) {
+    CHECK(d.lookup(asked, "en-US", "lt", r, text, sizeof(text)) && std::string(r.headword) == found);
+  }
+  CHECK(std::string(text) == "A girl or woman with the same parents as another person.");  // across chunks
+  // A word in none of them: each is indexed on the way, the first time.
+  slow = 0;
+  CHECK(!d.lookup("zebra", "en", "lt", r, text, sizeof(text), count_slow, &slow));
+  CHECK(slow == 2);  // the Lithuanian one and the large one; the English one already was
+  // Lithuanian: the book's language picks the dictionary; fields in order.
+  CHECK(d.lookup("\xC4\x84\xC5\xBEuolas", "lt", "en", r, text, sizeof(text)));
+  CHECK(std::string(r.dictionary) == "Pavyzdinis" && std::string(text) == "Didelis medis.");
+  CHECK(d.lookup("Namas.", "lt", "en", r, text, sizeof(text)));
+  CHECK(std::string(text) == "Pastatas gyventi.\ndaiktavardis");
+  // The large one, through its sparse index.
+  CHECK(d.lookup("w12345", "xx", "en", r, text, sizeof(text)));
+  CHECK(std::string(text) == "word 12345");
+  CHECK(d.lookup("w00000", "xx", "en", r, text, sizeof(text)) && std::string(text) == "word 0");
+  CHECK(d.lookup("W19999", "xx", "en", r, text, sizeof(text)) && std::string(text) == "word 19999");
+  CHECK(!d.lookup("w20000", "xx", "en", r, text, sizeof(text)));
+  Dictionaries again;
+  again.scan(&card);
+  slow = 0;
+  CHECK(again.lookup("w04321", "xx", "en", r, text, sizeof(text), count_slow, &slow));
+  CHECK(std::string(text) == "word 4321" && slow == 0);  // the indexes are read from the card
+  // No card, no dictionaries.
+  Dictionaries none;
+  none.scan(nullptr);
+  CHECK(none.count() == 0 && !none.lookup("bank", "en", "", r, text, sizeof(text)));
+}
+
+void test_highlights_store() {
+  StdioStorage card("test-card-dict");
+  std::remove("test-card-dict/vellum/highlights.txt");
+  Highlights h;
+  h.load(card);
+  CHECK(h.count() == 0);
+  Highlight a;
+  std::snprintf(a.path, sizeof(a.path), "books/a.epub");
+  std::snprintf(a.title, sizeof(a.title), "A \"Book\"");
+  a.begin = {2, {10, 4}};
+  a.end = {11, 20};
+  a.percent = 40;
+  std::snprintf(a.date, sizeof(a.date), "2026-10-04 21:30");
+  std::snprintf(a.text, sizeof(a.text), "first\tpassage\nhere");
+  Highlight b = a;
+  b.begin = {1, {3, 0}};
+  b.end = {3, 9};
+  std::snprintf(b.text, sizeof(b.text), "earlier");
+  Highlight other = a;
+  std::snprintf(other.path, sizeof(other.path), "books/b.epub");
+  CHECK(h.add(a) == 0 && h.add(b) == 1 && h.add(other) == 2);
+  CHECK(h.at(0).id == 1 && h.at(1).id == 2 && h.at(2).id == 3);
+  CHECK(std::string(h.at(0).text) == "first passage here");  // one line on the card
+  CHECK(h.set_note(2, "a note\twith\nbreaks"));
+  CHECK(!h.set_note(99, "nothing"));
+  CHECK(h.save(card));
+
+  Highlights loaded;
+  loaded.load(card);
+  CHECK(loaded.count() == 3);
+  const Highlight& x = loaded.at(1);
+  CHECK(x.id == 2 && std::string(x.path) == "books/a.epub" && std::string(x.title) == "A \"Book\"");
+  CHECK(x.begin.chapter == 1 && x.begin.text == (TextPos{3, 0}) && x.end == (TextPos{3, 9}));
+  CHECK(x.percent == 40 && std::string(x.date) == "2026-10-04 21:30" && std::string(x.note) == "a note with breaks");
+  int order[4];
+  CHECK(loaded.of_book("books/a.epub", -1, order, 4) == 2 && order[0] == 1 && order[1] == 0);  // reading order
+  CHECK(loaded.of_book("books/a.epub", 2, order, 4) == 1 && order[0] == 0);
+  CHECK(loaded.find(3) == 2 && loaded.find(7) == -1);
+  loaded.remove(0);
+  Highlight c = a;
+  CHECK(loaded.add(c) == 2 && loaded.at(2).id == 4);  // ids are never reused
+
+  std::string json;
+  loaded.write_json([](void* ctx, const char* s, size_t n) { static_cast<std::string*>(ctx)->append(s, n); }, &json);
+  CHECK(json.starts_with("[{\"id\":2,\"book\":\"books/a.epub\",\"title\":\"A \\\"Book\\\"\",\"chapter\":1"));
+  CHECK(json.find("\"note\":\"a note with breaks\"") != std::string::npos);
+  CHECK(json.ends_with("}]") && std::count(json.begin(), json.end(), '{') == 3);
+  // A long passage is cut at a whole character.
+  Highlight longer = a;
+  std::string many;
+  for (int i = 0; i < 200; ++i) many += "\xC4\x85";
+  std::snprintf(longer.text, sizeof(longer.text), "%s", "");
+  std::snprintf(longer.note, sizeof(longer.note), "%s", "");
+  CHECK(loaded.add(longer) >= 0);
+  CHECK(loaded.set_note(loaded.at(loaded.count() - 1).id, many.c_str()));
+  const std::string note = loaded.at(loaded.count() - 1).note;
+  CHECK(note.size() == 238 && note.size() % 2 == 0);
+  std::remove("test-card-dict/vellum/highlights.txt");
+}
+
+// Where the reader puts `word` on the first page of Alice, with default settings.
+WordBox alice_word(const char* word) {
+  static std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  static Framebuffer fb(buf.data(), kW, kH);
+  fb.set_rotation(Rotation::R90);
+  static BuiltinDocument doc;
+  doc.set(books::alice);
+  static Reader reader;
+  reader.open(doc, 1, reading_style(Settings{}), {}, fb);
+  const PageWords& w = reader.words();
+  for (int i = 0; i < w.count; ++i) {
+    char text[64];
+    reader.word_text(i, text, sizeof(text));
+    if (std::string(text) == word) return w.words[i];
+  }
+  CHECK(false);
+  return {};
+}
+
+void hold(App& app, int x, int y) {
+  app.handle(touch_at(InputEvent::Type::TouchDown, x, y));
+  CHECK(app.wait_ms() == TouchTracker::kLongPressMs);  // the host waits that long, then:
+  app.timeout();
+  app.handle(touch_at(InputEvent::Type::TouchUp, x, y));
+}
+
+// A row of the screen fully black from x0 to x1, somewhere in rows y0..y1.
+bool black_run(const Framebuffer& fb, int x0, int x1, int y0, int y1) {
+  for (int y = y0; y <= y1; ++y) {
+    bool all = true;
+    for (int x = x0; x < x1 && all; ++x) all = fb.pixel(x, y) == Color::Black;
+    if (all) return true;
+  }
+  return false;
+}
+
+void test_app_words() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer screen(buf.data(), kW, kH);
+  screen.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  StdioStorage card("test-card-words");
+  for (const char* p : {"test-card-words/vellum/state.txt", "test-card-words/vellum/highlights.txt",
+                        "test-card-words/vellum/progress.txt", "test-card-words/vellum/settings.txt"}) {
+    std::remove(p);
+  }
+  std::filesystem::remove_all("test-card-words/vellum/dictionaries");  // indexes from earlier runs
+  copy_sample_dictionary(card, "dictionaries");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open Alice, the first book
+
+  // Holding "sister" selects it and shows its meaning in a panel below.
+  const WordBox sister = alice_word("sister");
+  int fast = panel.fast;
+  hold(*app, sister.x + sister.w / 2, sister.y + sister.h / 2);
+  CHECK(panel.fast == fast + 2);  // "Preparing the dictionary…" first: no index yet
+  CHECK(black_run(screen, sister.x, sister.x + sister.w, sister.y, sister.y + sister.h));  // inverted
+  CHECK(black_run(screen, 0, kH, 420, kW - 1));                                            // the panel's edge
+  // Highlight, then tap where the passage ends: it is saved and underlined.
+  tap(*app, 60, kW - 38);
+  const WordBox end = alice_word("do:");
+  tap(*app, end.x + end.w / 2, end.y + end.h / 2);
+  std::string saved = read_all("test-card-words/vellum/highlights.txt");
+  CHECK(saved.starts_with("1\tbuiltin:Alice"));
+  CHECK(saved.find("\t0:0.") != std::string::npos);
+  CHECK(saved.find("\tsister on the bank, and of having nothing to do:\t") != std::string::npos);
+  CHECK(!black_run(screen, 0, kH, 420, kW - 1));  // the panel is gone
+  CHECK(black_run(screen, sister.x, sister.x + sister.w, sister.baseline + 2, sister.baseline + 9));
+  CHECK(black_run(screen, end.x, end.x + end.w, end.baseline + 2, end.baseline + 9));
+  const WordBox alice = alice_word("Alice");
+  CHECK(!black_run(screen, alice.x, alice.x + alice.w, alice.baseline + 2, alice.baseline + 9));
+
+  // Contents lists it; its row opens the page.
+  const int full = panel.full;
+  press(*app, Key::Power);  // rows: back, bookmark, light, look up, HIGHLIGHTS, the highlight, CHAPTERS, chapter
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 2);  // contents, then the page
+
+  // A note from the phone, read again when Add books closes.
+  {
+    Highlights phone;
+    phone.load(card);
+    CHECK(phone.count() == 1 && phone.set_note(phone.at(0).id, "Bored, like me.") && phone.save(card));
+  }
+  press(*app, Key::Home);
+  tap(*app, 240, 640);  // Add books (no Wi-Fi here)
+  press(*app, Key::Home);
+  press(*app, Key::Power);  // back to Alice
+  press(*app, Key::Power);  // contents: the note follows its highlight and is skipped
+  // Rows from y = 186, 50 px each: the note (row 6) wears a bar at its left.
+  CHECK(screen.pixel(38, 496) == Color::Black && screen.pixel(38, 521) == Color::Black);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
+  CHECK(screen.pixel(20, 611) == Color::Black);  // row 8, the chapter, is selected
+  press(*app, Key::Power);                       // the chapter, not the note
+  CHECK(read_all("test-card-words/vellum/highlights.txt").find("\tBored, like me.\n") != std::string::npos);
+
+  // Without touch: look up a word, pick its line and word, highlight to the third.
+  press(*app, Key::Power);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // Look up a word: the first line is boxed
+  press(*app, Key::Power);  // that line; its first word, "Alice"
+  CHECK(black_run(screen, alice.x, alice.x + alice.w, alice.y, alice.y + alice.h));
+  press(*app, Key::Power);  // look it up
+  CHECK(black_run(screen, 0, kH, 420, kW - 1));
+  press(*app, Key::Power);  // Highlight
+  press(*app, Key::Next);
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // to "beginning"
+  saved = read_all("test-card-words/vellum/highlights.txt");
+  CHECK(count_lines(saved) == 2 && saved.find("\tAlice was beginning\t") != std::string::npos);
+
+  // Holding a highlighted word offers to remove the highlight.
+  hold(*app, sister.x + sister.w / 2, sister.y + sister.h / 2);
+  press(*app, Key::Power);
+  saved = read_all("test-card-words/vellum/highlights.txt");
+  CHECK(count_lines(saved) == 1 && saved.find("sister") == std::string::npos);
+
+  // Home closes the panel first, then goes home; page turns wait meanwhile.
+  hold(*app, sister.x + sister.w / 2, sister.y + sister.h / 2);
+  int shown = panel.fast + panel.full;
+  press(*app, Key::Next);  // a definition this short does not scroll: nothing
+  CHECK(panel.fast + panel.full == shown);
+  press(*app, Key::Home);
+  CHECK(panel.fast + panel.full == shown + 1);  // the page again, without the panel
+  CHECK(!black_run(screen, 0, kH, 420, kW - 1));
+  CHECK(!black_run(screen, sister.x, sister.x + sister.w, sister.y, sister.y + sister.h));
+  const int full_before = panel.full;
+  press(*app, Key::Home);
+  CHECK(panel.full == full_before + 1);  // home
+  delete app;
+  std::remove("test-card-words/vellum/highlights.txt");
+}
+
+void test_dictionary_upload_names() {
+  char out[160];
+  CHECK(safe_dictionary_name("WordNet.ifo", out, sizeof(out)) && std::string(out) == "WordNet.ifo");
+  CHECK(safe_dictionary_name("C:\\x\\en-wordnet.dict.dz", out, sizeof(out)) &&
+        std::string(out) == "en-wordnet.dict.dz");
+  CHECK(safe_dictionary_name("en.idx", out, sizeof(out)) && safe_dictionary_name("en.DICT", out, sizeof(out)));
+  CHECK(!safe_dictionary_name("archive.dz", out, sizeof(out)));
+  CHECK(!safe_dictionary_name("book.epub", out, sizeof(out)));
+  CHECK(!safe_book_name("en.ifo", out, sizeof(out)));
 }
 
 void test_reading_stats() {
@@ -2030,6 +2504,13 @@ int main() {
   test_app_send_book();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
+  test_long_press();
+  test_word_boxes();
+  test_word_forms();
+  test_stardict();
+  test_highlights_store();
+  test_app_words();
+  test_dictionary_upload_names();
   test_reading_stats();
   test_reader_pages_left();
   test_app_reading_stats();

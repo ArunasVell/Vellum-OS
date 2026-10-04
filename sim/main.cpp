@@ -5,13 +5,14 @@
 //
 // Keys: Right/Space/PageDown = next, Left/PageUp = prev, H = home,
 // Enter/P = power (opens the highlighted item), Esc/Q = quit. The mouse is
-// the touch screen: click to tap, drag to swipe.
+// the touch screen: click to tap, drag to swipe, hold still to hold a word.
 //
 // Headless (for CI and screenshots):
 //   vellum-sim --headless --keys onnp --time 14:05 --screenshot page.png
 // where n = next, p = prev, h = home, o = power, z = hold power (sleep),
 // [X,Y] taps the logical
-// point (X,Y) and [X,Y>X2,Y2] swipes from one point to the other.
+// point (X,Y), [X,Y~] holds a finger there (a long press) and [X,Y>X2,Y2]
+// swipes from one point to the other.
 // --time fixes the clock.
 // --card DIR uses a folder as the SD card: EPUBs go in DIR/books.
 #include <SDL.h>
@@ -151,9 +152,10 @@ class SimInput : public vellum::InputSource {
 
  private:
   // A touch event at logical point (x, y) on the portrait screen.
-  static vellum::InputEvent touch(vellum::InputEvent::Type type, int x, int y) {
+  static vellum::InputEvent touch(vellum::InputEvent::Type type, int x, int y, uint32_t ms = 0) {
     vellum::InputEvent ev;
     ev.type = type;
+    ev.ms = ms;
     int px, py;
     vellum::rotate_to_physical(vellum::Rotation::R90, kPanelW, kPanelH, x, y, px, py);
     ev.x = static_cast<int16_t>(std::clamp(px, 0, kPanelW - 1));
@@ -161,7 +163,7 @@ class SimInput : public vellum::InputSource {
     return ev;
   }
 
-  // Parses "[X,Y]" or "[X,Y>X2,Y2]" at pos_ (just after the '[') into touch events.
+  // Parses "[X,Y]", "[X,Y~]" or "[X,Y>X2,Y2]" at pos_ (just after the '[') into touch events.
   void script_touch() {
     using T = vellum::InputEvent::Type;
     const size_t end = opt_.keys.find(']', pos_);
@@ -179,6 +181,7 @@ class SimInput : public vellum::InputSource {
       y1 = y0;
     }
     pending_.push_back(touch(T::TouchDown, x0, y0));
+    if (n < 4 && spec.find('~') != std::string::npos) pending_.push_back(std::nullopt);  // a wait that times out: held
     if (n == 4) pending_.push_back(touch(T::TouchMove, (x0 + x1) / 2, (y0 + y1) / 2));
     pending_.push_back(touch(T::TouchUp, x1, y1));
   }
@@ -248,7 +251,7 @@ class SimInput : public vellum::InputSource {
       const T type = e.type == SDL_MOUSEMOTION       ? T::TouchMove
                      : e.type == SDL_MOUSEBUTTONDOWN ? T::TouchDown
                                                      : T::TouchUp;
-      out = touch(type, x, y);
+      out = touch(type, x, y, e.type == SDL_MOUSEMOTION ? e.motion.timestamp : e.button.timestamp);
       return true;
     }
     if (e.type != SDL_KEYDOWN && e.type != SDL_KEYUP) {

@@ -49,6 +49,10 @@ struct InputEvent {
   Key key = Key::Next;
   int16_t x = 0;
   int16_t y = 0;
+  // When it happened, in milliseconds from any fixed start; 0 when the board
+  // does not say. Touch events carry it so a held finger can be told apart
+  // from a tap.
+  uint32_t ms = 0;
 };
 
 class InputSource {
