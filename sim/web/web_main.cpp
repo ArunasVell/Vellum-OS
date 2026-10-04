@@ -62,6 +62,18 @@ class WebPower : public vellum::Power {
   int percent = 82;
 };
 
+// The page tints the screen to show the front light.
+class WebFrontlight : public vellum::Frontlight {
+ public:
+  void set(uint8_t level, uint8_t warmth) override {
+    EM_ASM(
+        {
+          if (window.vellumLight) window.vellumLight($0, $1);
+        },
+        level, warmth);
+  }
+};
+
 // The browser's local time.
 class WebClock : public vellum::Clock {
  public:
@@ -100,10 +112,11 @@ WebTransfer transfer;
 NoInput input;
 WebPower power;
 WebClock clock;
+WebFrontlight light;
 // The page writes dropped EPUBs into /card/books in Emscripten's in-memory file system.
 vellum::StdioStorage card("/card");
 std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
-vellum::Board board{"Browser simulator", display,  input, power, nullptr, &clock, &card, vellum::Rotation::R90,
+vellum::Board board{"Browser simulator", display,  input, power, &light, &clock, &card, vellum::Rotation::R90,
                     framebuffer.data(),  &transfer};
 vellum::App* app = nullptr;
 

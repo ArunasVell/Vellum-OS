@@ -88,6 +88,14 @@ struct Strings {
   const char* per_day;      // printf: a number such as "0.8"
   const char* clock_unset;  // why there is no history yet
   const char* hint_battery;
+  // Front light
+  const char* front_light;  // settings row, contents row and screen title
+  const char* brightness;
+  const char* warmth;
+  const char* cool;  // the warmth slider's two ends
+  const char* warm;
+  const char* done;
+  const char* hint_light;
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };

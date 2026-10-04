@@ -47,9 +47,9 @@ class App {
   void timeout();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery };
+  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery, Light };
   // One line of the contents screen.
-  enum class ContentsRow : uint8_t { Back, Mark, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
+  enum class ContentsRow : uint8_t { Back, Mark, Light, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
   static constexpr int kHomeRows = 2;     // other books listed under the current one
@@ -103,6 +103,13 @@ class App {
   void draw_transfer();
   void draw_contents();
   void draw_battery();
+  // Front light: brightness and warmth, applied as they change.
+  void open_light(Screen back);
+  void close_light();
+  void apply_light();
+  void draw_light();
+  // Sets the selected light slider from a tap at x; false when x is off it.
+  bool light_tap(int x, int y);
   const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
@@ -123,6 +130,8 @@ class App {
   int library_sel_ = 0;
   int settings_sel_ = 0;
   int contents_sel_ = 0;
+  int light_sel_ = 0;  // 0 brightness, 1 warmth, 2 done
+  Screen light_back_ = Screen::Settings;
   int contents_marks_[Library::kMaxBookmarks] = {};  // the open book's bookmarks, in order
   int contents_mark_count_ = 0;
   TransferState transfer_state_ = TransferState::Off;

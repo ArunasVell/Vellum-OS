@@ -82,6 +82,13 @@ constexpr Strings kEnglish = {
         "The clock is not set, so there is no history yet. Open Add books and load the page on your phone once: it "
         "sets the clock.",
     .hint_battery = "Power or Home: back",
+    .front_light = "Front light",
+    .brightness = "Brightness",
+    .warmth = "Warmth",
+    .cool = "Cool",
+    .warm = "Warm",
+    .done = "Done",
+    .hint_light = "Side buttons change · Power next",
     .preview_text =
         "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
         "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
@@ -165,6 +172,13 @@ constexpr Strings kLithuanian = {
         "Laikrodis nenustatytas, todėl istorijos dar nėra. Atverkite „Įkelti knygas“ ir vieną kartą įkelkite "
         "puslapį telefone: jis nustatys laikrodį.",
     .hint_battery = "Įjungimo ar Namų: atgal",
+    .front_light = "Apšvietimas",
+    .brightness = "Ryškumas",
+    .warmth = "Šiltumas",
+    .cool = "Šalta",
+    .warm = "Šilta",
+    .done = "Baigti",
+    .hint_light = "Šoniniai: keisti · Įjungimo: toliau",
     .preview_text =
         "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
         "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",
