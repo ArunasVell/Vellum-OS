@@ -2,7 +2,7 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books plus any EPUB books on the SD card, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, set in Literata with justified, hyphenated text. Settings and the page you are on in each book are saved to the card. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons, touch screen, frontlight and SD card, not yet tested on a device.
+> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books plus any EPUB books on the SD card, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, set in Literata with justified, hyphenated text. Settings and the page you are on in each book are saved to the card. **Add books** opens the reader's own Wi-Fi network so a phone or computer can send books from a browser. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons, touch screen, frontlight, SD card and Wi-Fi book upload, not yet tested on a device.
 
 ## Goals
 
@@ -51,6 +51,12 @@ Add `--card DIR` to use a folder as the SD card (works with or without `--headle
 
 Put EPUB books in a `books` folder on the card (books in the top folder are found too). Vellum keeps its own files in a `vellum` folder: `settings.txt`, `progress.txt` (the page you are on in each book) and `library.txt` (a list of the books, so the library opens without re-reading every file). All three are plain text and safe to delete; Vellum rebuilds them.
 
+### Adding books over Wi-Fi
+
+**Add books** on the home screen starts a Wi-Fi network named `Vellum-XXXX` with a new password each time, and shows it with two QR codes. Join the network (scan the first code), then open `http://192.168.4.1` (the second code) in any browser and choose EPUB files; they are saved to the card's `books` folder. Press Home on the reader to finish: Wi-Fi turns off and the library picks up the new books.
+
+The upload page is `components/vellum_core/web/upload.html`; after editing it run `python3 tools/embed_page.py`. Its three requests (`GET /`, `GET /books`, `POST /upload?name=`) are described in `vellum/upload_page.h`, so other boards can serve the same page.
+
 ### In the browser
 
 The same core code also compiles to WebAssembly, so the simulator runs as one self-contained web page (works on phones too). Needs [Emscripten](https://emscripten.org/docs/getting_started/):
@@ -83,7 +89,7 @@ idf.py build
 
 ## Credits
 
-The X4 Pro pin map, hardware notes, screen drivers (SSD1677, UC8179, UC8279 and the boot-time detection between them) and the CW2017 battery gauge driver are ported from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) (MIT, see [NOTICE](NOTICE)). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices. EPUB files are unzipped with the inflater from [miniz](https://github.com/richgel999/miniz) (MIT, in `components/vellum_core/third_party/miniz`).
+The X4 Pro pin map, hardware notes, screen drivers (SSD1677, UC8179, UC8279 and the boot-time detection between them) and the CW2017 battery gauge driver are ported from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) (MIT, see [NOTICE](NOTICE)). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices. EPUB files are unzipped with the inflater from [miniz](https://github.com/richgel999/miniz) (MIT, in `components/vellum_core/third_party/miniz`). QR codes are drawn with [Project Nayuki's QR Code generator](https://www.nayuki.io/page/qr-code-generator-library) (MIT, in `components/vellum_core/third_party/qrcodegen`).
 
 Literata is by the Literata Project Authors, under the SIL Open Font License ([assets/fonts/literata/OFL.txt](assets/fonts/literata/OFL.txt)). Hyphenation patterns come from the [hyph-utf8](https://www.hyphenation.org/tex) project: American English by Gerard D.C. Kuiken, Lithuanian by Vytas Statulevičius, Sigitas Tolušis and Yannis Haralambous (MIT); licences are kept in [assets/hyphenation](assets/hyphenation) and the generated tables. The built-in books are public-domain texts from Project Gutenberg: the first chapters of Lewis Carroll's *Alice's Adventures in Wonderland*, Herman Melville's *Moby-Dick* and Jane Austen's *Persuasion*, and G. K. Chesterton's story *The Absence of Mr Glass*.
 

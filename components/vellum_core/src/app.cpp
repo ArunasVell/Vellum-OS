@@ -33,6 +33,10 @@ constexpr int kSettingsTop = 116;
 constexpr int kSectionGap = 38;  // uppercase section label above a group of rows
 constexpr int kSettingRowHeight = 40;
 
+// "Add books" geometry.
+constexpr int kTransferTop = 192;  // baseline of the first step label
+constexpr int kQrSize = 156;
+
 constexpr int kPad = 12;  // selection highlights extend this far into the margins
 
 Rect row_rect(const Framebuffer& fb, int y, int h) { return {kSide - kPad, y, fb.width() - 2 * (kSide - kPad), h}; }
@@ -207,7 +211,7 @@ void App::time_text(char* out, size_t size) const {
 // ---- Home ------------------------------------------------------------------
 
 int App::home_item_count() const {
-  return 1 + std::min(kHomeRows, library_.count() - 1) + 2;  // current book, others, two links
+  return 1 + std::min(kHomeRows, library_.count() - 1) + 3;  // current book, others, three links
 }
 
 void App::draw_home() {
@@ -275,10 +279,12 @@ void App::draw_home() {
     ++item;
   }
   y += 4;
-  draw_link(fb_, row_rect(fb_, y, kLinkHeight), t.all_books, home_sel_ == item);
-  draw_link(fb_, row_rect(fb_, y + kLinkHeight, kLinkHeight), t.settings, home_sel_ == item + 1);
-  add_hit(row_rect(fb_, y, kLinkHeight), item);
-  add_hit(row_rect(fb_, y + kLinkHeight, kLinkHeight), item + 1);
+  const char* links[] = {t.all_books, t.add_books, t.settings};
+  for (int i = 0; i < 3; ++i) {
+    const Rect r = row_rect(fb_, y + i * kLinkHeight, kLinkHeight);
+    draw_link(fb_, r, links[i], home_sel_ == item + i);
+    add_hit(r, item + i);
+  }
 
   ui::draw_hint(fb_, t.hint_home);
 }
@@ -286,7 +292,8 @@ void App::draw_home() {
 void App::home_activate() {
   const int count = home_item_count();
   if (home_sel_ == count - 1) return show(Screen::Settings);
-  if (home_sel_ == count - 2) return show(Screen::Library);
+  if (home_sel_ == count - 2) return open_transfer();
+  if (home_sel_ == count - 3) return show(Screen::Library);
   const int current = library_.current();
   if (home_sel_ == 0) return open_book(current);
   int order[Library::kMaxBooks];
@@ -375,6 +382,131 @@ void App::settings_activate() {
   if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
 }
 
+// ---- Adding books over Wi-Fi -------------------------------------------------
+
+void App::open_transfer() {
+  if (board_.storage == nullptr) {
+    transfer_state_ = TransferState::NoCard;
+  } else if (board_.transfer == nullptr) {
+    transfer_state_ = TransferState::Failed;
+  } else {
+    // Starting the radio takes a moment: say so first.
+    transfer_state_ = TransferState::Off;
+    show(Screen::Transfer);
+    transfer_info_ = {};
+    transfer_state_ = board_.transfer->start(transfer_info_) ? TransferState::Running : TransferState::Failed;
+    draw();
+    queue_.submit();
+    return;
+  }
+  show(Screen::Transfer);
+}
+
+void App::close_transfer() {
+  bool received = false;
+  if (transfer_state_ == TransferState::Running) {
+    TransferStatus st;
+    board_.transfer->status(st);
+    received = st.received > 0;
+    board_.transfer->stop();
+  }
+  transfer_state_ = TransferState::Off;
+  if (received) {
+    reload_library();  // shows the home screen with the new books
+  } else {
+    show(Screen::Home);
+  }
+}
+
+// Escapes the characters a Wi-Fi QR code treats as syntax.
+static void append_wifi_escaped(char* out, size_t size, size_t& len, const char* s) {
+  for (; *s != '\0' && len + 2 < size; ++s) {
+    if (std::strchr("\\;,:\"", *s) != nullptr) out[len++] = '\\';
+    out[len++] = *s;
+  }
+  out[len] = '\0';
+}
+
+void App::draw_transfer() {
+  const int w = fb_.width();
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.add_books);
+  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, t.transfer_lead);
+
+  const char* message = nullptr;
+  switch (transfer_state_) {
+    case TransferState::Off:
+      message = t.starting;
+      break;
+    case TransferState::NoCard:
+      message = t.no_card;
+      break;
+    case TransferState::Failed:
+      message = t.no_wifi;
+      break;
+    case TransferState::Running:
+      break;
+  }
+  if (message != nullptr) {
+    ui::draw_wrapped(fb_, fonts::literata_20, kSide, kTransferTop + 40, w - 2 * kSide, 3, message, false);
+    ui::draw_hint(fb_, t.hint_transfer);
+    return;
+  }
+
+  const TransferInfo& info = transfer_info_;
+  const int col_x = kSide + kQrSize + 20;
+  const int col_w = w - kSide - col_x;
+
+  // Step 1: join the reader's Wi-Fi network.
+  int y = kTransferTop;
+  ui::draw_label(fb_, kSide, y, t.step_join);
+  char join[160] = "WIFI:T:WPA;S:";
+  size_t len = std::strlen(join);
+  append_wifi_escaped(join, sizeof(join), len, info.network);
+  std::snprintf(join + len, sizeof(join) - len, ";P:");
+  len = std::strlen(join);
+  append_wifi_escaped(join, sizeof(join), len, info.password);
+  std::snprintf(join + len, sizeof(join) - len, ";;");
+  ui::draw_qr(fb_, kSide, y + 12, kQrSize, join);
+  draw_text(fb_, fonts::literata_16, col_x * 64, y + 46, t.network);
+  ui::draw_fitted(fb_, fonts::literata_26, col_x, y + 80, col_w, info.network);
+  draw_text(fb_, fonts::literata_16, col_x * 64, y + 120, t.password);
+  ui::draw_fitted(fb_, fonts::literata_26, col_x, y + 154, col_w, info.password);
+
+  // Step 2: open the upload page.
+  y += kQrSize + 46;
+  ui::draw_label(fb_, kSide, y, t.step_open);
+  ui::draw_qr(fb_, kSide, y + 12, kQrSize, info.address);
+  const char* address = info.address;
+  if (std::strncmp(address, "http://", 7) == 0) address += 7;  // what people type
+  ui::draw_fitted(fb_, fonts::literata_26, col_x, y + 80, col_w, address);
+  ui::draw_wrapped(fb_, fonts::literata_16, col_x, y + 118, col_w, 3, t.scan_hint, false);
+
+  // What has arrived so far.
+  TransferStatus st;
+  board_.transfer->status(st);
+  y += kQrSize + 46;
+  ui::draw_label(fb_, kSide, y, t.received_label);
+  if (st.received > 0) {
+    char count[32];
+    format_book_count(settings_.language, st.received, count, sizeof(count));
+    ui::draw_right(fb_, fonts::literata_16, w - kSide, y, count);
+  }
+  char line[160];
+  if (st.receiving[0] != '\0') {
+    std::snprintf(line, sizeof(line), t.receiving, st.receiving);
+  } else if (st.card_full) {
+    std::snprintf(line, sizeof(line), "%s", t.card_full);
+  } else if (st.received > 0) {
+    std::snprintf(line, sizeof(line), "%s", st.last);
+  } else {
+    std::snprintf(line, sizeof(line), "%s", t.waiting);
+  }
+  ui::draw_fitted(fb_, fonts::literata_20, kSide, y + 34, w - 2 * kSide, line);
+
+  ui::draw_hint(fb_, t.hint_transfer);
+}
+
 // ---- Navigation --------------------------------------------------------------
 
 void App::open_book(int index) {
@@ -441,6 +573,9 @@ void App::draw() {
     case Screen::Settings:
       draw_settings();
       break;
+    case Screen::Transfer:
+      draw_transfer();
+      break;
     case Screen::Reader:
       break;
   }
@@ -462,6 +597,9 @@ bool App::handle(const InputEvent& ev) {
     case InputEvent::Type::TouchMove:
     case InputEvent::Type::TouchUp:
       if (!handle_gesture(touch_.feed(ev, fb_))) return true;
+      break;
+    case InputEvent::Type::Transfer:
+      if (screen_ != Screen::Transfer) return true;
       break;
     default:
       return true;
@@ -488,6 +626,7 @@ bool App::handle_key(Key key) {
       queue_.submit_full();  // already home: just clean the screen
     } else {
       if (screen_ == Screen::Reader) save_progress();
+      if (screen_ == Screen::Transfer) return close_transfer(), false;
       show(Screen::Home);
     }
     return false;
@@ -509,6 +648,8 @@ bool App::handle_key(Key key) {
       if (key == Key::Power) settings_activate();
       settings_sel_ = wrap_index(settings_sel_ + step, kRowCount);
       return true;
+    case Screen::Transfer:
+      break;  // only Home leaves it
   }
   return false;
 }
@@ -560,6 +701,7 @@ bool App::handle_gesture(const Gesture& g) {
       settings_activate();
       return true;
     case Screen::Reader:
+    case Screen::Transfer:
       break;
   }
   return false;

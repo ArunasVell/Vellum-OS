@@ -42,6 +42,11 @@ void draw_hint(Framebuffer& fb, std::string_view text);
 // Dotted track with a solid bar for the part done, centred on line y.
 void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total);
 
+// A QR code for `text` (a URL or a Wi-Fi join code) inside a size x size
+// square at (x, y), with the white margin scanners need. Returns false when
+// the text is too long to encode.
+bool draw_qr(Framebuffer& fb, int x, int y, int size, std::string_view text);
+
 // A typographic cover: frame, title and author. Small covers show the
 // title's initial only. Each book keeps the same look on every screen.
 void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_view author);

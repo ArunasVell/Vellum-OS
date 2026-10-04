@@ -14,6 +14,7 @@
 #include "gt911.h"
 #include "sd_card.h"
 #include "vellum/stdio_storage.h"
+#include "wifi_transfer.h"
 
 namespace {
 
@@ -91,6 +92,12 @@ class Input : public vellum::InputSource {
     ESP_ERROR_CHECK(gpio_isr_handler_add(irq, on_edge, reinterpret_cast<void*>(static_cast<uintptr_t>(kTouchSource))));
   }
 
+  // Wakes the waiting task with an InputEvent::Type::Transfer. Safe from any task.
+  static void post_transfer() {
+    const uint32_t i = kTransferSource;
+    if (queue_ != nullptr) xQueueSend(queue_, &i, 0);
+  }
+
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
     if (pop(out)) return true;
     const bool held = touching_ || home_;
@@ -98,6 +105,10 @@ class Input : public vellum::InputSource {
     if (xQueueReceive(queue_, &i, pdMS_TO_TICKS(held ? kPollMs : timeout_ms)) != pdTRUE) {
       if (!held) return false;
       i = kTouchSource;
+    }
+    if (i == kTransferSource) {
+      out.type = vellum::InputEvent::Type::Transfer;
+      return true;
     }
     if (i == kTouchSource) {
       read_touch();
@@ -128,6 +139,7 @@ class Input : public vellum::InputSource {
       {x4pro::kBtnPower, vellum::Key::Power},
   };
   static constexpr uint32_t kTouchSource = kCount;
+  static constexpr uint32_t kTransferSource = kCount + 1;
   static constexpr uint32_t kPollMs = 25;
 
   static void IRAM_ATTR on_edge(void* arg) {
@@ -320,8 +332,12 @@ vellum::Board& board_x4pro_init() {
   static vellum::StdioStorage card(kSdMountPoint);
   const bool have_card = mount_sd_card();
 
-  static vellum::Board board{"XTEINK X4 Pro",       display, input, power, &light, &clock, have_card ? &card : nullptr,
-                             vellum::Rotation::R90, fb};
+  // Wi-Fi stays off until "Add books" starts it.
+  static WifiTransfer transfer(kSdMountPoint, Input::post_transfer);
+
+  static vellum::Board board{
+      "XTEINK X4 Pro",       display, input,    power, &light, &clock, have_card ? &card : nullptr,
+      vellum::Rotation::R90, fb,      &transfer};
   ESP_LOGI(kTag, "board ready");
   return board;
 }

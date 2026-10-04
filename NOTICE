@@ -37,3 +37,10 @@ SOFTWARE.
 Vellum OS includes the inflater from miniz 3.0.2
 (https://github.com/richgel999/miniz), in components/vellum_core/third_party/miniz.
 Its license is in components/vellum_core/third_party/miniz/LICENSE.
+
+----------------------------------------------------------------------------
+
+Vellum OS includes Project Nayuki's QR Code generator library (C version,
+https://www.nayuki.io/page/qr-code-generator-library), in
+components/vellum_core/third_party/qrcodegen. Its license is in
+components/vellum_core/third_party/qrcodegen/LICENSE.

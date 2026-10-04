@@ -46,6 +46,22 @@ struct Strings {
   const char* hyphenation;
   const char* on;
   const char* off;
+  // Adding books over Wi-Fi
+  const char* add_books;      // home link and screen title
+  const char* transfer_lead;  // one line under the title
+  const char* step_join;      // uppercase label
+  const char* network;
+  const char* password;
+  const char* step_open;       // uppercase label
+  const char* scan_hint;       // the QR codes work with a phone camera
+  const char* received_label;  // uppercase label
+  const char* waiting;         // nothing received yet
+  const char* receiving;       // printf: file name
+  const char* card_full;
+  const char* starting;
+  const char* no_wifi;
+  const char* no_card;
+  const char* hint_transfer;
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };

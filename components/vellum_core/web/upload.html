@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vellum · Add books</title>
+<style>
+  :root { --paper: #f3f1ec; --card: #fbfaf7; --ink: #1f2226; --muted: #61656c; --line: #d6d2c8; --accent: #2f4a6b; --bad: #8a2c22; }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #15171a; --card: #1d2024; --ink: #e8e6e1; --muted: #9a9ea6; --line: #30343a; --accent: #9db8d9; --bad: #e39a8f; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 0 16px; }
+  main { max-width: 560px; margin: 0 auto; padding-block: 32px 48px; display: flex; flex-direction: column; gap: 22px; }
+  .eyebrow { font: 600 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+  h1 { font: italic 600 38px/1.1 Georgia, "Iowan Old Style", serif; margin: 6px 0 0; }
+  p { margin: 0; color: var(--muted); }
+  .drop { border: 1.5px dashed var(--line); border-radius: 14px; background: var(--card); padding: 28px 18px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+  .drop.over { border-color: var(--accent); }
+  button { font: 600 16px/1 system-ui, sans-serif; color: var(--card); background: var(--accent); border: 0; border-radius: 999px; padding: 14px 22px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  h2 { font: 600 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  ul { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  li { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  li .name { min-width: 0; overflow-wrap: anywhere; }
+  li .state { flex: none; font: 13px/1.3 ui-monospace, Menlo, monospace; color: var(--muted); font-variant-numeric: tabular-nums; }
+  li .state.done { color: var(--accent); }
+  li .state.bad { color: var(--bad); }
+  .bar { height: 3px; background: var(--line); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
+  .empty { color: var(--muted); padding: 10px 0; }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <div class="eyebrow">Vellum</div>
+    <h1 data-t="title">Add books</h1>
+  </div>
+  <p data-t="lead">Choose EPUB books on this phone or computer. They go straight onto the reader's SD card.</p>
+  <div class="drop" id="drop">
+    <button id="pick" type="button" data-t="pick">Choose books</button>
+    <p data-t="drop">or drop EPUB files here</p>
+    <input id="file" type="file" accept=".epub,application/epub+zip" multiple hidden>
+  </div>
+  <section id="sending" hidden>
+    <h2 data-t="sending">Sending</h2>
+    <ul id="queue"></ul>
+  </section>
+  <section>
+    <h2 data-t="onreader">On the reader</h2>
+    <ul id="books"></ul>
+  </section>
+  <p data-t="done">When you're done, press Home on the reader. The new books appear in its library.</p>
+</main>
+<script>
+(() => {
+  const lt = /^lt\b/i.test(navigator.language || "");
+  const T = lt ? {
+    title: "Įkelti knygas",
+    lead: "Pasirinkite EPUB knygas šiame telefone ar kompiuteryje. Jos įrašomos tiesiai į skaityklės SD kortelę.",
+    pick: "Pasirinkti knygas", drop: "arba įmeskite EPUB failus čia", sending: "Siunčiama",
+    onreader: "Skaityklėje", done: "Baigę paspauskite skaityklės Namų mygtuką. Naujos knygos atsiras bibliotekoje.",
+    waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "ne EPUB", none: "Knygų dar nėra."
+  } : {
+    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not EPUB", none: "No books yet."
+  };
+  if (lt) {
+    document.documentElement.lang = "lt";
+    document.querySelectorAll("[data-t]").forEach((el) => { const k = el.dataset.t; if (T[k]) el.textContent = T[k]; });
+    document.title = "Vellum · " + T.title;
+  }
+
+  const queueEl = document.getElementById("queue");
+  const sendingEl = document.getElementById("sending");
+  const booksEl = document.getElementById("books");
+  const file = document.getElementById("file");
+  const pick = document.getElementById("pick");
+  const drop = document.getElementById("drop");
+  const jobs = [];
+  let running = false;
+
+  function size(n) { return n >= 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
+
+  function row(name, stateText) {
+    const li = document.createElement("li");
+    const left = document.createElement("div"); left.className = "name";
+    left.textContent = name;
+    const state = document.createElement("span"); state.className = "state"; state.textContent = stateText;
+    li.append(left, state);
+    return { li, left, state };
+  }
+
+  async function refresh() {
+    try {
+      const books = await (await fetch("/books")).json();
+      booksEl.replaceChildren();
+      if (!books.length) { const li = document.createElement("li"); li.className = "empty"; li.textContent = T.none; booksEl.append(li); }
+      for (const b of books) booksEl.append(row(b.name, size(b.size)).li);
+    } catch (_) {}
+  }
+
+  function add(files) {
+    for (const f of files) {
+      const r = row(f.name, T.waiting);
+      sendingEl.hidden = false;
+      queueEl.append(r.li);
+      if (!/\.epub$/i.test(f.name)) { r.state.textContent = T.notepub; r.state.classList.add("bad"); continue; }
+      const bar = document.createElement("div"); bar.className = "bar"; bar.innerHTML = "<i></i>";
+      r.left.append(bar);
+      jobs.push({ f, r, bar: bar.firstChild });
+    }
+    next();
+  }
+
+  function next() {
+    if (running || !jobs.length) return;
+    running = true;
+    const { f, r, bar } = jobs.shift();
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/upload?name=" + encodeURIComponent(f.name));
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      bar.style.width = (100 * e.loaded / e.total).toFixed(1) + "%";
+      r.state.textContent = Math.floor(100 * e.loaded / e.total) + "%";
+    };
+    xhr.onloadend = () => {
+      const ok = xhr.status === 200;
+      r.state.textContent = ok ? T.sent : xhr.status === 507 ? T.full : T.failed;
+      r.state.classList.add(ok ? "done" : "bad");
+      if (ok) bar.style.width = "100%";
+      running = false;
+      refresh();
+      next();
+    };
+    xhr.send(f);
+  }
+
+  pick.addEventListener("click", () => file.click());
+  file.addEventListener("change", () => { add([...file.files]); file.value = ""; });
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); add([...e.dataTransfer.files]); });
+  refresh();
+})();
+</script>
+</body>
+</html>

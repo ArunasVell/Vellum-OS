@@ -16,6 +16,7 @@
 #include "vellum/strings.h"
 #include "vellum/text.h"
 #include "vellum/touch.h"
+#include "vellum/upload_page.h"
 #include "vellum/xml.h"
 
 using namespace vellum;
@@ -238,7 +239,7 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings}) {
+    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -506,6 +507,96 @@ void test_app_touch() {
   delete app;
 }
 
+std::string safe(const char* in) {
+  char out[160];
+  return safe_book_name(in, out, sizeof(out)) ? std::string(out) : std::string("<rejected>");
+}
+
+void test_upload_helpers() {
+  char buf[64];
+  CHECK(url_decode("Ana%C3%AFs+Nin.epub", 19, buf, sizeof(buf)) && std::string(buf) == "Ana\xC3\xAFs Nin.epub");
+  CHECK(!url_decode("bad%4", 5, buf, sizeof(buf)));
+  CHECK(!url_decode("bad%zz", 6, buf, sizeof(buf)));
+  CHECK(!url_decode("toolong", 7, buf, 4));
+
+  CHECK(safe("Moby Dick.epub") == "Moby Dick.epub");
+  CHECK(safe("C:\\fakepath\\Book.EPUB") == "Book.EPUB");
+  CHECK(safe("../../vellum/settings.epub") == "settings.epub");
+  CHECK(safe("..hidden.epub") == "hidden.epub");
+  CHECK(safe("What? Why: \"Now\".epub") == "What_ Why_ _Now_.epub");
+  CHECK(safe("notes.txt") == "<rejected>");
+  CHECK(safe(".epub") == "<rejected>");
+  CHECK(safe("") == "<rejected>");
+  // Long names keep their extension and stay whole UTF-8.
+  std::string long_name;
+  for (int i = 0; i < 80; ++i) long_name += "\xC4\x85";  // ą, two bytes each
+  long_name += ".epub";
+  const std::string cut = safe(long_name.c_str());
+  CHECK(cut.size() <= 120 && cut.size() > 100);
+  CHECK(cut.substr(cut.size() - 5) == ".epub");
+  CHECK((cut.size() - 5) % 2 == 0);
+
+  char json[32];
+  size_t len = 0;
+  CHECK(json_escape("a\"b\\c\n", json, sizeof(json), len) && std::string(json) == "a\\\"b\\\\c\\u000a");
+  len = 0;
+  CHECK(!json_escape("this will not fit in the buffer at all", json, sizeof(json), len));
+}
+
+void test_upload_page_embedded() {
+  const std::string page = read_all(VELLUM_TEST_DATA "/../../components/vellum_core/web/upload.html");
+  CHECK(!page.empty());
+  CHECK(page == std::string(kUploadPage, kUploadPageSize));  // run tools/embed_page.py after editing the page
+}
+
+class FakeTransfer : public Transfer {
+ public:
+  bool start(TransferInfo& info) override {
+    ++starts;
+    std::snprintf(info.network, sizeof(info.network), "Vellum-TEST");
+    std::snprintf(info.password, sizeof(info.password), "12345678");
+    std::snprintf(info.address, sizeof(info.address), "http://192.168.4.1");
+    return true;
+  }
+  void stop() override { ++stops; }
+  void status(TransferStatus& out) override { out = st; }
+  TransferStatus st;
+  int starts = 0;
+  int stops = 0;
+};
+
+void test_app_transfer() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card");
+  FakeTransfer transfer;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
+  auto* app = new App(board);
+  app->start();
+
+  InputEvent ev;
+  ev.type = InputEvent::Type::Transfer;
+  const int fast = panel.fast;
+  app->handle(ev);  // not on the Add books screen: ignored
+  CHECK(panel.fast == fast);
+
+  tap(*app, 240, 640);  // "Add books"
+  CHECK(transfer.starts == 1);
+  transfer.st.received = 1;
+  std::snprintf(transfer.st.last, sizeof(transfer.st.last), "New.epub");
+  app->handle(ev);  // a book arrived: the screen updates
+  CHECK(panel.fast > fast);
+
+  InputEvent home;
+  home.type = InputEvent::Type::KeyDown;
+  home.key = Key::Home;
+  app->handle(home);
+  CHECK(transfer.stops == 1);
+  delete app;
+}
+
 }  // namespace
 
 int main() {
@@ -524,9 +615,12 @@ int main() {
   test_time_format();
   test_book_count_plurals();
   test_interface_text_fits();
+  test_upload_helpers();
+  test_upload_page_embedded();
   test_xml_entities();
   test_epub();
   test_card_library_and_progress();
+  test_app_transfer();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {
