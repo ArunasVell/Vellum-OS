@@ -7,11 +7,15 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/build/web"
 mkdir -p "$out"
 
+# miniz's inflater is C; compile it on its own, then link it in.
+emcc -O2 -w -c "$root/components/vellum_core/third_party/miniz/miniz_tinfl.c" \
+  -I"$root/components/vellum_core/third_party/miniz" -o "$out/miniz_tinfl.o"
+
 em++ -O2 -std=c++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
-  -I"$root/components/vellum_core/include" \
-  "$root/sim/web/web_main.cpp" "$root"/components/vellum_core/src/*.cpp "$root"/components/vellum_core/src/fonts/*.cpp "$root"/components/vellum_core/src/hyphenation/*.cpp "$root"/components/vellum_core/src/books/*.cpp \
+  -I"$root/components/vellum_core/include" -I"$root/components/vellum_core/third_party/miniz" \
+  "$root/sim/web/web_main.cpp" "$root"/components/vellum_core/src/*.cpp "$root"/components/vellum_core/src/fonts/*.cpp "$root"/components/vellum_core/src/hyphenation/*.cpp "$root"/components/vellum_core/src/books/*.cpp "$out/miniz_tinfl.o" \
   -sMODULARIZE=1 -sEXPORT_NAME=VellumCore -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0 \
-  -sENVIRONMENT=web -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=HEAPU8 \
+  -sENVIRONMENT=web -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=HEAPU8,FS -sFORCE_FILESYSTEM=1 -lidbfs.js \
   -o "$out/vellum-core.js"
 
 python3 - "$root/sim/web/index.html" "$out/vellum-core.js" "$out/vellum-simulator.html" <<'PY'

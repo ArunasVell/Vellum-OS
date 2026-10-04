@@ -5,12 +5,15 @@
 
 #include "vellum/book.h"
 #include "vellum/display_queue.h"
+#include "vellum/epub.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
 #include "vellum/reader.h"
 #include "vellum/settings.h"
+#include "vellum/stdio_storage.h"
 #include "vellum/strings.h"
 #include "vellum/text.h"
+#include "vellum/xml.h"
 
 using namespace vellum;
 
@@ -170,7 +173,9 @@ void test_pagination_covers_text_once() {
 }
 
 void test_library_order() {
-  Library lib(builtin_books());
+  Library lib;
+  Epub epub;
+  lib.load(builtin_books(), nullptr, epub);
   CHECK(lib.count() == 4);
   CHECK(lib.current() == 0);  // nothing opened: the first book
   int order[Library::kMaxBooks];
@@ -208,7 +213,8 @@ void test_reading_style_changes_layout() {
     TextPos pos{};
     int n = 0;
     while (pos.paragraph < book.paragraph_count && n < 1000) {
-      pos = typeset_page(page_style(style, f.fb, book, n == 0), book.paragraphs, book.paragraph_count, pos, nullptr);
+      pos = typeset_page(page_style(style, f.fb, book.language, n == 0), book.paragraphs, book.paragraph_count, pos,
+                         nullptr);
       ++n;
     }
     return n;
@@ -235,6 +241,124 @@ void test_interface_text_fits() {
       CHECK(w <= kH - 2 * 28);
     }
   }
+}
+
+std::string read_all(const char* path) {
+  std::string out;
+  if (std::FILE* f = std::fopen(path, "rb")) {
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+    std::fclose(f);
+  }
+  return out;
+}
+
+void test_xml_entities() {
+  char out[4];
+  size_t len = 0;
+  size_t pos = 0;
+  CHECK(xml::decode_entity("&amp;x", pos, out, len) && len == 1 && out[0] == '&' && pos == 5);
+  pos = 0;
+  CHECK(xml::decode_entity("&#x2014;", pos, out, len) && len == 3);
+  pos = 0;
+  CHECK(xml::decode_entity("&shy;", pos, out, len) && len == 0);
+  pos = 0;
+  CHECK(!xml::decode_entity("&nosuch;", pos, out, len) && pos == 0);
+  CHECK(xml::attr(" id=\"c1\" href='a b.xhtml'", "href") == "a b.xhtml");
+}
+
+void test_epub() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  Epub epub;
+  CHECK(epub.open(data, "sample.epub"));
+  CHECK(std::string(epub.info().title) == "Vellum & the Test Book");
+  CHECK(std::string(epub.info().author) == "Arūnas Tester");
+  CHECK(std::string(epub.info().language) == "lt");
+  CHECK(epub.chapter_count() == 2);
+
+  Chapter ch{};
+  CHECK(epub.load_chapter(0, ch));
+  const std::vector<std::string> want = {
+      "\x01Pirmas skyrius",
+      "Labas, pasauli & draugai—sveiki!",
+      "Nelaužti tarpai\xC2\xA0čia. Antra eilutė.",
+      "Eilėraštis:",
+      "pirma eilė",
+      "antra eilė",
+      "",
+      "Paskutinis „sakinys“.",
+  };
+  CHECK(ch.paragraph_count == want.size());
+  for (size_t i = 0; i < want.size() && i < ch.paragraph_count; ++i) {
+    if (want[i] != ch.paragraphs[i]) std::printf("paragraph %zu: [%s]\n", i, ch.paragraphs[i]);
+    CHECK(want[i] == ch.paragraphs[i]);
+  }
+  CHECK(epub.load_chapter(1, ch));
+  CHECK(ch.paragraph_count == 2 && std::string(ch.paragraphs[0]) == "\x01Second");
+  CHECK(!epub.load_chapter(2, ch));
+  CHECK(!epub.open(data, "missing.epub"));
+}
+
+void test_card_library_and_progress() {
+  // A fresh card folder with one book on it.
+  StdioStorage card("test-card");
+  std::remove("test-card/vellum/progress.txt");
+  std::remove("test-card/vellum/library.txt");
+  std::remove("test-card/vellum/settings.txt");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(!book.empty());
+  CHECK(card.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
+
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  CHECK(lib.count() == 5);
+  int found = -1;
+  for (int i = 0; i < lib.count(); ++i) {
+    if (std::string(lib.entry(i).title) == "Vellum & the Test Book") found = i;
+  }
+  CHECK(found >= 0);
+  if (found < 0) return;
+  CHECK(read_all("test-card/vellum/library.txt").find("books/sample.epub") != std::string::npos);
+
+  lib.touch(found);
+  lib.state(found).position = {1, {3, 7}};
+  lib.state(found).percent = 42;
+  CHECK(lib.save_progress(card));
+
+  Library again;
+  again.load(builtin_books(), &card, epub);
+  CHECK(again.current() == found);
+  const BookState& s = again.state(found);
+  CHECK(s.position.chapter == 1 && s.position.text.paragraph == 3 && s.position.text.offset == 7);
+  CHECK(s.percent == 42);
+
+  Settings settings;
+  settings.language = Language::Lithuanian;
+  settings.text_size = TextSize::Large;
+  settings.justify = false;
+  CHECK(save_settings(card, settings));
+  Settings loaded;
+  load_settings(card, loaded);
+  CHECK(loaded == settings);
+}
+
+void test_reader_crosses_chapters() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  Epub epub;
+  CHECK(epub.open(data, "sample.epub"));
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  Reader reader;
+  CHECK(reader.open(epub, 1, reading_style(Settings{}), {}, f.fb));
+  CHECK(reader.position().chapter == 0);
+  int turns = 0;
+  while (reader.next()) ++turns;
+  CHECK(reader.position().chapter == 1);
+  CHECK(reader.percent() == 100);
+  while (reader.prev()) --turns;
+  CHECK(turns == 0 && reader.position().chapter == 0);
 }
 
 void test_time_format() {
@@ -290,6 +414,10 @@ int main() {
   test_time_format();
   test_book_count_plurals();
   test_interface_text_fits();
+  test_xml_entities();
+  test_epub();
+  test_card_library_and_progress();
+  test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);

@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "vellum/book.h"
+#include "vellum/document.h"
 #include "vellum/fonts.h"
 #include "vellum/framebuffer.h"
 #include "vellum/settings.h"
@@ -27,34 +28,50 @@ struct ReadingStyle {
 
 ReadingStyle reading_style(const Settings& s);
 
-// Text area for a page: the screen minus margins, footer and, on a chapter's
-// first page, room for the chapter heading.
-PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const Book& book, bool first_page);
+// Text area for a page: the screen minus margins and footer and, on a
+// chapter's opening page, room for its heading. `language` picks hyphenation.
+PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const char* language, bool opening);
+
+// Where a reader is in a book.
+struct BookPos {
+  uint16_t chapter = 0;
+  TextPos text;
+};
 
 class Reader {
  public:
-  static constexpr int kMaxPages = 1024;
+  static constexpr int kMaxPages = 1024;  // per chapter
 
-  // Lays out `book` in `style` for a screen of fb's size (again only if the
-  // book or style changed) and turns to the page that contains `position`.
-  void open(const Book& book, const ReadingStyle& style, TextPos position, const Framebuffer& fb);
+  // Opens `doc` (`id` tells books apart when one Document object is reused)
+  // at the page containing `pos`. Lays the chapter out again only when the
+  // book, chapter or style changed. Returns false when the chapter cannot
+  // be loaded.
+  bool open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos pos, const Framebuffer& fb);
 
   // Draws the current page. The footer shows `time` (may be empty) on the
   // left, the page number in the middle and the battery on the right.
   void draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent) const;
-  bool next();  // false at the last page
-  bool prev();  // false at the first page
+  bool next();  // false at the end of the book
+  bool prev();  // false at the start of the book
 
-  const Book* book() const { return book_; }
+  uint32_t id() const { return id_; }
   int page() const { return page_; }
   int page_count() const { return page_count_; }
-  TextPos position() const { return page_starts_[page_]; }
+  BookPos position() const { return {static_cast<uint16_t>(chapter_), page_starts_[page_]}; }
+  // Share of the whole book read, 0..100, weighting chapters by length.
+  int percent() const;
 
  private:
-  void paginate(const Framebuffer& fb);
+  bool load(int chapter);
+  void paginate();
+  bool opening() const { return page_ == 0 && chapter_info_.label[0] != '\0'; }
 
-  const Book* book_ = nullptr;
+  Document* doc_ = nullptr;
+  uint32_t id_ = 0;
+  const Framebuffer* fb_ = nullptr;
   ReadingStyle style_{};
+  int chapter_ = -1;
+  Chapter chapter_info_{};
   TextPos page_starts_[kMaxPages];
   int page_count_ = 0;
   int page_ = 0;

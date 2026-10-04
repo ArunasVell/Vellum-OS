@@ -23,3 +23,8 @@ CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
 # Room for text layout on the main task.
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
+# SD card: long file names in UTF-8, so book files keep their real names.
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_FATFS_MAX_LFN=255
+CONFIG_FATFS_API_ENCODING_UTF_8=y

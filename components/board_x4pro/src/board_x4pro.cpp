@@ -11,6 +11,8 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "sd_card.h"
+#include "vellum/stdio_storage.h"
 
 namespace {
 
@@ -184,7 +186,8 @@ void init_power_rails() {
   out.mode = GPIO_MODE_OUTPUT;
   ESP_ERROR_CHECK(gpio_config(&out));
   gpio_set_level(static_cast<gpio_num_t>(x4pro::kPeripheralRail), 1);
-  // Touch and SD stay powered off until their drivers exist (both active low).
+  // Touch stays powered off until its driver exists; the SD card is powered
+  // when it is mounted (both active low).
   gpio_set_level(static_cast<gpio_num_t>(x4pro::kTouchPowerN), 1);
   gpio_set_level(static_cast<gpio_num_t>(x4pro::kSdPowerN), 1);
 
@@ -232,7 +235,11 @@ vellum::Board& board_x4pro_init() {
   assert(fb);
 
   // Portrait reading orientation; the exact rotation is to be confirmed on hardware.
-  static vellum::Board board{"XTEINK X4 Pro", display, buttons, power, &light, &clock, vellum::Rotation::R90, fb};
+  static vellum::StdioStorage card(kSdMountPoint);
+  const bool have_card = mount_sd_card();
+
+  static vellum::Board board{
+      "XTEINK X4 Pro", display, buttons, power, &light, &clock, have_card ? &card : nullptr, vellum::Rotation::R90, fb};
   ESP_LOGI(kTag, "board ready");
   return board;
 }

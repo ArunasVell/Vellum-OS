@@ -1,6 +1,9 @@
 #include "vellum/settings.h"
 
 #include <cstdio>
+#include <string_view>
+
+#include "vellum/textfile.h"
 
 namespace vellum {
 
@@ -11,6 +14,65 @@ void format_time(const DateTime& t, TimeFormat format, char* out, size_t size) {
   }
   const unsigned hour = t.hour % 12 == 0 ? 12 : t.hour % 12;
   std::snprintf(out, size, "%u:%02u %s", hour, unsigned{t.minute}, t.hour < 12 ? "AM" : "PM");
+}
+
+namespace {
+
+struct SettingKey {
+  const char* name;
+  int count;
+  int (*get)(const Settings&);
+  void (*set)(Settings&, int);
+};
+
+constexpr SettingKey kKeys[] = {
+    {"language", 2, [](const Settings& s) { return static_cast<int>(s.language); },
+     [](Settings& s, int v) { s.language = static_cast<Language>(v); }},
+    {"clock", 2, [](const Settings& s) { return static_cast<int>(s.time_format); },
+     [](Settings& s, int v) { s.time_format = static_cast<TimeFormat>(v); }},
+    {"text_size", 4, [](const Settings& s) { return static_cast<int>(s.text_size); },
+     [](Settings& s, int v) { s.text_size = static_cast<TextSize>(v); }},
+    {"line_spacing", 3, [](const Settings& s) { return static_cast<int>(s.line_spacing); },
+     [](Settings& s, int v) { s.line_spacing = static_cast<Spacing>(v); }},
+    {"word_spacing", 3, [](const Settings& s) { return static_cast<int>(s.word_spacing); },
+     [](Settings& s, int v) { s.word_spacing = static_cast<Spacing>(v); }},
+    {"margins", 3, [](const Settings& s) { return static_cast<int>(s.margins); },
+     [](Settings& s, int v) { s.margins = static_cast<Spacing>(v); }},
+    {"justify", 2, [](const Settings& s) { return s.justify ? 1 : 0; }, [](Settings& s, int v) { s.justify = v != 0; }},
+    {"hyphenate", 2, [](const Settings& s) { return s.hyphenate ? 1 : 0; },
+     [](Settings& s, int v) { s.hyphenate = v != 0; }},
+};
+
+}  // namespace
+
+void load_settings(Storage& storage, Settings& out) {
+  char buf[1024];
+  const int32_t n = textfile::read(storage, kSettingsPath, buf, sizeof(buf));
+  if (n <= 0) return;
+  std::string_view text(buf, static_cast<size_t>(n));
+  while (!text.empty()) {
+    const size_t end = text.find('\n');
+    std::string_view line = text.substr(0, end);
+    text = end == std::string_view::npos ? std::string_view{} : text.substr(end + 1);
+    const size_t eq = line.find('=');
+    if (eq == std::string_view::npos) continue;
+    const std::string_view key = line.substr(0, eq);
+    std::string_view value = line.substr(eq + 1);
+    if (!value.empty() && value.back() == '\r') value.remove_suffix(1);
+    for (const SettingKey& k : kKeys) {
+      const uint32_t v = textfile::to_uint(value, UINT32_MAX);
+      if (key == k.name && v < static_cast<uint32_t>(k.count)) k.set(out, static_cast<int>(v));
+    }
+  }
+}
+
+bool save_settings(Storage& storage, const Settings& s) {
+  char buf[512];
+  int n = 0;
+  for (const SettingKey& k : kKeys) {
+    n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "%s=%d\n", k.name, k.get(s));
+  }
+  return storage.write(kSettingsPath, buf, static_cast<uint32_t>(n));
 }
 
 }  // namespace vellum

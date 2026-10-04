@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "vellum/app.h"
+#include "vellum/stdio_storage.h"
 
 namespace {
 
@@ -78,8 +79,10 @@ WebDisplay display;
 NoInput input;
 WebPower power;
 WebClock clock;
+// The page writes dropped EPUBs into /card/books in Emscripten's in-memory file system.
+vellum::StdioStorage card("/card");
 std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
-vellum::Board board{"Browser simulator",   display,           input, power, nullptr, &clock,
+vellum::Board board{"Browser simulator",   display,           input, power, nullptr, &clock, &card,
                     vellum::Rotation::R90, framebuffer.data()};
 vellum::App* app = nullptr;
 
@@ -101,6 +104,11 @@ EMSCRIPTEN_KEEPALIVE void vellum_key(int key) {
   ev.type = vellum::InputEvent::Type::KeyDown;
   ev.key = static_cast<vellum::Key>(key);
   app->handle(ev);
+}
+
+// Call after writing books into /card/books.
+EMSCRIPTEN_KEEPALIVE void vellum_reload_library() {
+  if (app) app->reload_library();
 }
 
 EMSCRIPTEN_KEEPALIVE int vellum_frame_count() { return display.frames_; }

@@ -13,7 +13,7 @@ constexpr int kTextTop = 36;       // top of the text block
 constexpr int kTextBottom = 44;    // space below the text block, for the footer
 constexpr int kFooterBase = 12;    // footer baseline, from the bottom edge
 constexpr int kTrackRise = 32;     // progress track, from the bottom edge
-constexpr int kOpeningDrop = 140;  // extra space above the text on a chapter's first page
+constexpr int kOpeningDrop = 140;  // extra space above the text on a chapter's opening page
 
 const Font* const kSizes[] = {&fonts::literata_23, &fonts::literata_26, &fonts::literata_30, &fonts::literata_34};
 constexpr int kLinePercent[] = {90, 100, 115};
@@ -35,37 +35,51 @@ ReadingStyle reading_style(const Settings& s) {
           s.hyphenate};
 }
 
-PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const Book& book, bool first_page) {
+PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const char* language, bool opening) {
   const Font& font = *style.font;
-  const int top = kTextTop + (first_page ? kOpeningDrop : 0);
+  const int top = kTextTop + (opening ? kOpeningDrop : 0);
   PageStyle p{&font,
               {style.margin, top, fb.width() - 2 * style.margin, fb.height() - top - kTextBottom},
               font.size,
-              style.hyphenate ? hyphenator_for(book.language) : nullptr};
+              style.hyphenate ? hyphenator_for(language) : nullptr};
   p.line_height = font.line_height * style.line_percent / 100;
   p.word_space = style.word_space;
   p.justify = style.justify;
   return p;
 }
 
-void Reader::open(const Book& book, const ReadingStyle& style, TextPos position, const Framebuffer& fb) {
-  if (book_ != &book || !(style_ == style)) {
-    book_ = &book;
-    style_ = style;
-    paginate(fb);
+bool Reader::open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos pos, const Framebuffer& fb) {
+  const bool same = doc_ == &doc && id_ == id && style_ == style && chapter_ == pos.chapter && fb_ == &fb;
+  doc_ = &doc;
+  id_ = id;
+  style_ = style;
+  fb_ = &fb;
+  if (!same) {
+    chapter_ = -1;
+    if (!load(pos.chapter < doc.chapter_count() ? pos.chapter : 0)) return false;
   }
   page_ = 0;
-  while (page_ + 1 < page_count_ && before_or_at(page_starts_[page_ + 1], position)) ++page_;
+  while (page_ + 1 < page_count_ && before_or_at(page_starts_[page_ + 1], pos.text)) ++page_;
+  return true;
 }
 
-void Reader::paginate(const Framebuffer& fb) {
-  const Book& book = *book_;
+bool Reader::load(int chapter) {
+  if (!doc_->load_chapter(chapter, chapter_info_)) return false;
+  chapter_ = chapter;
+  paginate();
+  page_ = 0;
+  return true;
+}
+
+void Reader::paginate() {
+  const Chapter& ch = chapter_info_;
   TextPos pos{};
   page_count_ = 0;
-  while (pos.paragraph < book.paragraph_count && page_count_ < kMaxPages) {
+  while (pos.paragraph < ch.paragraph_count && page_count_ < kMaxPages) {
     page_starts_[page_count_] = pos;
-    const TextPos next = typeset_page(page_style(style_, fb, book, page_count_ == 0), book.paragraphs,
-                                      book.paragraph_count, pos, nullptr);
+    const bool opening = page_count_ == 0 && ch.label[0] != '\0';
+    const TextPos next = typeset_page(page_style(style_, *fb_, doc_->language(), opening), ch.paragraphs,
+                                      ch.paragraph_count, pos, nullptr);
     ++page_count_;
     if (next == pos) break;  // nothing fits; avoid looping forever
     pos = next;
@@ -74,38 +88,58 @@ void Reader::paginate(const Framebuffer& fb) {
 }
 
 bool Reader::next() {
-  if (page_ + 1 >= page_count_) return false;
-  ++page_;
-  return true;
+  if (page_ + 1 < page_count_) {
+    ++page_;
+    return true;
+  }
+  return chapter_ + 1 < doc_->chapter_count() && load(chapter_ + 1);
 }
 
 bool Reader::prev() {
-  if (page_ == 0) return false;
-  --page_;
+  if (page_ > 0) {
+    --page_;
+    return true;
+  }
+  if (chapter_ == 0 || !load(chapter_ - 1)) return false;
+  page_ = page_count_ - 1;
   return true;
 }
 
+int Reader::percent() const {
+  uint64_t before = 0;
+  uint64_t total = 0;
+  for (int i = 0; i < doc_->chapter_count(); ++i) {
+    const uint32_t w = doc_->chapter_weight(i);
+    if (i < chapter_) before += w;
+    total += w;
+  }
+  if (total == 0) return 0;
+  const uint64_t done = before * page_count_ + uint64_t{doc_->chapter_weight(chapter_)} * (page_ + 1);
+  return static_cast<int>(done * 100 / (total * page_count_));
+}
+
 void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent) const {
-  const Book& book = *book_;
+  const Chapter& ch = chapter_info_;
   fb.clear(Color::White);
   const int w = fb.width();
   const int h = fb.height();
 
-  if (page_ == 0) {
-    if (book.chapter_title[0] != '\0') {
-      ui::draw_centered(fb, fonts::literata_italic_20, kTextTop + 56, book.chapter_label);
-      ui::draw_wrapped(fb, fonts::literata_italic_26, style_.margin, kTextTop + 96, w - 2 * style_.margin, 1,
-                       book.chapter_title, true);
+  if (opening()) {
+    if (ch.title[0] != '\0') {
+      ui::draw_centered(fb, fonts::literata_italic_20, kTextTop + 56, ch.label);
+      ui::draw_wrapped(fb, fonts::literata_italic_26, style_.margin, kTextTop + 96, w - 2 * style_.margin, 1, ch.title,
+                       true);
     } else {
-      ui::draw_centered(fb, fonts::literata_italic_26, kTextTop + 80, book.chapter_label);
+      ui::draw_centered(fb, fonts::literata_italic_26, kTextTop + 80, ch.label);
     }
   }
 
-  typeset_page(page_style(style_, fb, book, page_ == 0), book.paragraphs, book.paragraph_count, page_starts_[page_],
-               &fb);
+  typeset_page(page_style(style_, fb, doc_->language(), opening()), ch.paragraphs, ch.paragraph_count,
+               page_starts_[page_], &fb);
 
-  // Footer: dotted progress track, then time, page number and battery on one low line.
-  ui::draw_progress(fb, style_.margin, h - kTrackRise, w - 2 * style_.margin, page_ + 1, page_count_);
+  // Footer: dotted progress track through the whole book, then time, page
+  // number within the chapter and battery on one low line.
+  ui::draw_progress(fb, style_.margin, h - kTrackRise, w - 2 * style_.margin, percent(), 100);
   draw_text(fb, fonts::literata_16, style_.margin * 64, h - kFooterBase, time);
   char label[32];
   std::snprintf(label, sizeof(label), text.short_of, page_ + 1, page_count_);

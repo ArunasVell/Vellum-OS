@@ -1,6 +1,8 @@
 #pragma once
 
 #include "vellum/display_queue.h"
+#include "vellum/document.h"
+#include "vellum/epub.h"
 #include "vellum/hal.h"
 #include "vellum/library.h"
 #include "vellum/reader.h"
@@ -23,6 +25,8 @@ class App {
   void start();
   // Handles one input event. Returns false when the app should exit.
   bool handle(const InputEvent& ev);
+  // Rereads the card's books (after books were added) and shows the home screen.
+  void reload_library();
 
  private:
   enum class Screen : uint8_t { Home, Library, Settings, Reader };
@@ -37,6 +41,7 @@ class App {
   void settings_activate();
 
   void open_book(int index);
+  void save_progress();
   void show(Screen s);  // switches screen with a full refresh
   void draw();
   void draw_home();
@@ -51,7 +56,11 @@ class App {
   DisplayQueue queue_;
   Library library_;
   Settings settings_;
+  Epub epub_;
+  char epub_path_[160] = {};  // book open in epub_
+  BuiltinDocument builtin_;
   Reader reader_;
+  int turns_since_save_ = 0;
   Screen screen_ = Screen::Home;
   int reading_ = -1;  // library index of the book in reader_
   int home_sel_ = 0;

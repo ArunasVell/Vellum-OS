@@ -32,6 +32,12 @@ struct Settings {
   bool operator==(const Settings&) const = default;
 };
 
+// Settings live in vellum/settings.txt on the card as key=value lines;
+// unknown keys and values are ignored, so older files keep working.
+constexpr const char* kSettingsPath = "vellum/settings.txt";
+void load_settings(Storage& storage, Settings& out);
+bool save_settings(Storage& storage, const Settings& s);
+
 // Writes the time of day in `format` into out (at least 9 bytes).
 void format_time(const DateTime& t, TimeFormat format, char* out, size_t size);
 
