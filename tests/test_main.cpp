@@ -6,6 +6,8 @@
 #include "vellum/book.h"
 #include "vellum/display_queue.h"
 #include "vellum/framebuffer.h"
+#include "vellum/library.h"
+#include "vellum/settings.h"
 #include "vellum/text.h"
 
 using namespace vellum;
@@ -134,33 +136,61 @@ void test_font_lookup_and_kerning() {
 }
 
 void test_pagination_covers_text_once() {
-  const Book& book = sample_book();
-  const PageStyle style{&fonts::literata_26, {28, 70, 424, 660}, 26, &hyphenation::en_us};
-  TextPos pos{};
-  int pages = 0;
-  while (pos.paragraph < book.paragraph_count && pages < 1000) {
-    const TextPos next = typeset_page(style, book.paragraphs, book.paragraph_count, pos, nullptr);
-    CHECK(next.paragraph > pos.paragraph || (next.paragraph == pos.paragraph && next.offset > pos.offset));
-    pos = next;
-    ++pages;
-  }
-  CHECK(pos == (TextPos{book.paragraph_count, 0}));
-  CHECK(pages > 5 && pages < 100);
+  for (const Book* b : builtin_books()) {
+    const Book& book = *b;
+    const PageStyle style{&fonts::literata_26, {28, 70, 424, 660}, 26, &hyphenation::en_us};
+    TextPos pos{};
+    int pages = 0;
+    while (pos.paragraph < book.paragraph_count && pages < 1000) {
+      const TextPos next = typeset_page(style, book.paragraphs, book.paragraph_count, pos, nullptr);
+      CHECK(next.paragraph > pos.paragraph || (next.paragraph == pos.paragraph && next.offset > pos.offset));
+      pos = next;
+      ++pages;
+    }
+    CHECK(pos == (TextPos{book.paragraph_count, 0}));
+    CHECK(pages > 5 && pages < 100);
 
-  // Drawing a page stops at the same place as measuring it, and stays inside its area.
-  Fixture f;
-  f.fb.set_rotation(Rotation::R90);
-  f.fb.clear(Color::White);
-  f.fb.clear_dirty();
-  const TextPos measured = typeset_page(style, book.paragraphs, book.paragraph_count, {}, nullptr);
-  CHECK(typeset_page(style, book.paragraphs, book.paragraph_count, {}, &f.fb) == measured);
-  for (int y = 0; y < f.fb.height(); ++y) {
-    for (int x = 0; x < f.fb.width(); ++x) {
-      const bool inside = x >= style.area.x - 2 && x < style.area.x + style.area.w + 2 && y >= style.area.y &&
-                          y < style.area.y + style.area.h;
-      if (!inside) CHECK(f.fb.pixel(x, y) == Color::White);
+    // Drawing a page stops at the same place as measuring it, and stays inside its area.
+    Fixture f;
+    f.fb.set_rotation(Rotation::R90);
+    f.fb.clear(Color::White);
+    f.fb.clear_dirty();
+    const TextPos measured = typeset_page(style, book.paragraphs, book.paragraph_count, {}, nullptr);
+    CHECK(typeset_page(style, book.paragraphs, book.paragraph_count, {}, &f.fb) == measured);
+    for (int y = 0; y < f.fb.height(); ++y) {
+      for (int x = 0; x < f.fb.width(); ++x) {
+        const bool inside = x >= style.area.x - 2 && x < style.area.x + style.area.w + 2 && y >= style.area.y &&
+                            y < style.area.y + style.area.h;
+        if (!inside) CHECK(f.fb.pixel(x, y) == Color::White);
+      }
     }
   }
+}
+
+void test_library_order() {
+  Library lib(builtin_books());
+  CHECK(lib.count() == 4);
+  CHECK(lib.current() == 0);  // nothing opened: the first book
+  int order[Library::kMaxBooks];
+  CHECK(lib.by_recent(order, Library::kMaxBooks) == 4);
+  CHECK(order[0] == 0 && order[1] == 1 && order[2] == 2 && order[3] == 3);
+  lib.touch(2);
+  lib.touch(3);
+  CHECK(lib.current() == 3);
+  lib.by_recent(order, Library::kMaxBooks);
+  CHECK(order[0] == 3 && order[1] == 2 && order[2] == 0 && order[3] == 1);
+}
+
+void test_time_format() {
+  char out[16];
+  format_time({2026, 10, 4, 14, 5, 0}, TimeFormat::H24, out, sizeof(out));
+  CHECK(std::string(out) == "14:05");
+  format_time({2026, 10, 4, 14, 5, 0}, TimeFormat::H12, out, sizeof(out));
+  CHECK(std::string(out) == "2:05 PM");
+  format_time({2026, 10, 4, 0, 30, 0}, TimeFormat::H12, out, sizeof(out));
+  CHECK(std::string(out) == "12:30 AM");
+  format_time({2026, 10, 4, 12, 0, 0}, TimeFormat::H12, out, sizeof(out));
+  CHECK(std::string(out) == "12:00 PM");
 }
 
 std::string hyphenated(const Hyphenator& h, std::string_view word) {
@@ -200,6 +230,8 @@ int main() {
   test_font_lookup_and_kerning();
   test_pagination_covers_text_once();
   test_hyphenation();
+  test_library_order();
+  test_time_format();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;

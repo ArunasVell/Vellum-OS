@@ -3,18 +3,19 @@
 // Mimics the X4 Pro's 800x480 landscape panel shown in portrait. A full
 // refresh briefly flashes the screen inverted, like e-ink does.
 //
-// Keys: Right/Space/PageDown = next, Left/PageUp = prev, H = home (full
-// refresh), P = power, Esc/Q = quit.
+// Keys: Right/Space/PageDown = next, Left/PageUp = prev, H = home,
+// Enter/P = power (opens the highlighted item), Esc/Q = quit.
 //
 // Headless (for CI and screenshots):
-//   vellum-sim --headless --keys nnnp --screenshot page.png
-// where n = next, p = prev, h = home.
+//   vellum-sim --headless --keys onnp --time 14:05 --screenshot page.png
+// where n = next, p = prev, h = home, o = power. --time fixes the clock.
 #include <SDL.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,7 @@ struct Options {
   std::string screenshot;
   int scale = 1;
   int battery = 82;
+  int fixed_minutes = -1;  // --time HH:MM; -1 = the computer's clock
 };
 
 const char* mode_name(vellum::RefreshMode m) { return m == vellum::RefreshMode::Full ? "full" : "fast"; }
@@ -148,6 +150,9 @@ class SimInput : public vellum::InputSource {
         case 'h':
           out.key = vellum::Key::Home;
           return true;
+        case 'o':
+          out.key = vellum::Key::Power;
+          return true;
         default:
           break;  // ignore unknown characters
       }
@@ -184,6 +189,7 @@ class SimInput : public vellum::InputSource {
         out.key = vellum::Key::Home;
         break;
       case SDLK_p:
+      case SDLK_RETURN:
         out.key = vellum::Key::Power;
         break;
       case SDLK_ESCAPE:
@@ -211,6 +217,29 @@ class SimPower : public vellum::Power {
   int percent_;
 };
 
+class SimClock : public vellum::Clock {
+ public:
+  explicit SimClock(const Options& opt) : opt_(opt) {}
+
+  bool now(vellum::DateTime& out) override {
+    const std::time_t t = std::time(nullptr);
+    std::tm local{};
+    if (localtime_r(&t, &local) == nullptr) return false;
+    out = {static_cast<uint16_t>(local.tm_year + 1900), static_cast<uint8_t>(local.tm_mon + 1),
+           static_cast<uint8_t>(local.tm_mday),         static_cast<uint8_t>(local.tm_hour),
+           static_cast<uint8_t>(local.tm_min),          static_cast<uint8_t>(local.tm_sec)};
+    if (opt_.fixed_minutes >= 0) {
+      out.hour = static_cast<uint8_t>(opt_.fixed_minutes / 60);
+      out.minute = static_cast<uint8_t>(opt_.fixed_minutes % 60);
+      out.second = 0;
+    }
+    return true;
+  }
+
+ private:
+  const Options& opt_;
+};
+
 bool parse(int argc, char** argv, Options& opt) {
   for (int i = 1; i < argc; ++i) {
     const std::string a = argv[i];
@@ -226,9 +255,14 @@ bool parse(int argc, char** argv, Options& opt) {
       opt.scale = std::max(1, std::atoi(v));
     } else if (a == "--battery" && (v = value())) {
       opt.battery = std::atoi(v);
+    } else if (a == "--time" && (v = value())) {
+      int h = 0, m = 0;
+      if (std::sscanf(v, "%d:%d", &h, &m) != 2 || h < 0 || h > 23 || m < 0 || m > 59) return false;
+      opt.fixed_minutes = h * 60 + m;
     } else {
       std::fprintf(stderr,
-                   "usage: vellum-sim [--headless] [--keys npnh] [--screenshot out.png] [--scale N] [--battery N]\n");
+                   "usage: vellum-sim [--headless] [--keys onph] [--screenshot out.png] [--scale N] [--battery N] "
+                   "[--time HH:MM]\n");
       return false;
     }
   }
@@ -245,9 +279,10 @@ int main(int argc, char** argv) {
   if (!display.open()) return 1;
   SimInput input(opt);
   SimPower power(opt.battery);
+  SimClock clock(opt);
   std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
 
-  vellum::Board board{"Simulator (X4 Pro geometry)", display,           input, power, nullptr,
+  vellum::Board board{"Simulator (X4 Pro geometry)", display,           input, power, nullptr, &clock,
                       vellum::Rotation::R90,         framebuffer.data()};
   vellum::run(board);
 

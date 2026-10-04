@@ -18,7 +18,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build/sim --output-on-failure
       - name: Screenshot
-        run: build/sim/vellum-sim --headless --keys nn --screenshot sim-page.png
+        run: build/sim/vellum-sim --headless --time 14:05 --keys onn --screenshot sim-page.png
       - uses: actions/upload-artifact@v4
         with:
           name: simulator-screenshot

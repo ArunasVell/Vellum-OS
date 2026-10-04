@@ -1,5 +1,6 @@
 #include "board_x4pro.h"
 
+#include "bm8563.h"
 #include "cw2017.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -193,7 +194,7 @@ void init_power_rails() {
   ESP_ERROR_CHECK(gpio_config(&in));
 }
 
-// Shared by the fuel gauge now, and the touch controller and RTC later.
+// Shared by the fuel gauge and the clock now, and the touch controller later.
 i2c_master_bus_handle_t init_i2c() {
   i2c_master_bus_config_t cfg = {};
   cfg.i2c_port = I2C_NUM_0;
@@ -214,12 +215,15 @@ vellum::Board& board_x4pro_init() {
   static Buttons buttons;
   static Power power;
   static Frontlight light;
+  static Bm8563 clock;
 
   init_power_rails();
   ESP_ERROR_CHECK(gpio_install_isr_service(0));  // buttons and display BUSY
   buttons.init();
   light.init();
-  power.init(init_i2c());
+  const i2c_master_bus_handle_t i2c = init_i2c();
+  power.init(i2c);
+  if (!clock.attach(i2c, x4pro::kI2cHz)) ESP_LOGW(kTag, "clock not added");
   display.init();
 
   // Internal, DMA-capable RAM so the panel driver can stream it over SPI.
@@ -228,7 +232,7 @@ vellum::Board& board_x4pro_init() {
   assert(fb);
 
   // Portrait reading orientation; the exact rotation is to be confirmed on hardware.
-  static vellum::Board board{"XTEINK X4 Pro", display, buttons, power, &light, vellum::Rotation::R90, fb};
+  static vellum::Board board{"XTEINK X4 Pro", display, buttons, power, &light, &clock, vellum::Rotation::R90, fb};
   ESP_LOGI(kTag, "board ready");
   return board;
 }

@@ -21,4 +21,6 @@ add_executable(vellum-tests ../tests/test_main.cpp)
 target_link_libraries(vellum-tests PRIVATE vellum_core)
 target_compile_options(vellum-tests PRIVATE -Wall -Wextra -Werror)
 add_test(NAME core COMMAND vellum-tests)
-add_test(NAME sim-headless COMMAND vellum-sim --headless --keys nnnpnh --screenshot sim-test.png)
+# Home, open the current book, turn pages, back home, library, settings.
+add_test(NAME sim-headless COMMAND vellum-sim --headless --time 14:05 --keys onnnpnhnnnnohnnnnnono
+         --screenshot sim-test.png)
