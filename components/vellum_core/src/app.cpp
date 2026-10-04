@@ -70,38 +70,47 @@ void draw_page(Framebuffer& fb, int page, int battery) {
 
 }  // namespace
 
+App::App(Board& board)
+    : board_(board), fb_(board.framebuffer, board.display.width(), board.display.height()), queue_(board.display, fb_) {
+  fb_.set_rotation(board.rotation);
+}
+
+void App::start() {
+  draw_page(fb_, page_, board_.power.battery_percent());
+  queue_.submit_full();
+}
+
+bool App::handle(const InputEvent& ev) {
+  if (ev.type == InputEvent::Type::Quit) return false;
+  if (ev.type != InputEvent::Type::KeyDown) return true;
+
+  switch (ev.key) {
+    case Key::Next:
+      if (page_ + 1 >= kPages) return true;
+      ++page_;
+      break;
+    case Key::Prev:
+      if (page_ == 0) return true;
+      --page_;
+      break;
+    case Key::Home:
+      queue_.submit_full();
+      return true;
+    case Key::Power:
+      return true;
+  }
+  draw_page(fb_, page_, board_.power.battery_percent());
+  queue_.submit();
+  return true;
+}
+
 void run(Board& board) {
-  Framebuffer fb(board.framebuffer, board.display.width(), board.display.height());
-  fb.set_rotation(board.rotation);
-  DisplayQueue queue(board.display, fb);
-
-  int page = 0;
-  draw_page(fb, page, board.power.battery_percent());
-  queue.submit_full();
-
+  App app(board);
+  app.start();
   for (;;) {
     InputEvent ev;
     if (!board.input.wait(ev, 60 * 1000)) continue;
-    if (ev.type == InputEvent::Type::Quit) return;
-    if (ev.type != InputEvent::Type::KeyDown) continue;
-
-    switch (ev.key) {
-      case Key::Next:
-        if (page + 1 >= kPages) continue;
-        ++page;
-        break;
-      case Key::Prev:
-        if (page == 0) continue;
-        --page;
-        break;
-      case Key::Home:
-        queue.submit_full();
-        continue;
-      case Key::Power:
-        continue;
-    }
-    draw_page(fb, page, board.power.battery_percent());
-    queue.submit();
+    if (!app.handle(ev)) return;
   }
 }
 

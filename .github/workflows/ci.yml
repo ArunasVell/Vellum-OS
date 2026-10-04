@@ -24,6 +24,19 @@ jobs:
           name: simulator-screenshot
           path: sim-page.png
 
+  web:
+    name: Browser simulator
+    runs-on: ubuntu-24.04
+    container: emscripten/emsdk:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: sim/web/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vellum-simulator-web
+          path: build/web/vellum-simulator.html
+
   firmware:
     name: Firmware (X4 Pro)
     runs-on: ubuntu-24.04
