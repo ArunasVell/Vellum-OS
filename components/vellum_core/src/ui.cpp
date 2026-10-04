@@ -250,7 +250,7 @@ void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Stri
   char status[32];
   if (!state.started()) {
     std::snprintf(status, sizeof(status), "%s", text.status_new);
-  } else if (state.percent >= 100) {
+  } else if (state.finished || state.percent >= 100) {
     std::snprintf(status, sizeof(status), "%s", text.status_finished);
   } else {
     std::snprintf(status, sizeof(status), "%d%%", state.percent);

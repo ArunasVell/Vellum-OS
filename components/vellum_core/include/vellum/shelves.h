@@ -23,7 +23,7 @@ namespace vellum {
 class Shelves {
  public:
   static constexpr int kMax = 16;        // shelves
-  static constexpr int kMaxBooks = 512;  // books on shelves, counted once per shelf
+  static constexpr int kMaxBooks = 256;  // books on shelves, counted once per shelf
   static constexpr int kNameBytes = 40;  // a name, UTF-8, with its NUL
   static constexpr const char* kPath = "vellum/shelves.txt";
 

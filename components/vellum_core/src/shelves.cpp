@@ -10,7 +10,13 @@
 namespace vellum {
 namespace {
 
-constexpr uint32_t kFileBytes = 96 * 1024;
+constexpr uint32_t kFileBytes = 48 * 1024;  // every shelf full of long paths still fits
+
+// One buffer for reading and writing the file, made the first time.
+char* file_buffer() {
+  static char* buf = new (std::nothrow) char[kFileBytes];
+  return buf;
+}
 
 // Copies a name without spaces at its ends, tabs or line breaks, cut to fit
 // at a whole character. Returns its length.
@@ -35,7 +41,7 @@ Shelves::~Shelves() { delete[] entries_; }
 void Shelves::load(Storage& storage) {
   count_ = 0;
   entry_count_ = 0;
-  static char* buf = new (std::nothrow) char[kFileBytes];
+  char* buf = file_buffer();
   if (buf == nullptr) return;
   const int32_t n = textfile::read(storage, kPath, buf, kFileBytes);
   if (n <= 0) return;
@@ -52,7 +58,7 @@ void Shelves::load(Storage& storage) {
 }
 
 bool Shelves::save(Storage& storage) const {
-  static char* buf = new (std::nothrow) char[kFileBytes];
+  char* buf = file_buffer();
   if (buf == nullptr) return false;
   size_t n = 0;
   for (int s = 0; s < count_; ++s) {
