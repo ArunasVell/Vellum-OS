@@ -56,6 +56,7 @@ class WebDisplay : public vellum::DisplayPanel {
 class NoInput : public vellum::InputSource {
  public:
   bool wait(vellum::InputEvent&, uint32_t) override { return false; }
+  uint32_t now_ms() override { return static_cast<uint32_t>(emscripten_get_now()); }
 };
 
 class WebPower : public vellum::Power {

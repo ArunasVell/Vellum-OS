@@ -57,10 +57,10 @@ class Reader {
   bool open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos pos, const Framebuffer& fb);
 
   // Draws the current page. The footer shows `time` (may be empty) on the
-  // left, the page number in the middle and the battery on the right. A
-  // bookmarked page wears a ribbon in its top corner.
-  void draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent,
-            bool bookmarked = false) const;
+  // left, `middle` in the middle (the page number when empty) and the
+  // battery on the right. A bookmarked page wears a ribbon in its top corner.
+  void draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent, bool bookmarked = false,
+            std::string_view middle = {}) const;
   bool next();  // false at the end of the book
   bool prev();  // false at the start of the book
 
@@ -72,6 +72,12 @@ class Reader {
   BookPos position() const { return {static_cast<uint16_t>(chapter_), page_starts_[page_]}; }
   // Share of the whole book read, 0..100, weighting chapters by length.
   int percent() const;
+  // Pages from this one to the end of the chapter, this one included.
+  int pages_left_in_chapter() const { return page_count_ - page_; }
+  // The same to the end of the book. Later chapters are not laid out yet:
+  // their pages are guessed from their length, at the rate of the longest
+  // chapter laid out so far.
+  int pages_left_in_book() const;
   // Where `pos` is relative to the current page: -1 before it, 0 on it, 1 after it.
   int compare_to_page(BookPos pos) const;
   // The first words of the current page, ending in an ellipsis when cut short.
@@ -91,6 +97,9 @@ class Reader {
   TextPos page_starts_[kMaxPages];
   int page_count_ = 0;
   int page_ = 0;
+  // Pages per length, from the longest chapter laid out in this book and style.
+  int sample_pages_ = 0;
+  uint32_t sample_weight_ = 0;
 };
 
 }  // namespace vellum
