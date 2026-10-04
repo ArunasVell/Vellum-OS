@@ -18,8 +18,20 @@ class StdioStorage : public Storage {
   void close(File* f) override;
   bool write(const char* path, const void* data, uint32_t len) override;
   bool list(const char* dir, ListFn fn, void* ctx) override;
+  Writer* create(const char* path) override;
+  bool finish(Writer* w, bool keep) override;
 
  private:
+  class StdioWriter : public Writer {
+   public:
+    bool write(const void* data, uint32_t len) override {
+      return fp != nullptr && std::fwrite(data, 1, len, fp) == len;
+    }
+
+    std::FILE* fp = nullptr;
+    char path[512] = {};  // the finished file's full path; it is written to path + ".part"
+  };
+
   class StdioFile : public File {
    public:
     uint32_t size() const override { return size_; }
@@ -37,6 +49,7 @@ class StdioStorage : public Storage {
   char root_[256];
   char full_[512];
   StdioFile files_[kMaxOpen];
+  StdioWriter writer_;
 };
 
 }  // namespace vellum

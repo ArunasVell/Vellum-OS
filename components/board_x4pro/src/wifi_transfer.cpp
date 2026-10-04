@@ -12,6 +12,7 @@
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
+#include "esp_now_peers.h"
 #include "esp_pm.h"
 #include "esp_random.h"
 #include "esp_vfs_fat.h"
@@ -223,7 +224,7 @@ struct WifiTransfer::Impl {
     std::memcpy(cfg.ap.ssid, info.network, std::strlen(info.network));
     cfg.ap.ssid_len = static_cast<uint8_t>(std::strlen(info.network));
     std::memcpy(cfg.ap.password, info.password, std::strlen(info.password));
-    cfg.ap.channel = 6;
+    cfg.ap.channel = EspNowPeers::kChannel;  // other readers send books on it too
     cfg.ap.authmode = WIFI_AUTH_WPA2_PSK;
     cfg.ap.max_connection = kMaxDevices;
     cfg.ap.pmf_cfg.required = false;
