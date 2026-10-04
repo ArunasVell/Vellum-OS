@@ -155,7 +155,8 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
                      Framebuffer* fb) {
   const Font& font = *style.font;
   const int32_t line_width = style.area.w * 64;
-  const int32_t space = font.glyphs[font.find(' ')].advance;
+  const int32_t space = font.glyphs[font.find(' ')].advance * style.word_space / 100;
+  const int line_height = style.line_height > 0 ? style.line_height : font.line_height;
   int baseline = style.area.y + font.ascent;
   const int bottom = style.area.y + style.area.h;
 
@@ -200,7 +201,7 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
     if (fb != nullptr) {
       int32_t x = style.area.x * 64 + indent;
       const int gaps = n - 1;
-      const int32_t extra = (last_line || gaps <= 0) ? 0 : line_width - natural;
+      const int32_t extra = (!style.justify || last_line || gaps <= 0) ? 0 : line_width - natural;
       for (int k = 0; k < n; ++k) {
         const int32_t after =
             draw_text(*fb, font, x, baseline, text.substr(words[k].begin, words[k].end - words[k].begin));
@@ -211,7 +212,7 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
     }
 
     pos = last_line ? TextPos{pos.paragraph + 1, 0} : TextPos{pos.paragraph, i};
-    baseline += font.line_height;
+    baseline += line_height;
   }
   return pos;
 }

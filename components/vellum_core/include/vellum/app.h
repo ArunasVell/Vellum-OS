@@ -5,6 +5,7 @@
 #include "vellum/library.h"
 #include "vellum/reader.h"
 #include "vellum/settings.h"
+#include "vellum/strings.h"
 
 namespace vellum {
 
@@ -41,6 +42,7 @@ class App {
   void draw_home();
   void draw_library();
   void draw_settings();
+  const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
 

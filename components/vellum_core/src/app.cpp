@@ -27,6 +27,10 @@ constexpr int kLinkHeight = 46;
 constexpr int kTitleBase = 112;  // large screen title
 constexpr int kSubtitleBase = 142;
 constexpr int kListTop = 160;
+constexpr int kSettingsTitleBase = 104;
+constexpr int kSettingsTop = 116;
+constexpr int kSectionGap = 38;  // uppercase section label above a group of rows
+constexpr int kSettingRowHeight = 40;
 
 constexpr int kPad = 12;  // selection highlights extend this far into the margins
 
@@ -49,23 +53,121 @@ void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
   ui::draw_right(fb, fonts::literata_20, r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);  // ›
 }
 
-void draw_radio(Framebuffer& fb, int x, int cy, bool on, Color fg, Color bg) {
-  fb.fill_round_rect({x, cy - 9, 18, 18}, 9, fg);
-  fb.fill_round_rect({x + 2, cy - 7, 14, 14}, 7, bg);
-  if (on) fb.fill_round_rect({x + 5, cy - 4, 8, 8}, 4, fg);
-}
-
 int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
 
-struct TimeOption {
-  TimeFormat format;
-  const char* name;
-};
-constexpr TimeOption kTimeOptions[] = {{TimeFormat::H24, "24-hour"}, {TimeFormat::H12, "12-hour"}};
-constexpr int kSettingsCount = sizeof(kTimeOptions) / sizeof(kTimeOptions[0]);
+// One line on the settings screen: a name and a value that Power cycles.
+enum class Row : uint8_t { Language, Clock, TextSize, LineSpacing, WordSpacing, Margins, Alignment, Hyphenation };
+constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::TextSize,  Row::LineSpacing,
+                         Row::WordSpacing, Row::Margins, Row::Alignment, Row::Hyphenation};
+constexpr int kRowCount = sizeof(kRows) / sizeof(kRows[0]);
+constexpr int kGeneralRows = 2;  // rows before the reading section
 
-// A fixed afternoon time to show what each format looks like.
-constexpr DateTime kSampleTime{2026, 10, 4, 14, 5, 0};
+int value_count(Row r) {
+  switch (r) {
+    case Row::TextSize:
+      return 4;
+    case Row::LineSpacing:
+    case Row::WordSpacing:
+    case Row::Margins:
+      return 3;
+    default:
+      return 2;
+  }
+}
+
+int get(const Settings& s, Row r) {
+  switch (r) {
+    case Row::Language:
+      return static_cast<int>(s.language);
+    case Row::Clock:
+      return static_cast<int>(s.time_format);
+    case Row::TextSize:
+      return static_cast<int>(s.text_size);
+    case Row::LineSpacing:
+      return static_cast<int>(s.line_spacing);
+    case Row::WordSpacing:
+      return static_cast<int>(s.word_spacing);
+    case Row::Margins:
+      return static_cast<int>(s.margins);
+    case Row::Alignment:
+      return s.justify ? 0 : 1;
+    case Row::Hyphenation:
+      return s.hyphenate ? 0 : 1;
+  }
+  return 0;
+}
+
+void set(Settings& s, Row r, int v) {
+  switch (r) {
+    case Row::Language:
+      s.language = static_cast<Language>(v);
+      break;
+    case Row::Clock:
+      s.time_format = static_cast<TimeFormat>(v);
+      break;
+    case Row::TextSize:
+      s.text_size = static_cast<TextSize>(v);
+      break;
+    case Row::LineSpacing:
+      s.line_spacing = static_cast<Spacing>(v);
+      break;
+    case Row::WordSpacing:
+      s.word_spacing = static_cast<Spacing>(v);
+      break;
+    case Row::Margins:
+      s.margins = static_cast<Spacing>(v);
+      break;
+    case Row::Alignment:
+      s.justify = v == 0;
+      break;
+    case Row::Hyphenation:
+      s.hyphenate = v == 0;
+      break;
+  }
+}
+
+const char* row_name(const Strings& t, Row r) {
+  switch (r) {
+    case Row::Language:
+      return t.language;
+    case Row::Clock:
+      return t.clock;
+    case Row::TextSize:
+      return t.text_size;
+    case Row::LineSpacing:
+      return t.line_spacing;
+    case Row::WordSpacing:
+      return t.word_spacing;
+    case Row::Margins:
+      return t.margins;
+    case Row::Alignment:
+      return t.alignment;
+    case Row::Hyphenation:
+      return t.hyphenation;
+  }
+  return "";
+}
+
+const char* value_name(const Strings& t, Row r, int v) {
+  switch (r) {
+    case Row::Language:
+      return strings(static_cast<Language>(v)).language_name;
+    case Row::Clock:
+      return v == 0 ? t.clock_24 : t.clock_12;
+    case Row::TextSize:
+      return t.size_names[v];
+    case Row::LineSpacing:
+    case Row::WordSpacing:
+      return t.spacing_names[v];
+    case Row::Margins:
+      return t.margin_names[v];
+    case Row::Alignment:
+      return v == 0 ? t.justified : t.left;
+    case Row::Hyphenation:
+      return v == 0 ? t.on : t.off;
+  }
+  return "";
+}
 
 }  // namespace
 
@@ -97,8 +199,9 @@ void App::draw_home() {
   const int current = library_.current();
   const Book& book = library_.book(current);
   const BookState& state = library_.state(current);
+  const Strings& t = text();
 
-  ui::draw_label(fb_, kSide, kHeroLabelBase, state.started() ? "CONTINUE READING" : "START READING");
+  ui::draw_label(fb_, kSide, kHeroLabelBase, state.started() ? t.continue_reading : t.start_reading);
 
   // The current book: cover, title, author, chapter and progress.
   const Rect hero = row_rect(fb_, kHeroTop, kHeroHeight);
@@ -121,23 +224,26 @@ void App::draw_home() {
   ui::draw_wrapped(fb_, fonts::literata_16, col_x, y + 32, col_w, 2, chapter, false);
 
   const int track_y = cover.y + cover.h - 6;
-  if (state.started() && state.page_count > 0) {
-    char page[32];
-    std::snprintf(page, sizeof(page), "Page %d of %d", state.page + 1, state.page_count);
-    draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, page);
-    char percent[16];
-    std::snprintf(percent, sizeof(percent), "%d%%", state.percent());
-    ui::draw_right(fb_, fonts::literata_16, col_x + col_w, track_y - 14, percent);
-    ui::draw_progress(fb_, col_x, track_y, col_w, state.page + 1, state.page_count);
+  if (state.started()) {
+    if (state.page_count > 0) {
+      char page[48];
+      std::snprintf(page, sizeof(page), t.page_of, state.page + 1, state.page_count);
+      draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, page);
+    }
+    const int percent = state.percent(book.paragraph_count);
+    char label[16];
+    std::snprintf(label, sizeof(label), "%d%%", percent);
+    ui::draw_right(fb_, fonts::literata_16, col_x + col_w, track_y - 14, label);
+    ui::draw_progress(fb_, col_x, track_y, col_w, percent, 100);
   } else {
-    draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, "Not started");
+    draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, t.not_started);
     ui::draw_progress(fb_, col_x, track_y, col_w, 0, 1);
   }
 
   // The rest of the shelf, most recently read first.
-  ui::draw_label(fb_, kSide, kShelfLabelBase, "LIBRARY");
-  char count[24];
-  std::snprintf(count, sizeof(count), "%d books", library_.count());
+  ui::draw_label(fb_, kSide, kShelfLabelBase, t.library_label);
+  char count[32];
+  format_book_count(settings_.language, library_.count(), count, sizeof(count));
   ui::draw_right(fb_, fonts::literata_16, w - kSide, kShelfLabelBase, count);
 
   int order[Library::kMaxBooks];
@@ -148,16 +254,16 @@ void App::draw_home() {
     if (order[k] == current) continue;
     const bool selected = home_sel_ == item;
     if (item > 1 && !selected && home_sel_ != item - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.book(order[k]), library_.state(order[k]),
+    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.book(order[k]), library_.state(order[k]), t,
                       selected);
     y += kHomeRowHeight;
     ++item;
   }
   y += 4;
-  draw_link(fb_, row_rect(fb_, y, kLinkHeight), "All books", home_sel_ == item);
-  draw_link(fb_, row_rect(fb_, y + kLinkHeight, kLinkHeight), "Settings", home_sel_ == item + 1);
+  draw_link(fb_, row_rect(fb_, y, kLinkHeight), t.all_books, home_sel_ == item);
+  draw_link(fb_, row_rect(fb_, y + kLinkHeight, kLinkHeight), t.settings, home_sel_ == item + 1);
 
-  ui::draw_hint(fb_, "Side buttons move \xC2\xB7 Power opens");
+  ui::draw_hint(fb_, t.hint_home);
 }
 
 void App::home_activate() {
@@ -179,16 +285,17 @@ void App::home_activate() {
 
 void App::draw_library() {
   const int w = fb_.width();
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, "Library");
-  char count[24];
-  std::snprintf(count, sizeof(count), "%d books", library_.count());
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.library);
+  char count[32];
+  format_book_count(settings_.language, library_.count(), count, sizeof(count));
   draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, count);
 
   const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
   const int page = library_sel_ / kLibraryRows;
   if (pages > 1) {
-    char label[32];
-    std::snprintf(label, sizeof(label), "Page %d of %d", page + 1, pages);
+    char label[48];
+    std::snprintf(label, sizeof(label), t.page_of, page + 1, pages);
     ui::draw_right(fb_, fonts::literata_16, w - kSide, kSubtitleBase, label);
   }
 
@@ -198,9 +305,9 @@ void App::draw_library() {
     const int y = kListTop + (i - first) * ui::kRowHeight;
     const bool selected = i == library_sel_;
     if (i > first && !selected && library_sel_ != i - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.book(i), library_.state(i), selected);
+    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.book(i), library_.state(i), t, selected);
   }
-  ui::draw_hint(fb_, "Side buttons move \xC2\xB7 Power opens \xC2\xB7 Home back");
+  ui::draw_hint(fb_, t.hint_list);
 }
 
 void App::library_activate() { open_book(library_sel_); }
@@ -208,31 +315,55 @@ void App::library_activate() { open_book(library_sel_); }
 // ---- Settings --------------------------------------------------------------
 
 void App::draw_settings() {
-  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, "Settings");
-  ui::draw_label(fb_, kSide, kSubtitleBase + 26, "CLOCK");
+  const int w = fb_.width();
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kSettingsTitleBase, t.settings);
 
-  for (int i = 0; i < kSettingsCount; ++i) {
-    const Rect r = row_rect(fb_, kListTop + 24 + i * 56, 56);
+  int y = kSettingsTop;
+  for (int i = 0; i < kRowCount; ++i) {
+    if (i == 0 || i == kGeneralRows) {
+      ui::draw_label(fb_, kSide, y + 26, i == 0 ? t.general_label : t.reading_label);
+      y += kSectionGap;
+    }
+    const Row row = kRows[i];
     const bool selected = i == settings_sel_;
+    const Rect r = row_rect(fb_, y, kSettingRowHeight);
     const Color fg = highlight(fb_, r, selected);
-    const Color bg = selected ? Color::Black : Color::White;
-    draw_radio(fb_, r.x + kPad, r.y + r.h / 2, settings_.time_format == kTimeOptions[i].format, fg, bg);
-    draw_text(fb_, fonts::literata_20, (r.x + kPad + 32) * 64, r.y + 35, kTimeOptions[i].name, fg);
-    char sample[16];
-    format_time(kSampleTime, kTimeOptions[i].format, sample, sizeof(sample));
-    ui::draw_right(fb_, fonts::literata_16, r.x + r.w - kPad, r.y + 35, sample, fg);
+    const int base = r.y + 28;
+    draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, row_name(t, row), fg);
+    ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, value_name(t, row, get(settings_, row)), fg);
+    y += kSettingRowHeight;
   }
-  ui::draw_hint(fb_, "Side buttons move \xC2\xB7 Power selects \xC2\xB7 Home back");
+
+  // A few lines set exactly as the reader would set them.
+  ui::draw_label(fb_, kSide, y + 30, t.preview_label);
+  const int top = y + 44;
+  const int bottom = fb_.height() - 52;
+  dotted_rule(fb_, top);
+  dotted_rule(fb_, bottom);
+  const char* preview[] = {t.preview_text};
+  const Book sample{"", "", "", "", t.preview_language, preview, 1};
+  const ReadingStyle style = reading_style(settings_);
+  PageStyle page = page_style(style, fb_, sample, false);
+  page.area = {style.margin, top + 10, w - 2 * style.margin, bottom - top - 14};
+  typeset_page(page, preview, 1, {}, &fb_);
+
+  ui::draw_hint(fb_, t.hint_settings);
 }
 
-void App::settings_activate() { settings_.time_format = kTimeOptions[settings_sel_].format; }
+void App::settings_activate() {
+  const Row row = kRows[settings_sel_];
+  const ReadingStyle before = reading_style(settings_);
+  set(settings_, row, (get(settings_, row) + 1) % value_count(row));
+  if (!(reading_style(settings_) == before)) library_.forget_page_counts();
+}
 
 // ---- Navigation --------------------------------------------------------------
 
 void App::open_book(int index) {
   library_.touch(index);
   BookState& state = library_.state(index);
-  reader_.open(library_.book(index), state.position, fb_);
+  reader_.open(library_.book(index), reading_style(settings_), state.position, fb_);
   reading_ = index;
   state.page = static_cast<uint16_t>(reader_.page());
   state.page_count = static_cast<uint16_t>(reader_.page_count());
@@ -242,10 +373,6 @@ void App::open_book(int index) {
 void App::show(Screen s) {
   screen_ = s;
   if (s == Screen::Home) home_sel_ = 0;
-  if (s == Screen::Settings) {
-    for (int i = 0; i < kSettingsCount; ++i)
-      if (kTimeOptions[i].format == settings_.time_format) settings_sel_ = i;
-  }
   draw();
   queue_.submit_full();  // a new screen: clear the previous one's ghosting
 }
@@ -255,7 +382,7 @@ void App::draw() {
   time_text(time, sizeof(time));
   const int battery = board_.power.battery_percent();
   if (screen_ == Screen::Reader) {
-    reader_.draw(fb_, time, battery);
+    reader_.draw(fb_, text(), time, battery);
     return;
   }
   fb_.clear(Color::White);
@@ -313,7 +440,7 @@ bool App::handle(const InputEvent& ev) {
       break;
     case Screen::Settings:
       if (ev.key == Key::Power) settings_activate();
-      settings_sel_ = wrap_index(settings_sel_ + step, kSettingsCount);
+      settings_sel_ = wrap_index(settings_sel_ + step, kRowCount);
       break;
   }
   draw();

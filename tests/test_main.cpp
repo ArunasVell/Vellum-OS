@@ -7,7 +7,9 @@
 #include "vellum/display_queue.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
+#include "vellum/reader.h"
 #include "vellum/settings.h"
+#include "vellum/strings.h"
 #include "vellum/text.h"
 
 using namespace vellum;
@@ -181,6 +183,60 @@ void test_library_order() {
   CHECK(order[0] == 3 && order[1] == 2 && order[2] == 0 && order[3] == 1);
 }
 
+void test_book_count_plurals() {
+  char out[32];
+  const auto lt = [&](int n) {
+    format_book_count(Language::Lithuanian, n, out, sizeof(out));
+    return std::string(out);
+  };
+  CHECK(lt(1) == "1 knyga");
+  CHECK(lt(4) == "4 knygos");
+  CHECK(lt(11) == "11 knygų");
+  CHECK(lt(20) == "20 knygų");
+  CHECK(lt(21) == "21 knyga");
+  CHECK(lt(22) == "22 knygos");
+  format_book_count(Language::English, 1, out, sizeof(out));
+  CHECK(std::string(out) == "1 book");
+}
+
+void test_reading_style_changes_layout() {
+  const Book& book = books::alice;
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  const auto pages = [&](const Settings& s) {
+    const ReadingStyle style = reading_style(s);
+    TextPos pos{};
+    int n = 0;
+    while (pos.paragraph < book.paragraph_count && n < 1000) {
+      pos = typeset_page(page_style(style, f.fb, book, n == 0), book.paragraphs, book.paragraph_count, pos, nullptr);
+      ++n;
+    }
+    return n;
+  };
+  Settings normal;
+  Settings big = normal;
+  big.text_size = TextSize::ExtraLarge;
+  Settings loose = normal;
+  loose.line_spacing = Spacing::Wide;
+  Settings wide = normal;
+  wide.margins = Spacing::Wide;
+  CHECK(pages(big) > pages(normal));
+  CHECK(pages(loose) > pages(normal));
+  CHECK(pages(wide) > pages(normal));
+}
+
+void test_interface_text_fits() {
+  // Hints are one line between the screen margins in every language.
+  for (Language lang : {Language::English, Language::Lithuanian}) {
+    const Strings& t = strings(lang);
+    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings}) {
+      const int w = text_width_px(fonts::literata_16, hint);
+      if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
+      CHECK(w <= kH - 2 * 28);
+    }
+  }
+}
+
 void test_time_format() {
   char out[16];
   format_time({2026, 10, 4, 14, 5, 0}, TimeFormat::H24, out, sizeof(out));
@@ -232,6 +288,9 @@ int main() {
   test_hyphenation();
   test_library_order();
   test_time_format();
+  test_book_count_plurals();
+  test_interface_text_fits();
+  test_reading_style_changes_layout();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;

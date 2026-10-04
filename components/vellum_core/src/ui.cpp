@@ -183,7 +183,8 @@ void draw_cover(Framebuffer& fb, Rect r, const Book& book) {
            inner.y + inner.h - 14, book.author, f, fg);
 }
 
-void draw_book_row(Framebuffer& fb, Rect r, const Book& book, const BookState& state, bool selected) {
+void draw_book_row(Framebuffer& fb, Rect r, const Book& book, const BookState& state, const Strings& text,
+                   bool selected) {
   const Color fg = selected ? Color::White : Color::Black;
   if (selected) fb.fill_round_rect(r, 10, Color::Black);
 
@@ -191,13 +192,13 @@ void draw_book_row(Framebuffer& fb, Rect r, const Book& book, const BookState& s
   if (selected) fb.fill_rect({cover.x - 2, cover.y - 2, cover.w + 4, cover.h + 4}, Color::White);
   draw_cover(fb, cover, book);
 
-  char status[16];
+  char status[32];
   if (!state.started()) {
-    std::snprintf(status, sizeof(status), "New");
+    std::snprintf(status, sizeof(status), "%s", text.status_new);
   } else if (state.page_count && state.page + 1 >= state.page_count) {
-    std::snprintf(status, sizeof(status), "Finished");
+    std::snprintf(status, sizeof(status), "%s", text.status_finished);
   } else {
-    std::snprintf(status, sizeof(status), "%d%%", state.percent());
+    std::snprintf(status, sizeof(status), "%d%%", state.percent(book.paragraph_count));
   }
   const int text_x = cover.x + cover.w + 18;
   const int right = r.x + r.w - 14;

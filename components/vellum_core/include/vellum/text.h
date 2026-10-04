@@ -41,10 +41,13 @@ struct PageStyle {
   Rect area;                     // where text may go, logical pixels
   int indent;                    // first-line indent of every paragraph but the first, px
   const Hyphenator* hyphenator;  // language rules for breaking words; nullptr = none
+  int line_height = 0;           // baseline to baseline, px; 0 = the font's own
+  int word_space = 100;          // narrowest space between words, percent of the font's space
+  bool justify = true;           // false = ragged right
 };
 
-// Lays out one page of `paragraphs` from `start`: justified lines, the last
-// line of each paragraph set ragged, words hyphenated when the next one does
+// Lays out one page of `paragraphs` from `start`: justified lines (when
+// style.justify), the last line of each paragraph set ragged, words hyphenated when the next one does
 // not fit. Draws when `fb` is not null, so the
 // same call paginates (fb = nullptr) and renders. Returns where the next
 // page starts; that equals {count, 0} once all text is placed.

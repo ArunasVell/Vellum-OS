@@ -16,11 +16,15 @@ set(VELLUM_CORE_SRCS
   src/library.cpp
   src/reader.cpp
   src/settings.cpp
+  src/strings.cpp
   src/text.cpp
   src/ui.cpp
   src/fonts/literata_16.cpp
   src/fonts/literata_20.cpp
+  src/fonts/literata_23.cpp
   src/fonts/literata_26.cpp
+  src/fonts/literata_30.cpp
+  src/fonts/literata_34.cpp
   src/fonts/literata_italic_20.cpp
   src/fonts/literata_italic_26.cpp
   src/fonts/literata_italic_40.cpp
