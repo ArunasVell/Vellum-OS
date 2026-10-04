@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install Vellum @VERSION@</title>
+<!--
+  The USB installer for the XTEINK X4 Pro. tools/make_installer.py fills in
+  the firmware images and esptool-js and writes one self-contained file per
+  release; this template on its own cannot install anything.
+-->
+<style>
+  :root { --paper: #f3f1ec; --card: #fbfaf7; --ink: #1f2226; --muted: #61656c; --line: #d6d2c8; --accent: #2f4a6b; --bad: #8a2c22; --bad-bg: #f6e6e2; --good: #2f5d3a; --code: #ece9e2; }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #15171a; --card: #1d2024; --ink: #e8e6e1; --muted: #9a9ea6; --line: #30343a; --accent: #9db8d9; --bad: #e39a8f; --bad-bg: #2c1f1d; --good: #9fcfaa; --code: #24282d; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 0 16px; }
+  main { max-width: 640px; margin: 0 auto; padding-block: 28px 64px; display: flex; flex-direction: column; gap: 22px; }
+  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+  .eyebrow, h2.label { font: 600 12px/1 ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); margin: 0; }
+  h1 { font: italic 600 36px/1.12 Georgia, "Iowan Old Style", serif; margin: 8px 0 0; text-wrap: balance; }
+  h3 { font: italic 600 23px/1.2 Georgia, "Iowan Old Style", serif; margin: 0; }
+  p { margin: 0; }
+  .muted { color: var(--muted); }
+  ul.plain { margin: 0; padding-left: 20px; }
+  ul.plain li + li { margin-top: 4px; }
+  ol { margin: 0; padding-left: 22px; }
+  ol li + li { margin-top: 6px; }
+  .lang { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; flex: none; }
+  .lang button { background: none; color: var(--muted); border-radius: 0; padding: 8px 12px; font-size: 13px; }
+  .lang button[aria-pressed="true"] { background: var(--accent); color: var(--card); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+  .step { display: flex; gap: 12px; align-items: baseline; }
+  .num { flex: none; width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); display: grid; place-items: center; font: 600 15px/1 ui-monospace, Menlo, monospace; transform: translateY(-3px); }
+  .done .num { background: var(--accent); color: var(--card); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: 600 16px/1 system-ui, sans-serif; color: var(--card); background: var(--accent); border: 0; border-radius: 999px; padding: 14px 22px; cursor: pointer; }
+  button.quiet { background: none; color: var(--accent); border: 1.5px solid var(--line); padding: 10px 16px; font-size: 14px; }
+  button:disabled { opacity: .45; cursor: default; }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s; }
+  .status { font: 14px/1.4 ui-monospace, Menlo, monospace; color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+  .status.ok { color: var(--good); }
+  .err { background: var(--bad-bg); color: var(--ink); border-left: 3px solid var(--bad); border-radius: 6px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+  .err strong { color: var(--bad); }
+  details summary { cursor: pointer; color: var(--accent); }
+  .err details { font-size: 13px; color: var(--muted); }
+  .err code, .tech { font: 13px/1.4 ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+  .banner { border-left: 3px solid var(--bad); background: var(--bad-bg); padding: 12px 14px; border-radius: 6px; }
+  .note { border-left: 3px solid var(--line); padding-left: 12px; color: var(--muted); font-size: 15px; }
+  input[type="file"] { font: 14px system-ui, sans-serif; color: var(--muted); max-width: 100%; }
+  pre#log { margin: 0; background: var(--code); border-radius: 8px; padding: 12px; height: 320px; overflow: auto; font: 12px/1.45 ui-monospace, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+  label.check { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--muted); }
+  footer { color: var(--muted); font-size: 13px; }
+  @media (max-width: 480px) { h1 { font-size: 30px; } .card { padding: 16px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <div class="eyebrow">Vellum @VERSION@ · XTEINK X4 Pro</div>
+      <h1 data-t="title">Install Vellum on your reader</h1>
+    </div>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true">EN</button>
+      <button type="button" data-lang="lt" aria-pressed="false">LT</button>
+    </div>
+  </header>
+
+  <div class="banner" id="noserial" hidden data-t="noserial"></div>
+  <div class="banner" id="nofw" hidden data-t="nofw"></div>
+
+  <p data-t="lead"></p>
+
+  <section class="card">
+    <h2 class="label" data-t="needLabel"></h2>
+    <ul class="plain" data-t="needList"></ul>
+  </section>
+
+  <section class="card" id="backup">
+    <div class="step"><span class="num">1</span><h3 data-t="s1title"></h3></div>
+    <p data-t="s1text"></p>
+    <div class="row">
+      <button type="button" class="go" data-t="s1button"></button>
+      <button type="button" class="quiet" id="saveAgain" hidden data-t="saveAgain"></button>
+    </div>
+    <div class="bar" hidden><i></i></div>
+    <div class="status"></div>
+    <div class="err" hidden></div>
+  </section>
+
+  <section class="card" id="install">
+    <div class="step"><span class="num">2</span><h3 data-t="s2title"></h3></div>
+    <p data-t="s2text"></p>
+    <div class="row"><button type="button" class="go" data-t="s2button"></button></div>
+    <div class="bar" hidden><i></i></div>
+    <div class="status"></div>
+    <div class="err" hidden></div>
+  </section>
+
+  <section class="card" id="restore">
+    <div class="step"><span class="num">3</span><h3 data-t="s3title"></h3></div>
+    <p data-t="s3text"></p>
+    <input type="file" id="backupFile" accept=".bin,application/octet-stream">
+    <div class="row"><button type="button" class="go" data-t="s3button" disabled></button></div>
+    <div class="bar" hidden><i></i></div>
+    <div class="status"></div>
+    <div class="err" hidden></div>
+  </section>
+
+  <section class="card" id="help">
+    <h2 class="label" data-t="helpLabel"></h2>
+    <p data-t="helpLead"></p>
+    <ol data-t="helpSteps"></ol>
+    <p class="note" data-t="helpNote"></p>
+    <details>
+      <summary data-t="moreHelp"></summary>
+      <ul class="plain" data-t="moreHelpList" style="margin-top: 8px"></ul>
+      <label class="check" style="margin-top: 10px"><input type="checkbox" id="allPorts"> <span data-t="allPorts"></span></label>
+    </details>
+  </section>
+
+  <section class="card" id="logs">
+    <h2 class="label" data-t="logLabel"></h2>
+    <p data-t="logText"></p>
+    <div class="row">
+      <button type="button" class="go" id="logStart" data-t="logStart"></button>
+      <button type="button" class="quiet" id="logRestart" disabled data-t="logRestart"></button>
+      <button type="button" class="quiet" id="logCopy" data-t="logCopy"></button>
+      <button type="button" class="quiet" id="logSave" data-t="logSave"></button>
+      <button type="button" class="quiet" id="logClear" data-t="logClear"></button>
+    </div>
+    <div class="status" id="logStatus"></div>
+    <pre id="log" aria-live="off"></pre>
+  </section>
+
+  <footer data-t="footer"></footer>
+</main>
+
+<script>/*@ESPTOOL@*/</script>
+<script>
+(() => {
+  "use strict";
+  // Filled in by tools/make_installer.py: version, images (gzip + base64)
+  // with their flash offsets and MD5s, and areas to wipe.
+  const FW = /*@FIRMWARE@*/null;
+  const FLASH_BYTES = 16 * 1024 * 1024;  // the X4 Pro's whole flash
+  const ESPRESSIF_VID = 0x303a;
+
+  // ---- Words, in English and Lithuanian ----------------------------------
+
+  const T = {
+    en: {
+      title: "Install Vellum on your reader",
+      lead: "This page puts Vellum on an XTEINK X4 Pro over a USB cable. It works on its own: nothing is downloaded, and you can come back to the original software at any time with the copy you save in step 1.",
+      noserial: "<strong>This browser cannot talk to the reader.</strong> Open this file in <b>Chrome</b> or <b>Edge</b> on a computer (Windows, Mac, Linux or Chromebook). Safari, Firefox and phones cannot do it.",
+      nofw: "<strong>This page has no Vellum inside.</strong> Use the <code>vellum-install-….html</code> file attached to a Vellum release.",
+      needLabel: "What you need",
+      needList: "<li>A computer with <b>Chrome</b> or <b>Edge</b>.</li><li>The reader’s USB cable (with the pogo adapter if yours charges through one). It must be a cable that carries data, not only charging.</li><li>The reader charged to at least a third.</li><li>About 15 minutes. Keep this page open and the cable still while a bar is moving.</li>",
+      s1title: "Save the original software",
+      s1text: "Copies everything on the reader’s memory (16 MB) to a file on this computer, so you can go back to how it came. Takes about 3–5 minutes. Keep the file somewhere safe; you only need to do this once.",
+      s1button: "Connect and save",
+      saveAgain: "Save the file again",
+      s2title: "Install Vellum",
+      s2text: "Writes Vellum @VERSION@ to the reader, then restarts it. Takes about a minute. Books on the memory card are not touched.",
+      s2button: "Connect and install",
+      s3title: "Go back to the original",
+      s3text: "Choose the file you saved in step 1. It is written back exactly as it was, then the reader restarts. Takes about 5 minutes.",
+      s3button: "Connect and restore",
+      helpLabel: "If the reader will not connect",
+      helpLead: "When you press a button above, Chrome shows a list: pick the reader (often called “USB JTAG/serial debug unit”) and press Connect. If the list is empty, or the page says it cannot reach the reader, put the reader in <b>download mode</b>. You will likely need this the first time, while the original software is still on it:",
+      helpSteps: "<li>Connect the cable to the computer and the reader.</li><li>Turn the reader off completely.</li><li>Press and hold the <b>left page button</b> (the one that goes back a page).</li><li>While still holding it, press <b>Power</b> to switch the reader on. Keep holding the page button for 3 more seconds, then let go.</li><li>The screen does not change. That is normal: the reader is waiting for the computer. Press the step’s button again.</li>",
+      helpNote: "Not yet tried on an X4 Pro: the left page button is the chip’s “boot” pin, which is what download mode needs, but the exact way to restart this reader may differ. Once Vellum is on the reader, the page can usually connect without this.",
+      moreHelp: "More things to try",
+      moreHelpList: "<li>Try another cable or USB port. Many cables only charge.</li><li>Close other tabs with this page, and programs that use serial ports (Arduino, a serial monitor).</li><li>On Linux, Chrome may need permission to use serial ports: add your user to the <code>dialout</code> group and log in again.</li><li>If the reader is not in the list, tick the box below and look for any new entry that appears when you plug it in.</li>",
+      allPorts: "Show every serial port in the list",
+      logLabel: "Reader’s log",
+      logText: "If something is wrong after installing, the reader’s log helps find out why. Press <b>Show log</b>, pick the reader, then do the thing that goes wrong. <b>Copy</b> or <b>Save</b> the text and send it along with what you did.",
+      logStart: "Show log",
+      logStop: "Stop",
+      logRestart: "Restart reader",
+      logCopy: "Copy",
+      logSave: "Save as file",
+      logClear: "Clear",
+      logOn: "Showing the reader’s log.",
+      logWaiting: "The reader went away (asleep or restarting). Waiting for it to come back…",
+      logOff: "",
+      copied: "Copied.",
+      footer: "Vellum is open software for e-ink readers. This page uses esptool-js (Apache 2.0) by Espressif to talk to the reader.",
+      // Progress and results
+      choose: "Choose the reader in the list…",
+      connecting: "Connecting…",
+      connected: "Connected: {0}.",
+      reading: "Copying {0} of 16 MB · {1}",
+      checking: "Checking the copy…",
+      backupDone: "Done. The file {0} is in your Downloads folder. Keep it safe. The reader is still waiting for the computer, so go straight on to step 2. (To stop here instead, turn the reader off and on.)",
+      preparing: "Getting ready…",
+      writing: "Writing {0}%",
+      verifying: "Checking…",
+      restarting: "Restarting the reader…",
+      installDone: "Done. Vellum is starting: the screen should change within half a minute. If it stays the same, press Power. Next, go through the first-day checklist.",
+      restoreDone: "Done. The original software is back and the reader is restarting. If the screen stays the same, press Power.",
+      left: "about {0} left",
+      minutes: "{0} min",
+      seconds: "{0} s",
+      noBackupYet: "You have not saved the original software from this computer yet (step 1). Without that copy there is no way back. Press again to install anyway.",
+      confirmRestore: "This replaces Vellum with what is in the file. Press again to go ahead.",
+      yesInstall: "Install anyway",
+      yesRestore: "Yes, write it back",
+      // Errors
+      eCancelled: "<strong>No reader was chosen.</strong> Press the button again and pick the reader in the list. If it is not there, see “If the reader will not connect” below.",
+      eBusy: "<strong>The reader’s connection is in use.</strong> Close other tabs with this page and programs such as Arduino or a serial monitor, unplug the cable, plug it back in and try again.",
+      eNoConnect: "<strong>Could not reach the reader.</strong> Put it in download mode (see “If the reader will not connect” below) and try again. Nothing was changed.",
+      eLocked: "<strong>This reader is locked against new software.</strong> Stop here: Vellum cannot be installed on it. Nothing was changed.",
+      eNotX4: "<strong>This does not look like an X4 Pro</strong> (the chip is {0}, not an ESP32-S3). Nothing was changed.",
+      eFlashSize: "<strong>This reader’s memory is {0}, not 16 MB.</strong> That is not what an X4 Pro has, so nothing was changed.",
+      eLost: "<strong>The connection was lost part-way.</strong> Check the cable and try again. If it stopped while writing, the reader may not start until the step is finished. That can always be fixed: put it in download mode and run the same step again.",
+      eVerify: "<strong>The check found a difference.</strong> Run the step again. If it happens twice, try another cable or USB port.",
+      eBadFile: "<strong>That file is not a full X4 Pro backup.</strong> Choose the 16 MB file that step 1 saved (its name starts with “x4pro-original”).",
+      eNoFw: "<strong>This page has no Vellum inside.</strong> Use the vellum-install file from a release.",
+      eNoSerial: "<strong>This browser cannot talk to the reader.</strong> Use Chrome or Edge on a computer.",
+      eOther: "<strong>Something went wrong.</strong> Try again. If it keeps happening, copy the text below and the reader’s log (bottom of the page) and send them.",
+      details: "Details for the developer",
+    },
+    lt: {
+      title: "Įdiekite Vellum į skaityklę",
+      lead: "Šis puslapis USB laidu įrašo Vellum į XTEINK X4 Pro. Jis veikia savarankiškai: nieko nesiunčia iš interneto, o 1 žingsnyje išsaugota kopija leis bet kada grįžti prie originalios programinės įrangos.",
+      noserial: "<strong>Ši naršyklė negali susisiekti su skaitykle.</strong> Atverkite šį failą kompiuteryje su <b>Chrome</b> arba <b>Edge</b> (Windows, Mac, Linux ar Chromebook). Safari, Firefox ir telefonai to nemoka.",
+      nofw: "<strong>Šiame puslapyje nėra Vellum.</strong> Naudokite prie Vellum leidimo pridėtą failą <code>vellum-install-….html</code>.",
+      needLabel: "Ko reikia",
+      needList: "<li>Kompiuterio su <b>Chrome</b> arba <b>Edge</b>.</li><li>Skaityklės USB laido (su „pogo“ adapteriu, jei jūsų skaityklė per jį kraunasi). Laidas turi perduoti duomenis, ne tik krauti.</li><li>Kad skaityklė būtų įkrauta bent trečdaliu.</li><li>Maždaug 15 minučių. Kol juda juosta, neuždarykite puslapio ir nejudinkite laido.</li>",
+      s1title: "Išsaugokite originalią programinę įrangą",
+      s1text: "Nukopijuoja visą skaityklės atmintį (16 MB) į failą šiame kompiuteryje, kad galėtumėte grįžti prie gamyklinės būsenos. Užtrunka apie 3–5 minutes. Laikykite failą saugioje vietoje; tai reikia padaryti tik kartą.",
+      s1button: "Prisijungti ir išsaugoti",
+      saveAgain: "Išsaugoti failą dar kartą",
+      s2title: "Įdiekite Vellum",
+      s2text: "Įrašo Vellum @VERSION@ į skaityklę ir ją paleidžia iš naujo. Užtrunka apie minutę. Knygos atminties kortelėje lieka nepaliestos.",
+      s2button: "Prisijungti ir įdiegti",
+      s3title: "Grįžkite prie originalios",
+      s3text: "Pasirinkite 1 žingsnyje išsaugotą failą. Jis įrašomas atgal lygiai toks, koks buvo, ir skaityklė paleidžiama iš naujo. Užtrunka apie 5 minutes.",
+      s3button: "Prisijungti ir atkurti",
+      helpLabel: "Jei skaityklė neprisijungia",
+      helpLead: "Paspaudus mygtuką, Chrome parodo sąrašą: pasirinkite skaityklę (dažnai vadinasi „USB JTAG/serial debug unit“) ir spauskite „Connect“ (Prisijungti). Jei sąrašas tuščias arba puslapis sako, kad skaityklės nepasiekia, įjunkite <b>atsisiuntimo režimą</b>. Pirmą kartą, kol skaityklėje dar originali programinė įranga, to greičiausiai prireiks:",
+      helpSteps: "<li>Prijunkite laidą prie kompiuterio ir skaityklės.</li><li>Visiškai išjunkite skaityklę.</li><li>Paspauskite ir laikykite <b>kairįjį puslapio mygtuką</b> (tą, kuris verčia atgal).</li><li>Vis dar jį laikydami, paspauskite <b>įjungimo mygtuką</b>. Puslapio mygtuką palaikykite dar 3 sekundes ir atleiskite.</li><li>Ekranas nepasikeičia. Taip ir turi būti: skaityklė laukia kompiuterio. Dar kartą paspauskite žingsnio mygtuką.</li>",
+      helpNote: "Su X4 Pro dar neišbandyta: kairysis puslapio mygtukas yra lusto „boot“ kontaktas, kurio reikia atsisiuntimo režimui, bet tikslus būdas paleisti šią skaityklę iš naujo gali skirtis. Kai skaityklėje jau bus Vellum, puslapis paprastai prisijungs ir be to.",
+      moreHelp: "Ką dar galima pabandyti",
+      moreHelpList: "<li>Pabandykite kitą laidą ar USB lizdą. Daug laidų tik krauna.</li><li>Uždarykite kitus šio puslapio skirtukus ir programas, kurios naudoja nuosekliuosius prievadus (Arduino, „serial monitor“).</li><li>Linux sistemoje Chrome gali reikėti leidimo naudoti nuosekliuosius prievadus: įtraukite savo naudotoją į grupę <code>dialout</code> ir prisijunkite iš naujo.</li><li>Jei skaityklės sąraše nėra, pažymėkite langelį žemiau ir ieškokite naujo įrašo, kuris atsiranda ją prijungus.</li>",
+      allPorts: "Rodyti sąraše visus nuosekliuosius prievadus",
+      logLabel: "Skaityklės žurnalas",
+      logText: "Jei įdiegus kas nors veikia ne taip, skaityklės žurnalas padeda išsiaiškinti kodėl. Spauskite <b>Rodyti žurnalą</b>, pasirinkite skaityklę ir pakartokite tai, kas neveikia. <b>Nukopijuokite</b> arba <b>išsaugokite</b> tekstą ir atsiųskite kartu su aprašymu, ką darėte.",
+      logStart: "Rodyti žurnalą",
+      logStop: "Sustabdyti",
+      logRestart: "Paleisti skaityklę iš naujo",
+      logCopy: "Kopijuoti",
+      logSave: "Išsaugoti failą",
+      logClear: "Išvalyti",
+      logOn: "Rodomas skaityklės žurnalas.",
+      logWaiting: "Skaityklė atsijungė (užmigo arba persikrauna). Laukiama, kol vėl prisijungs…",
+      logOff: "",
+      copied: "Nukopijuota.",
+      footer: "Vellum yra atvira programinė įranga e-rašalo skaityklėms. Su skaitykle šis puslapis kalbasi naudodamas Espressif esptool-js (Apache 2.0).",
+      choose: "Pasirinkite skaityklę sąraše…",
+      connecting: "Jungiamasi…",
+      connected: "Prisijungta: {0}.",
+      reading: "Kopijuojama {0} iš 16 MB · {1}",
+      checking: "Tikrinama kopija…",
+      backupDone: "Baigta. Failas {0} yra aplanke „Atsisiuntimai“ (Downloads). Laikykite jį saugiai. Skaityklė vis dar laukia kompiuterio, tad iškart pereikite prie 2 žingsnio. (Jei norite čia sustoti, išjunkite ir vėl įjunkite skaityklę.)",
+      preparing: "Ruošiamasi…",
+      writing: "Įrašoma {0} %",
+      verifying: "Tikrinama…",
+      restarting: "Skaityklė paleidžiama iš naujo…",
+      installDone: "Baigta. Vellum paleidžiamas: ekranas turėtų pasikeisti per pusę minutės. Jei nepasikeičia, paspauskite įjungimo mygtuką. Toliau eikite per pirmosios dienos patikrų sąrašą.",
+      restoreDone: "Baigta. Originali programinė įranga grąžinta, skaityklė paleidžiama iš naujo. Jei ekranas nepasikeičia, paspauskite įjungimo mygtuką.",
+      left: "liko apie {0}",
+      minutes: "{0} min.",
+      seconds: "{0} s",
+      noBackupYet: "Iš šio kompiuterio dar neišsaugojote originalios programinės įrangos (1 žingsnis). Be tos kopijos kelio atgal nėra. Paspauskite dar kartą, jei vis tiek norite diegti.",
+      confirmRestore: "Vellum bus pakeista tuo, kas yra faile. Paspauskite dar kartą, jei norite tęsti.",
+      yesInstall: "Vis tiek diegti",
+      yesRestore: "Taip, įrašyti atgal",
+      eCancelled: "<strong>Skaityklė nepasirinkta.</strong> Paspauskite mygtuką dar kartą ir pasirinkite skaityklę sąraše. Jei jos ten nėra, žr. „Jei skaityklė neprisijungia“ žemiau.",
+      eBusy: "<strong>Skaityklės ryšį naudoja kita programa.</strong> Uždarykite kitus šio puslapio skirtukus ir programas, tokias kaip Arduino ar „serial monitor“, atjunkite laidą, vėl prijunkite ir bandykite dar kartą.",
+      eNoConnect: "<strong>Nepavyko pasiekti skaityklės.</strong> Įjunkite atsisiuntimo režimą (žr. „Jei skaityklė neprisijungia“ žemiau) ir bandykite dar kartą. Niekas nepakeista.",
+      eLocked: "<strong>Ši skaityklė užrakinta naujai programinei įrangai.</strong> Sustokite: Vellum į ją įdiegti negalima. Niekas nepakeista.",
+      eNotX4: "<strong>Tai nepanašu į X4 Pro</strong> (lustas yra {0}, ne ESP32-S3). Niekas nepakeista.",
+      eFlashSize: "<strong>Šios skaityklės atmintis yra {0}, ne 16 MB.</strong> X4 Pro tokios neturi, todėl niekas nepakeista.",
+      eLost: "<strong>Ryšys nutrūko pusiaukelėje.</strong> Patikrinkite laidą ir bandykite dar kartą. Jei nutrūko rašant, skaityklė gali nepasileisti, kol žingsnis nebus baigtas. Tai visada galima ištaisyti: įjunkite atsisiuntimo režimą ir pakartokite tą patį žingsnį.",
+      eVerify: "<strong>Patikra rado skirtumą.</strong> Pakartokite žingsnį. Jei taip nutinka du kartus, pabandykite kitą laidą ar USB lizdą.",
+      eBadFile: "<strong>Tai nėra pilna X4 Pro atsarginė kopija.</strong> Pasirinkite 16 MB failą, kurį išsaugojo 1 žingsnis (jo pavadinimas prasideda „x4pro-original“).",
+      eNoFw: "<strong>Šiame puslapyje nėra Vellum.</strong> Naudokite vellum-install failą iš leidimo.",
+      eNoSerial: "<strong>Ši naršyklė negali susisiekti su skaitykle.</strong> Naudokite Chrome arba Edge kompiuteryje.",
+      eOther: "<strong>Kažkas nepavyko.</strong> Bandykite dar kartą. Jei kartojasi, nukopijuokite žemiau esantį tekstą ir skaityklės žurnalą (puslapio apačioje) ir atsiųskite.",
+      details: "Informacija kūrėjui",
+    },
+  };
+
+  let lang = "en";
+  try { if (localStorage.getItem("vellum-lang") === "lt") lang = "lt"; } catch (e) {}
+
+  const t = (key, ...args) => T[lang][key].replace(/\{(\d)\}/g, (_, i) => args[i]);
+  // Messages on screen are kept as keys, so switching language redraws them.
+  const shown = new Map();  // element -> [key, args]
+  function say(el, key, ...args) {
+    if (key === null) { shown.delete(el); el.textContent = ""; return; }
+    shown.set(el, [key, args]);
+    el.innerHTML = t(key, ...args);
+  }
+
+  function applyLanguage() {
+    document.documentElement.lang = lang;
+    document.querySelectorAll("[data-t]").forEach((el) => {
+      const key = el.dataset.t;
+      const armed = el.classList.contains("go") && el.closest("[data-armed]");
+      if (key === "logStart" && monitorWanted) el.innerHTML = t("logStop");
+      else if (armed) el.innerHTML = t(armed.dataset.armed);
+      else el.innerHTML = t(key);
+    });
+    document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+    shown.forEach(([key, args], el) => (el.innerHTML = t(key, ...args)));
+    errors.forEach(redrawError);
+  }
+  document.querySelectorAll("[data-lang]").forEach((b) =>
+    b.addEventListener("click", () => {
+      lang = b.dataset.lang;
+      try { localStorage.setItem("vellum-lang", lang); } catch (e) {}
+      applyLanguage();
+    })
+  );
+
+  const $ = (sel, root = document) => root.querySelector(sel);
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // ---- The log, shared by the monitor and the installer's own messages ----
+
+  const logEl = $("#log");
+  const LOG_LIMIT = 400000;  // characters kept on screen
+  let logText = "";
+  let logQueued = false;
+  function appendLog(s) {
+    logText += s.replace(/\x1b\[[0-9;]*m/g, "");
+    if (logText.length > LOG_LIMIT) logText = logText.slice(logText.length - LOG_LIMIT);
+    if (logQueued) return;
+    logQueued = true;
+    requestAnimationFrame(() => {
+      logQueued = false;
+      const atEnd = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 30;
+      logEl.textContent = logText;
+      if (atEnd) logEl.scrollTop = logEl.scrollHeight;
+    });
+  }
+  const note = (s) => appendLog(`[installer] ${s}\n`);
+  // esptool-js reports what it does here.
+  const terminal = { clean() {}, writeLine: (s) => note(s), write: (s) => appendLog(s) };
+
+  // ---- Steps: buttons, progress and errors ---------------------------------
+
+  const steps = { backup: $("#backup"), install: $("#install"), restore: $("#restore") };
+  let busy = false;
+  const errors = new Map();  // card -> {key, args, detail}
+
+  function setBusy(on) {
+    busy = on;
+    Object.values(steps).forEach((c) => ($(".go", c).disabled = on || !ready(c)));
+    $("#saveAgain").disabled = on;
+    $("#logStart").disabled = on;
+  }
+  function ready(card) {
+    if (!("serial" in navigator) || !window.esptool) return false;
+    if (card === steps.install) return !!FW;
+    if (card === steps.restore) return !!restoreData;
+    return true;
+  }
+  function progress(card, fraction) {
+    const bar = $(".bar", card);
+    bar.hidden = fraction === null;
+    if (fraction !== null) $("i", bar).style.width = `${Math.min(100, fraction * 100).toFixed(1)}%`;
+  }
+  function status(card, key, ...args) {
+    const el = $(".status", card);
+    el.classList.toggle("ok", /Done$/.test(key || ""));
+    say(el, key, ...args);
+  }
+  function redrawError(e, card) {
+    const box = $(".err", card);
+    box.innerHTML = `<div>${t(e.key, ...e.args)}</div>`;
+    if (e.detail) {
+      const d = document.createElement("details");
+      d.innerHTML = `<summary>${t("details")}</summary>`;
+      const code = document.createElement("code");
+      code.textContent = e.detail;
+      d.append(code);
+      box.append(d);
+    }
+    box.hidden = false;
+  }
+  function showError(card, key, args, detail) {
+    errors.set(card, { key, args, detail });
+    redrawError(errors.get(card), card);
+  }
+  function clearError(card) {
+    errors.delete(card);
+    $(".err", card).hidden = true;
+  }
+
+  // A step that cannot be undone asks first: the first press explains, the
+  // second goes ahead. (A confirm() box would use up the click that Chrome
+  // needs before it shows its list of ports.)
+  function confirmed(card, question, yes) {
+    if (card.dataset.armed) {
+      disarm(card);
+      return true;
+    }
+    card.dataset.armed = yes;
+    status(card, question);
+    $(".go", card).innerHTML = t(yes);
+    return false;
+  }
+  function disarm(card) {
+    if (!card.dataset.armed) return;
+    delete card.dataset.armed;
+    const go = $(".go", card);
+    go.innerHTML = t(go.dataset.t);
+  }
+
+  // A problem the page explains in words; anything else is shown as eOther.
+  class Problem extends Error {
+    constructor(key, args = [], cause) {
+      super(cause ? String(cause.message || cause) : key);
+      this.key = key;
+      this.args = args;
+    }
+  }
+
+  function minutesLeft(start, fraction) {
+    if (fraction < 0.03) return "…";
+    const s = ((Date.now() - start) / 1000) * (1 / fraction - 1);
+    return t("left", s >= 90 ? t("minutes", Math.round(s / 60)) : t("seconds", Math.max(5, Math.round(s / 5) * 5)));
+  }
+
+  // ---- Talking to the reader ------------------------------------------------
+
+  // Asks Chrome for the port (shows its list), then wakes the chip's
+  // bootloader and loads esptool's helper onto it.
+  async function connect(card) {
+    if (!("serial" in navigator)) throw new Problem("eNoSerial");
+    status(card, "choose");
+    let port;
+    try {
+      const filters = $("#allPorts").checked ? [] : [{ usbVendorId: ESPRESSIF_VID }];
+      port = await navigator.serial.requestPort({ filters });
+    } catch (e) {
+      throw new Problem(e.name === "NotFoundError" ? "eCancelled" : "eOther", [], e);
+    }
+    await stopMonitor();
+    status(card, "connecting");
+    const transport = new esptool.Transport(port, false);
+    // The X4 Pro's own USB port ignores the baud rate, so stay at one speed
+    // there and skip reopening the port; a USB-serial adapter gets the fast rate.
+    const native = port.getInfo().usbVendorId === ESPRESSIF_VID;
+    const loader = new esptool.ESPLoader({ transport, baudrate: native ? 115200 : 921600, romBaudrate: 115200, terminal, debugLogging: false });
+    let chip;
+    try {
+      chip = await loader.main();
+    } catch (e) {
+      await release(transport);
+      const msg = String(e && e.message);
+      if (/open|busy|access/i.test(msg) || e.name === "InvalidStateError") throw new Problem("eBusy", [], e);
+      if (/secure/i.test(msg)) throw new Problem("eLocked", [], e);
+      throw new Problem("eNoConnect", [], e);
+    }
+    try {
+      if (loader.secureDownloadMode) throw new Problem("eLocked");
+      if (!/ESP32-S3/i.test(chip)) throw new Problem("eNotX4", [chip]);
+      const size = await loader.detectFlashSize();
+      if (size && size !== "16MB") throw new Problem("eFlashSize", [size.replace("MB", " MB")]);
+    } catch (e) {
+      await release(transport);
+      throw e;
+    }
+    status(card, "connected", chip.replace(/\s*\(.*$/, ""));
+    return { transport, loader };
+  }
+
+  async function release(transport) {
+    try { await transport.disconnect(); } catch (e) {}
+  }
+
+  // Runs one step: shows progress, turns failures into plain words.
+  async function run(card, work) {
+    if (busy) return;
+    clearError(card);
+    progress(card, null);
+    setBusy(true);
+    let link = null;
+    try {
+      await work((l) => (link = l));
+    } catch (e) {
+      console.error(e);
+      if (e && e.message) note(`error: ${e.message}`);
+      status(card, null);
+      progress(card, null);
+      if (e instanceof Problem) {
+        showError(card, e.key, e.args, e.message !== e.key ? e.message : "");
+      } else {
+        // Mid-transfer: the cable, the chip resetting, or a timeout.
+        const msg = String((e && e.message) || e);
+        const lost = /lost|disconnect|timeout|timed out|network|closed|break|invalid response/i.test(msg) || (e && e.name === "NetworkError");
+        showError(card, lost ? "eLost" : "eOther", [], msg);
+      }
+    } finally {
+      if (link) await release(link.transport);
+      setBusy(false);
+    }
+  }
+
+  // Images written with "keep": the bootloader's header already says DIO,
+  // 80 MHz, 16 MB, and a backup must go back byte for byte.
+  async function writeImages(card, loader, files) {
+    const total = files.reduce((n, f) => n + f.data.length, 0);
+    const before = files.map((_, i) => files.slice(0, i).reduce((n, f) => n + f.data.length, 0));
+    const start = Date.now();
+    await loader.writeFlash({
+      fileArray: files.map((f) => ({ data: f.data, address: f.address })),
+      flashMode: "keep",
+      flashFreq: "keep",
+      flashSize: "keep",
+      eraseAll: false,
+      compress: true,
+      reportProgress: (i, written, size) => {
+        const f = (before[i] + (size ? written / size : 1) * files[i].data.length) / total;
+        progress(card, f);
+        status(card, "writing", Math.floor(f * 100));
+      },
+      calculateMD5Hash: (image) => md5Hex(image),
+    });
+    note(`wrote ${total} bytes in ${((Date.now() - start) / 1000).toFixed(1)} s`);
+  }
+
+  async function restartReader(card, loader) {
+    status(card, "restarting");
+    try { await loader.after("hard_reset"); } catch (e) { note(`restart: ${e.message}`); }
+  }
+
+  // ---- Step 1: save the original --------------------------------------------
+
+  let backup = null;  // {name, data}
+  const CHUNK = 128 * 1024;  // esptool-js gathers each read in one array, so read in pieces
+
+  function saveFile(name, data, type) {
+    const url = URL.createObjectURL(new Blob([data], { type }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+
+  $(".go", steps.backup).addEventListener("click", () =>
+    run(steps.backup, async (keep) => {
+      const card = steps.backup;
+      const link = await connect(card);
+      keep(link);
+      const data = new Uint8Array(FLASH_BYTES);
+      const start = Date.now();
+      progress(card, 0);
+      for (let addr = 0; addr < FLASH_BYTES; addr += CHUNK) {
+        const part = await link.loader.readFlash(addr, CHUNK, (_, got) => {
+          const f = (addr + got) / FLASH_BYTES;
+          progress(card, f);
+          status(card, "reading", ((addr + got) / 1048576).toFixed(1), minutesLeft(start, f));
+        });
+        data.set(part.subarray(0, CHUNK), addr);
+      }
+      status(card, "checking");
+      const onChip = await link.loader.flashMd5sum(0, FLASH_BYTES);
+      const copy = md5Hex(data);
+      if (onChip !== copy) throw new Problem("eVerify", [], `MD5 on reader ${onChip}, copy ${copy}`);
+      note(`backup read in ${((Date.now() - start) / 1000).toFixed(0)} s, md5 ${onChip}`);
+      // No restart: the reader stays ready for step 2, so it connects
+      // without download mode a second time.
+      const day = new Date().toISOString().slice(0, 10);
+      backup = { name: `x4pro-original-${day}.bin`, data };
+      saveFile(backup.name, data, "application/octet-stream");
+      try { localStorage.setItem("vellum-backup-saved", day); } catch (e) {}
+      $("#saveAgain").hidden = false;
+      card.classList.add("done");
+      progress(card, 1);
+      status(card, "backupDone", backup.name);
+    })
+  );
+  $("#saveAgain").addEventListener("click", () => backup && saveFile(backup.name, backup.data, "application/octet-stream"));
+
+  // ---- Step 2: install Vellum -------------------------------------------------
+
+  async function unpack(img) {
+    const bytes = Uint8Array.from(atob(img.gz), (c) => c.charCodeAt(0));
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    const data = new Uint8Array(await new Response(stream).arrayBuffer());
+    if (data.length !== img.size || md5Hex(data) !== img.md5) throw new Error(`${img.name} image is damaged`);
+    return data;
+  }
+
+  $(".go", steps.install).addEventListener("click", () => {
+    let saved = null;
+    try { saved = localStorage.getItem("vellum-backup-saved"); } catch (e) {}
+    if (!saved && !backup && !confirmed(steps.install, "noBackupYet", "yesInstall")) return;
+    disarm(steps.install);
+    run(steps.install, async (keep) => {
+      const card = steps.install;
+      if (!FW) throw new Problem("eNoFw");
+      const link = await connect(card);
+      keep(link);
+      status(card, "preparing");
+      const files = [];
+      for (const img of FW.images) files.push({ address: img.offset, data: await unpack(img) });
+      // Coming from other software (its partition table differs), wipe the
+      // settings store, which the original software filled with its own
+      // settings. A reader already on Vellum keeps its home Wi-Fi and paired readers.
+      const table = files.find((f) => f.address === FW.images.find((i) => i.name === "partitions").offset);
+      const current = await link.loader.readFlash(table.address, table.data.length);
+      const sameLayout = current.length >= table.data.length && table.data.every((b, i) => current[i] === b);
+      note(sameLayout ? "Vellum's layout is already there: keeping its settings" : "new layout: wiping the settings area");
+      if (!sameLayout) {
+        for (const area of FW.erase) files.push({ address: area.offset, data: new Uint8Array(area.size).fill(0xff) });
+      }
+      files.sort((a, b) => a.address - b.address);
+      progress(card, 0);
+      await writeImages(card, link.loader, files);
+      await restartReader(card, link.loader);
+      card.classList.add("done");
+      progress(card, 1);
+      status(card, "installDone");
+    });
+  });
+
+  // ---- Step 3: go back to the original -------------------------------------
+
+  // The file is read when chosen, so the button goes straight to the port list.
+  let restoreData = null;
+  $("#backupFile").addEventListener("change", async () => {
+    const card = steps.restore;
+    const file = $("#backupFile").files[0];
+    restoreData = null;
+    disarm(card);
+    clearError(card);
+    status(card, null);
+    if (file) {
+      const data = new Uint8Array(await file.arrayBuffer());
+      // A full image starts with the bootloader's header byte.
+      if (data.length === FLASH_BYTES && data[0] === 0xe9) restoreData = data;
+      else showError(card, "eBadFile", [], `${file.name}: ${data.length} bytes`);
+    }
+    $(".go", card).disabled = busy || !ready(card);
+  });
+
+  $(".go", steps.restore).addEventListener("click", () => {
+    const card = steps.restore;
+    const data = restoreData;
+    if (!data || !confirmed(card, "confirmRestore", "yesRestore")) return;
+    run(card, async (keep) => {
+      const link = await connect(card);
+      keep(link);
+      progress(card, 0);
+      await writeImages(card, link.loader, [{ address: 0, data }]);
+      await restartReader(card, link.loader);
+      card.classList.add("done");
+      progress(card, 1);
+      status(card, "restoreDone");
+    });
+  });
+
+  // ---- The log monitor --------------------------------------------------------
+
+  // Vellum logs over the chip's own USB port. When the reader sleeps or
+  // restarts the port goes away; the monitor reopens it when it comes back.
+  let monitor = null;  // {port, reader, done}
+  let monitorWanted = false;
+  const logStatus = $("#logStatus");
+
+  async function openMonitor(port) {
+    if (monitor || !monitorWanted) return;
+    try {
+      await port.open({ baudRate: 115200 });
+    } catch (e) {
+      say(logStatus, "eBusy");
+      return;
+    }
+    const reader = port.readable.getReader();
+    const decoder = new TextDecoder();
+    const m = { port, reader };
+    monitor = m;
+    say(logStatus, "logOn");
+    $("#logRestart").disabled = false;
+    m.done = (async () => {
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          appendLog(decoder.decode(value, { stream: true }));
+        }
+      } catch (e) {
+        // The reader went to sleep or restarted.
+      }
+      try { reader.releaseLock(); } catch (e) {}
+      try { await port.close(); } catch (e) {}
+      monitor = null;
+      $("#logRestart").disabled = true;
+      if (monitorWanted) say(logStatus, "logWaiting");
+    })();
+  }
+
+  async function stopMonitor() {
+    monitorWanted = false;
+    const m = monitor;
+    if (m) {
+      try { await m.reader.cancel(); } catch (e) {}
+      await m.done;
+    }
+    say(logStatus, null);
+    $("#logStart").innerHTML = t("logStart");
+  }
+
+  $("#logStart").addEventListener("click", async () => {
+    if (monitorWanted) return stopMonitor();
+    if (!("serial" in navigator)) return say(logStatus, "eNoSerial");
+    let port;
+    try {
+      const filters = $("#allPorts").checked ? [] : [{ usbVendorId: ESPRESSIF_VID }];
+      port = await navigator.serial.requestPort({ filters });
+    } catch (e) {
+      return say(logStatus, e.name === "NotFoundError" ? "eCancelled" : "eOther");
+    }
+    monitorWanted = true;
+    $("#logStart").innerHTML = t("logStop");
+    await openMonitor(port);
+    if (!monitor) { monitorWanted = false; $("#logStart").innerHTML = t("logStart"); }
+  });
+
+  if ("serial" in navigator) {
+    navigator.serial.addEventListener("connect", (e) => {
+      if (monitorWanted && !monitor && !busy) setTimeout(() => openMonitor(e.target), 300);
+    });
+  }
+
+  // The same signals esptool uses for a plain restart: RTS pulsed with DTR off.
+  $("#logRestart").addEventListener("click", async () => {
+    if (!monitor) return;
+    try {
+      await monitor.port.setSignals({ dataTerminalReady: false, requestToSend: true });
+      await sleep(100);
+      await monitor.port.setSignals({ requestToSend: false });
+    } catch (e) {}
+  });
+
+  $("#logCopy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(logText);
+    } catch (e) {
+      // Fallback: select the text so Ctrl+C works.
+      const range = document.createRange();
+      range.selectNodeContents(logEl);
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      document.execCommand("copy");
+    }
+    say(logStatus, "copied");
+  });
+  $("#logSave").addEventListener("click", () => {
+    const stamp = new Date().toISOString().slice(0, 16).replace(":", "");
+    saveFile(`vellum-log-${stamp}.txt`, logText, "text/plain");
+  });
+  $("#logClear").addEventListener("click", () => {
+    logText = "";
+    logEl.textContent = "";
+  });
+
+  // ---- MD5 (esptool checks each write with it) -------------------------
+
+  const K = new Int32Array(64).map((_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) | 0);
+  const R = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21];
+  function md5Hex(bytes) {
+    const n = bytes.length;
+    const padded = new Uint8Array(((n + 8) >> 6) * 64 + 64);
+    padded.set(bytes);
+    padded[n] = 0x80;
+    const view = new DataView(padded.buffer);
+    view.setUint32(padded.length - 8, (n * 8) >>> 0, true);
+    view.setUint32(padded.length - 4, Math.floor(n / 0x20000000), true);
+    let a0 = 0x67452301, b0 = 0xefcdab89 | 0, c0 = 0x98badcfe | 0, d0 = 0x10325476;
+    const w = new Int32Array(16);
+    for (let off = 0; off < padded.length; off += 64) {
+      for (let j = 0; j < 16; j++) w[j] = view.getInt32(off + j * 4, true);
+      let a = a0, b = b0, c = c0, d = d0;
+      for (let i = 0; i < 64; i++) {
+        let f, g;
+        if (i < 16) { f = (b & c) | (~b & d); g = i; }
+        else if (i < 32) { f = (d & b) | (~d & c); g = (5 * i + 1) & 15; }
+        else if (i < 48) { f = b ^ c ^ d; g = (3 * i + 5) & 15; }
+        else { f = c ^ (b | ~d); g = (7 * i) & 15; }
+        const s = R[(i >> 4) * 4 + (i & 3)];
+        const x = (a + f + K[i] + w[g]) | 0;
+        a = d; d = c; c = b;
+        b = (b + ((x << s) | (x >>> (32 - s)))) | 0;
+      }
+      a0 = (a0 + a) | 0; b0 = (b0 + b) | 0; c0 = (c0 + c) | 0; d0 = (d0 + d) | 0;
+    }
+    const out = new DataView(new ArrayBuffer(16));
+    [a0, b0, c0, d0].forEach((v, i) => out.setInt32(i * 4, v, true));
+    return Array.from(new Uint8Array(out.buffer), (x) => x.toString(16).padStart(2, "0")).join("");
+  }
+  window.vellumMd5 = md5Hex;  // for tests
+
+  // ---- Start --------------------------------------------------------------------
+
+  applyLanguage();
+  $("#noserial").hidden = "serial" in navigator;
+  $("#nofw").hidden = !!FW;
+  setBusy(false);
+  window.addEventListener("beforeunload", (e) => { if (busy) e.preventDefault(); });
+})();
+</script>
+</body>
+</html>
