@@ -26,6 +26,7 @@
 #include <string>
 #include <vector>
 
+#include "demo_updater.h"
 #include "png_writer.h"
 #include "vellum/app.h"
 #include "vellum/stdio_storage.h"
@@ -404,6 +405,9 @@ int main(int argc, char** argv) {
                       vellum::Rotation::R90,
                       framebuffer.data(),
                       &transfer};
+  DemoUpdater updater;
+  board.version = "sim";
+  board.updater = &updater;
   vellum::run(board);
 
   if (!opt.screenshot.empty() && !display.save_screenshot(opt.screenshot)) {

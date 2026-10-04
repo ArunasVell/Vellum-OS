@@ -21,6 +21,7 @@
 #include "vellum/text.h"
 #include "vellum/touch.h"
 #include "vellum/ui.h"
+#include "vellum/updates.h"
 #include "vellum/upload_page.h"
 #include "vellum/xml.h"
 
@@ -245,7 +246,7 @@ void test_interface_text_fits() {
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
     for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead,
-                             t.hint_battery, t.hint_light, t.hint_check}) {
+                             t.hint_battery, t.hint_light, t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -583,6 +584,9 @@ void test_upload_page_embedded() {
   const std::string page = read_all(VELLUM_TEST_DATA "/../../components/vellum_core/web/upload.html");
   CHECK(!page.empty());
   CHECK(page == std::string(kUploadPage, kUploadPageSize));  // run tools/embed_page.py after editing the page
+  const std::string setup = read_all(VELLUM_TEST_DATA "/../../components/vellum_core/web/setup.html");
+  CHECK(!setup.empty());
+  CHECK(setup == std::string(kSetupPage, kSetupPageSize));
 }
 
 class FakeTransfer : public Transfer {
@@ -653,7 +657,9 @@ void test_app_update() {
   board.version = "0.1.42";
   auto* app = new App(board);
   app->start();
-  tap(*app, 240, 640);  // "Add books"
+  tap(*app, 240, 700);  // Settings
+  tap(*app, 240, 335);  // Updates
+  tap(*app, 240, 475);  // Update from a file: the phone page
   CHECK(transfer.starts == 1);
 
   InputEvent ev;
@@ -1044,6 +1050,217 @@ int band_mean(const CoverImage& img, int y0, int y1) {
   return static_cast<int>(sum / ((y1 - y0) * img.w));
 }
 
+void test_update_helpers() {
+  CHECK(is_newer_version("0.1.43", "0.1.42"));
+  CHECK(is_newer_version("v0.2.0", "0.1.99"));
+  CHECK(is_newer_version("0.1.10", "0.1.9"));
+  CHECK(!is_newer_version("0.1.42", "0.1.42"));
+  CHECK(!is_newer_version("0.1.41", "0.1.42"));
+  CHECK(is_newer_version("0.1.1", "dev"));  // builds of one's own are older than any release
+  CHECK(is_newer_version("0.1.1", "890524d-dirty"));
+  CHECK(!is_newer_version("", "0.1.1"));
+  CHECK(!is_newer_version("nightly", "0.1.1"));
+  CHECK(!is_newer_version("0.1.x", "dev"));
+
+  const char* json =
+      "{\"url\":\"https://api.github.com/x\",\"tag_name\": \"v0.1.50\",\"name\":\"Vellum 0.1.50\","
+      "\"assets\":[{\"name\":\"vellum-0.1.50-usb.zip\",\"browser_download_url\":"
+      "\"https://github.com/ArunasVell/Vellum-OS/releases/download/v0.1.50/vellum-0.1.50-usb.zip\"},"
+      "{\"name\":\"vellum-0.1.50.bin\",\"browser_download_url\":"
+      "\"https://github.com/ArunasVell/Vellum-OS/releases/download/v0.1.50/vellum-0.1.50.bin\"}]}";
+  char version[32];
+  char url[256];
+  CHECK(parse_release(json, std::strlen(json), version, sizeof(version), url, sizeof(url)));
+  CHECK(std::string(version) == "0.1.50");
+  CHECK(std::string(url) == "https://github.com/ArunasVell/Vellum-OS/releases/download/v0.1.50/vellum-0.1.50.bin");
+  const char* no_bin = "{\"tag_name\":\"v0.1.50\",\"assets\":[]}";
+  CHECK(!parse_release(no_bin, std::strlen(no_bin), version, sizeof(version), url, sizeof(url)));
+  const char* not_found = "{\"message\":\"Not Found\"}";
+  CHECK(!parse_release(not_found, std::strlen(not_found), version, sizeof(version), url, sizeof(url)));
+
+  CHECK(seconds_until_hour({2026, 10, 4, 2, 59, 30}, 3) == 30);
+  CHECK(seconds_until_hour({2026, 10, 4, 3, 0, 0}, 3) == 86400);
+  CHECK(seconds_until_hour({2026, 10, 4, 22, 0, 0}, 3) == 5 * 3600);
+
+  char out[40];
+  const char* form = "ssid=My+Home%20Net&password=p%26ss&x";
+  CHECK(form_field(form, std::strlen(form), "ssid", out, sizeof(out)) && std::string(out) == "My Home Net");
+  CHECK(form_field(form, std::strlen(form), "password", out, sizeof(out)) && std::string(out) == "p&ss");
+  CHECK(form_field(form, std::strlen(form), "x", out, sizeof(out)) && std::string(out).empty());
+  CHECK(!form_field(form, std::strlen(form), "pass", out, sizeof(out)));
+
+  std::remove("test-card/vellum/update.txt");
+  StdioStorage card("test-card");
+  UpdateState st;
+  load_update_state(card, st);
+  CHECK(st.latest[0] == '\0' && !st.has_checked && !st.night_restart);
+  std::snprintf(st.latest, sizeof(st.latest), "0.1.50");
+  st.checked = {2026, 10, 5, 3, 0, 12};
+  st.has_checked = true;
+  st.night_restart = true;
+  CHECK(save_update_state(card, st));
+  UpdateState back;
+  load_update_state(card, back);
+  CHECK(std::string(back.latest) == "0.1.50" && back.has_checked && back.checked.day == 5 &&
+        back.checked.second == 12 && back.night_restart);
+  std::remove("test-card/vellum/update.txt");
+}
+
+class FakeUpdater : public Updater {
+ public:
+  void home_network(char* out, size_t size) override { std::snprintf(out, size, "%s", network); }
+  UpdateResult check(const char* current, char* latest, size_t size) override {
+    ++checks;
+    std::snprintf(latest, size, "%s", newest);
+    if (check_result != UpdateResult::Available) return check_result;
+    return is_newer_version(newest, current) ? UpdateResult::Available : UpdateResult::UpToDate;
+  }
+  UpdateResult install(ProgressFn progress, void* ctx) override {
+    ++installs;
+    for (int p = 0; p <= 100 && progress != nullptr; p += 25) progress(ctx, p);
+    return install_result;
+  }
+  const char* network = "Home";
+  const char* newest = "0.1.50";
+  UpdateResult check_result = UpdateResult::Available;
+  UpdateResult install_result = UpdateResult::Installed;
+  int checks = 0;
+  int installs = 0;
+};
+
+class NightPower : public FixedPower {
+ public:
+  void sleep() override { ++sleeps; }
+  void restart() override { ++restarts; }
+  void set_wake_timer(uint32_t seconds) override { wake_after = seconds; }
+  bool woke_by_timer() override { return timer; }
+  int sleeps = 0;
+  int restarts = 0;
+  uint32_t wake_after = 0;
+  bool timer = false;
+};
+
+void test_app_updates_screen() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  NightPower power;
+  TestClock clock;
+  std::remove("test-card/vellum/state.txt");
+  std::remove("test-card/vellum/update.txt");
+  std::remove("test-card/vellum/settings.txt");
+  StdioStorage card("test-card");
+  FakeTransfer transfer;
+  FakeUpdater updater;
+  updater.check_result = UpdateResult::NoWifi;
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data(), &transfer};
+  board.version = "0.1.42";
+  board.updater = &updater;
+  auto* app = new App(board);
+  app->start();
+
+  tap(*app, 240, 700);  // Settings
+  tap(*app, 240, 335);  // Updates, the sixth row
+  tap(*app, 240, 325);  // Check now: the home Wi-Fi is out of reach
+  CHECK(updater.checks == 1 && updater.installs == 0);
+  CHECK(read_all("test-card/vellum/update.txt").empty());  // a failed check remembers nothing
+
+  updater.check_result = UpdateResult::Available;
+  tap(*app, 240, 325);  // again: 0.1.50 is out
+  CHECK(updater.checks == 2 && updater.installs == 0);
+  CHECK(read_all("test-card/vellum/update.txt").find("latest=0.1.50") != std::string::npos);
+
+  tap(*app, 240, 375);  // Automatic: at night -> ask first
+  CHECK(read_all("test-card/vellum/settings.txt").find("updates=1") != std::string::npos);
+
+  press(*app, Key::Home);  // home shows the notice; tapping it opens Updates
+  tap(*app, 420, 90);
+  tap(*app, 240, 325);  // Install Vellum 0.1.50
+  CHECK(updater.installs == 1 && power.restarts == 1);
+  CHECK(read_all("test-card/vellum/state.txt") == "home\n");
+  CHECK(read_all("test-card/vellum/update.txt").find("latest=\n") != std::string::npos);
+
+  // Sleeping sets the nightly wake: 14:05 now, 3:00 is 12 h 55 min away.
+  press(*app, Key::Home);
+  InputEvent hold = key_event(InputEvent::Type::KeyDown, Key::Power);
+  app->handle(hold);
+  app->timeout();  // held a second: sleep
+  CHECK(power.sleeps == 1);
+  DateTime now;
+  clock.now(now);
+  CHECK(power.wake_after == seconds_until_hour(now, kNightHour));
+  delete app;
+
+  // No home Wi-Fi: no wake timer.
+  updater.network = "";
+  power.wake_after = 7;
+  app = new App(board);
+  app->start();
+  app->handle(hold);
+  app->timeout();
+  CHECK(power.wake_after == 0);
+  delete app;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/update.txt");
+}
+
+void test_app_night_update() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  NightPower power;
+  TestClock clock;
+  std::remove("test-card/vellum/update.txt");
+  std::remove("test-card/vellum/settings.txt");
+  StdioStorage card("test-card");
+  card.write("vellum/state.txt", "reader\n", 7);
+  FakeUpdater updater;
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data()};
+  board.version = "0.1.42";
+  board.updater = &updater;
+
+  // The timer wakes it at night: a newer version is installed without
+  // touching the screen, and the reader restarts into it.
+  power.timer = true;
+  auto* app = new App(board);
+  app->start();
+  CHECK(updater.checks == 1 && updater.installs == 1 && power.restarts == 1);
+  CHECK(panel.full == 0 && panel.fast == 0);
+  CHECK(read_all("test-card/vellum/update.txt").find("night_restart=1") != std::string::npos);
+  CHECK(read_all("test-card/vellum/state.txt") == "reader\n");  // a button still wakes it into the book
+  delete app;
+
+  // The new version's first start: straight back to sleep, nothing drawn.
+  power.timer = false;
+  board.version = "0.1.50";
+  app = new App(board);
+  app->start();
+  CHECK(power.sleeps == 1 && updater.checks == 1);
+  CHECK(panel.full == 0 && panel.fast == 0);
+  CHECK(read_all("test-card/vellum/update.txt").find("night_restart=0") != std::string::npos);
+  delete app;
+
+  // Ask first: the night only looks, and home shows the notice.
+  card.write("vellum/settings.txt", "updates=1\n", 10);
+  updater.newest = "0.1.51";
+  power.timer = true;
+  app = new App(board);
+  app->start();
+  CHECK(updater.checks == 2 && updater.installs == 1 && power.sleeps == 2);
+  CHECK(read_all("test-card/vellum/update.txt").find("latest=0.1.51") != std::string::npos);
+  delete app;
+
+  // Off: nothing is looked for.
+  card.write("vellum/settings.txt", "updates=2\n", 10);
+  app = new App(board);
+  app->start();
+  CHECK(updater.checks == 2 && power.sleeps == 3 && power.wake_after == 0);
+  delete app;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/update.txt");
+  std::remove("test-card/vellum/state.txt");
+}
+
 void test_covers() {
   // Both sample books carry a test card: white top, grey band, black bottom.
   // sample.epub has a JPEG (EPUB 3 cover-image), sample-ncx.epub a PNG
@@ -1148,7 +1365,8 @@ void test_app_device_check() {
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
   press(*app, Key::Power);
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Language, Clock, Sleep after, Light, Battery: Device check
+  for (int i = 0; i < 6; ++i)
+    press(*app, Key::Next);  // Language, Clock, Sleep after, Light, Battery, Updates: Device check
   CHECK(!on_check());
   press(*app, Key::Power);
   CHECK(on_check());
@@ -1202,12 +1420,15 @@ int main() {
   test_covers();
   test_app_transfer();
   test_app_update();
+  test_update_helpers();
   test_app_sleep();
   test_app_contents_and_bookmarks();
   test_dates_and_battery_log();
   test_app_battery_log();
   test_app_front_light();
   test_app_device_check();
+  test_app_updates_screen();
+  test_app_night_update();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {

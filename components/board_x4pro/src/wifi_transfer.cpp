@@ -20,8 +20,8 @@
 #include "esp_random.h"
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
-#include "nvs_flash.h"
 #include "vellum/upload_page.h"
+#include "wifi_common.h"
 
 namespace {
 
@@ -67,6 +67,29 @@ struct WifiTransfer::Impl {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     return httpd_resp_send(req, vellum::kUploadPage, vellum::kUploadPageSize);
+  }
+
+  static esp_err_t get_setup(httpd_req_t* req) {
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_send(req, vellum::kSetupPage, vellum::kSetupPageSize);
+  }
+
+  // The home Wi-Fi for updates, from the setup page's form.
+  static esp_err_t post_wifi(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    char body[512];
+    char ssid[33];
+    char password[65];
+    const int n = req->content_len < sizeof(body) ? httpd_req_recv(req, body, req->content_len) : -1;
+    if (n <= 0 || !vellum::form_field(body, static_cast<size_t>(n), "ssid", ssid, sizeof(ssid)) || ssid[0] == '\0' ||
+        !vellum::form_field(body, static_cast<size_t>(n), "password", password, sizeof(password))) {
+      return fail(req, "400 Bad Request", "Expected a network name and password.");
+    }
+    if (!home_wifi_save(ssid, password)) return fail(req, "500 Internal Server Error", "Could not save.");
+    ESP_LOGI(kTag, "home Wi-Fi set to %s", ssid);
+    self->update([](vellum::TransferStatus& s) { ++s.home_wifi_saved; });
+    return httpd_resp_sendstr(req, "ok");
   }
 
   static esp_err_t get_books(httpd_req_t* req) {
@@ -179,10 +202,15 @@ struct WifiTransfer::Impl {
   }
 
   static esp_err_t get_info(httpd_req_t* req) {
-    char body[96];
+    char body[256];
+    char ssid[33];
+    char password[65];
+    home_wifi_load(ssid, sizeof(ssid), password, sizeof(password));
     size_t len = 0;
     len += std::snprintf(body, sizeof(body), "{\"version\":\"");
-    vellum::json_escape(esp_app_get_description()->version, body, sizeof(body) - 4, len);
+    vellum::json_escape(esp_app_get_description()->version, body, 100, len);
+    len += std::snprintf(body + len, sizeof(body) - len, "\",\"home_network\":\"");
+    vellum::json_escape(ssid, body, sizeof(body) - 4, len);
     std::snprintf(body + len, sizeof(body) - len, "\"}");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -310,14 +338,7 @@ struct WifiTransfer::Impl {
   bool start_wifi(vellum::TransferInfo& info) {
     static bool once = false;
     if (!once) {
-      esp_err_t err = nvs_flash_init();
-      if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        nvs_flash_erase();
-        err = nvs_flash_init();
-      }
-      if (err != ESP_OK || esp_netif_init() != ESP_OK) return false;
-      err = esp_event_loop_create_default();
-      if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return false;
+      if (!wifi_base_init()) return false;
       netif = esp_netif_create_default_wifi_ap();
       esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_wifi_event, this);
       once = true;
@@ -359,6 +380,7 @@ struct WifiTransfer::Impl {
     cfg.recv_wait_timeout = 15;
     cfg.send_wait_timeout = 15;
     cfg.lru_purge_enable = true;
+    cfg.max_uri_handlers = 10;
     if (httpd_start(&server, &cfg) != ESP_OK) return false;
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = get_page, .user_ctx = this},
@@ -367,6 +389,8 @@ struct WifiTransfer::Impl {
         {.uri = "/time", .method = HTTP_POST, .handler = post_time, .user_ctx = this},
         {.uri = "/info", .method = HTTP_GET, .handler = get_info, .user_ctx = this},
         {.uri = "/update", .method = HTTP_POST, .handler = post_update, .user_ctx = this},
+        {.uri = "/setup", .method = HTTP_GET, .handler = get_setup, .user_ctx = this},
+        {.uri = "/wifi", .method = HTTP_POST, .handler = post_wifi, .user_ctx = this},
     };
     for (const httpd_uri_t& r : routes) httpd_register_uri_handler(server, &r);
     return true;

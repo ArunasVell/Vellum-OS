@@ -26,6 +26,7 @@ set(VELLUM_CORE_SRCS
   src/touch.cpp
   src/ui.cpp
   src/upload.cpp
+  src/updates.cpp
   src/upload_page.cpp
   src/xml.cpp
   src/zip.cpp

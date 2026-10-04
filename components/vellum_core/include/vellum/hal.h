@@ -5,6 +5,7 @@
 // interfaces and hands them to vellum::run() as a Board.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "vellum/framebuffer.h"
@@ -70,6 +71,11 @@ class Power {
   // Starts the device again, after a software update. Boards that cannot
   // (the simulators) return and the app carries on.
   virtual void restart() {}
+  // Asks the next sleep() to also wake by itself after `seconds` (0: only
+  // the Power button wakes it), for the nightly update check.
+  virtual void set_wake_timer(uint32_t seconds) { (void)seconds; }
+  // True when this start is that timer waking the device, not a person.
+  virtual bool woke_by_timer() { return false; }
 };
 
 class Frontlight {
@@ -153,6 +159,7 @@ struct TransferStatus {
   Update update = Update::None;
   int update_percent = 0;
   char update_version[32] = {};  // version of the update being installed
+  int home_wifi_saved = 0;       // counts home Wi-Fi settings saved from the page
 };
 
 class Transfer {
@@ -163,6 +170,33 @@ class Transfer {
   // Stops both and turns the radio off.
   virtual void stop() = 0;
   virtual void status(TransferStatus& out) = 0;
+};
+
+// New versions of Vellum from the internet: the device joins the home
+// Wi-Fi network set from the phone page, asks the release server for the
+// newest version and installs it into the spare slot. Calls block for a
+// few seconds (a whole download for install()) and leave the radio off.
+enum class UpdateResult : uint8_t {
+  UpToDate,
+  Available,  // a newer version is out; check() fills in its number
+  Installed,  // it runs after restart()
+  NoNetwork,  // no home Wi-Fi is set
+  NoWifi,     // the home Wi-Fi could not be joined
+  NoServer,   // the release server could not be reached or read
+  Failed,     // the download broke off or was not a Vellum update; nothing changed
+};
+
+class Updater {
+ public:
+  virtual ~Updater() = default;
+  // The home Wi-Fi network's name, or "" when none is set.
+  virtual void home_network(char* out, size_t size) = 0;
+  // Asks for the newest release. Available when it is newer than `current`.
+  virtual UpdateResult check(const char* current, char* latest, size_t size) = 0;
+  // Downloads and installs the newest release; progress(ctx, percent) is
+  // called now and then.
+  using ProgressFn = void (*)(void* ctx, int percent);
+  virtual UpdateResult install(ProgressFn progress, void* ctx) = 0;
 };
 
 struct Board {
@@ -177,6 +211,7 @@ struct Board {
   uint8_t* framebuffer;          // Framebuffer::bytes_for(display size) bytes
   Transfer* transfer = nullptr;  // nullptr when the device has no Wi-Fi
   const char* version = "dev";   // the software version running
+  Updater* updater = nullptr;    // nullptr when the device cannot update itself
 };
 
 }  // namespace vellum

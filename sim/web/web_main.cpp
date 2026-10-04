@@ -11,6 +11,7 @@
 #include <ctime>
 #include <vector>
 
+#include "../demo_updater.h"
 #include "vellum/app.h"
 #include "vellum/stdio_storage.h"
 
@@ -109,6 +110,7 @@ class WebTransfer : public vellum::Transfer {
 
 WebDisplay display;
 WebTransfer transfer;
+DemoUpdater updater;
 NoInput input;
 WebPower power;
 WebClock clock;
@@ -126,6 +128,8 @@ extern "C" {
 
 EMSCRIPTEN_KEEPALIVE void vellum_start(int battery) {
   power.percent = battery;
+  board.version = "sim";
+  board.updater = &updater;
   static vellum::App instance(board);
   app = &instance;
   app->start();
