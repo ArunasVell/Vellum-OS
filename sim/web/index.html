@@ -75,7 +75,8 @@
     overflow: hidden;
     background: #eceae4;
     cursor: pointer;
-    touch-action: manipulation;
+    touch-action: none;
+    user-select: none;
   }
   .screen canvas { width: 100%; height: 100%; display: block; image-rendering: auto; }
   .screen:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -153,7 +154,7 @@
 <main class="wrap">
   <section class="device-col" aria-label="Simulated X4 Pro">
     <div class="device">
-      <div class="screen" id="screen" tabindex="0" role="img" aria-label="Simulated e-ink screen. Tap the right half to go forward, the left half to go back.">
+      <div class="screen" id="screen" tabindex="0" role="img" aria-label="Simulated e-ink touch screen. Tap a book or setting to open it. While reading, tap or swipe to turn pages.">
         <canvas id="canvas" width="480" height="800"></canvas>
         <div class="loading" id="loading">Starting Vellum…</div>
       </div>
@@ -181,9 +182,10 @@
     <div class="block">
       <h2>How to use it</h2>
       <dl>
-        <dt>Next / Prev</dt><dd>The X4 Pro's side buttons: turn pages, or move the highlight on the home, library and settings screens. Tapping the right or left half of the screen does the same.</dd>
+        <dt>Next / Prev</dt><dd>The X4 Pro's side buttons: turn pages, or move the highlight on the home, library and settings screens.</dd>
         <dt>OK</dt><dd>The power button: opens the highlighted book or screen.</dd>
         <dt>Square key</dt><dd>Home: back to the home screen from anywhere.</dd>
+        <dt>Touch</dt><dd>The screen is a touch screen. Tap a book, link or setting to open or change it. While reading, tap the right side or swipe left to go forward, tap the left third or swipe right to go back. Swipe the library to see more books. With a mouse, click to tap and drag to swipe.</dd>
         <dt>Keyboard</dt><dd>Arrow keys, Space, Enter (OK), H (Home)</dd>
       </dl>
     </div>
@@ -210,7 +212,7 @@
       </ul>
     </div>
 
-    <p class="foot">Coming next: a real touch screen (tap and swipe to turn pages), then sending books over Wi-Fi from a phone or another Vellum reader.</p>
+    <p class="foot">Coming next: sending books over Wi-Fi from a phone or computer, then from one Vellum reader to another.</p>
   </section>
 </main>
 
@@ -276,10 +278,27 @@
   document.getElementById("next").addEventListener("click", () => press(KEY.next));
   document.getElementById("home").addEventListener("click", () => press(KEY.home));
   document.getElementById("power").addEventListener("click", () => press(KEY.power));
-  screen.addEventListener("click", (e) => {
-    const r = screen.getBoundingClientRect();
-    press(e.clientX - r.left < r.width / 2 ? KEY.prev : KEY.next);
+  // The screen is a touch screen: pointer down, moves and up go to Vellum,
+  // which turns them into taps and swipes.
+  function touch(kind, e) {
+    if (!core) return;
+    const r = canvas.getBoundingClientRect();
+    const x = Math.round((e.clientX - r.left) * canvas.width / r.width);
+    const y = Math.round((e.clientY - r.top) * canvas.height / r.height);
+    core._vellum_touch(kind, x, y);
+    if (kind !== 1) { render(); saveSoon(); }
+  }
+  let touching = false;
+  screen.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    touching = true;
+    screen.setPointerCapture(e.pointerId);
+    touch(0, e);
   });
+  screen.addEventListener("pointermove", (e) => { if (touching) touch(1, e); });
+  const lift = (e) => { if (!touching) return; touching = false; touch(2, e); };
+  screen.addEventListener("pointerup", lift);
+  screen.addEventListener("pointercancel", lift);
   window.addEventListener("keydown", (e) => {
     if (e.target instanceof HTMLButtonElement && (e.key === " " || e.key === "Enter")) return;
     const map = { ArrowRight: KEY.next, ArrowDown: KEY.next, ArrowUp: KEY.prev, PageDown: KEY.next, " ": KEY.next, ArrowLeft: KEY.prev, PageUp: KEY.prev, h: KEY.home, H: KEY.home, Enter: KEY.power };

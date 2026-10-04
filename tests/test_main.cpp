@@ -1,8 +1,10 @@
 // Host unit tests for the portable core. Plain asserts, no framework.
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
+#include "vellum/app.h"
 #include "vellum/book.h"
 #include "vellum/display_queue.h"
 #include "vellum/epub.h"
@@ -13,6 +15,7 @@
 #include "vellum/stdio_storage.h"
 #include "vellum/strings.h"
 #include "vellum/text.h"
+#include "vellum/touch.h"
 #include "vellum/xml.h"
 
 using namespace vellum;
@@ -399,10 +402,117 @@ void test_hyphenation() {
   CHECK(hyphenator_for("de") == nullptr);
 }
 
+void test_rotation_round_trip() {
+  for (Rotation r : {Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270}) {
+    Fixture f;
+    f.fb.set_rotation(r);
+    for (auto [x, y] : {std::pair{0, 0}, {5, 9}, {f.fb.width() - 1, f.fb.height() - 1}}) {
+      int px, py, lx, ly;
+      f.fb.to_physical(x, y, px, py);
+      CHECK(px >= 0 && px < kW && py >= 0 && py < kH);
+      f.fb.to_logical(px, py, lx, ly);
+      CHECK(lx == x && ly == y);
+    }
+  }
+}
+
+// A touch event at a logical point on an R90 (portrait) screen.
+InputEvent touch_at(InputEvent::Type type, int x, int y) {
+  InputEvent ev;
+  ev.type = type;
+  int px, py;
+  rotate_to_physical(Rotation::R90, kW, kH, x, y, px, py);
+  ev.x = static_cast<int16_t>(px);
+  ev.y = static_cast<int16_t>(py);
+  return ev;
+}
+
+Gesture stroke(TouchTracker& t, const Framebuffer& fb, int x0, int y0, int x1, int y1) {
+  using T = InputEvent::Type;
+  t.feed(touch_at(T::TouchDown, x0, y0), fb);
+  t.feed(touch_at(T::TouchMove, (x0 + x1) / 2, (y0 + y1) / 2), fb);
+  return t.feed(touch_at(T::TouchUp, x1, y1), fb);
+}
+
+void test_gestures() {
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  TouchTracker t;
+  Gesture g = stroke(t, f.fb, 100, 200, 108, 195);
+  CHECK(g.kind == Gesture::Kind::Tap && g.x == 100 && g.y == 200);
+  CHECK(stroke(t, f.fb, 400, 300, 150, 320).kind == Gesture::Kind::SwipeLeft);
+  CHECK(stroke(t, f.fb, 100, 300, 350, 280).kind == Gesture::Kind::SwipeRight);
+  CHECK(stroke(t, f.fb, 240, 600, 250, 200).kind == Gesture::Kind::SwipeUp);
+  CHECK(stroke(t, f.fb, 240, 200, 230, 600).kind == Gesture::Kind::SwipeDown);
+  CHECK(stroke(t, f.fb, 100, 100, 200, 200).kind == Gesture::Kind::None);  // diagonal
+  // A wander that comes back is not a tap.
+  using T = InputEvent::Type;
+  t.feed(touch_at(T::TouchDown, 100, 100), f.fb);
+  t.feed(touch_at(T::TouchMove, 200, 100), f.fb);
+  CHECK(t.feed(touch_at(T::TouchUp, 100, 100), f.fb).kind == Gesture::Kind::None);
+  // A release with no press does nothing.
+  CHECK(t.feed(touch_at(T::TouchUp, 100, 100), f.fb).kind == Gesture::Kind::None);
+}
+
+class NoInput : public InputSource {
+ public:
+  bool wait(InputEvent&, uint32_t) override { return false; }
+};
+
+class FixedPower : public Power {
+ public:
+  int battery_percent() override { return 80; }
+  bool charging() override { return false; }
+};
+
+void tap(App& app, int x, int y) {
+  app.handle(touch_at(InputEvent::Type::TouchDown, x, y));
+  app.handle(touch_at(InputEvent::Type::TouchUp, x, y));
+}
+
+void swipe(App& app, int x0, int y0, int x1, int y1) {
+  app.handle(touch_at(InputEvent::Type::TouchDown, x0, y0));
+  app.handle(touch_at(InputEvent::Type::TouchMove, x1, y1));
+  app.handle(touch_at(InputEvent::Type::TouchUp, x1, y1));
+}
+
+void test_app_touch() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  Board board{"test", panel, input, power, nullptr, nullptr, nullptr, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  CHECK(panel.full == 1);
+
+  tap(*app, 10, 790);  // empty space at the bottom: nothing happens
+  CHECK(panel.full == 1 && panel.fast == 0);
+
+  tap(*app, 240, 200);  // the current book's card opens it
+  CHECK(panel.full == 2);
+
+  tap(*app, 50, 400);  // left third on the first page: no page before it
+  CHECK(panel.fast == 0);
+  tap(*app, 400, 400);  // forward
+  CHECK(panel.fast == 1);
+  swipe(*app, 400, 400, 100, 410);  // swipe left: forward
+  CHECK(panel.fast == 2);
+  swipe(*app, 100, 400, 400, 410);  // swipe right: back
+  tap(*app, 50, 400);               // back again, to the first page
+  CHECK(panel.fast == 4);
+  tap(*app, 50, 400);
+  CHECK(panel.fast == 4);
+  delete app;
+}
+
 }  // namespace
 
 int main() {
   test_rotation_mapping();
+  test_rotation_round_trip();
+  test_gestures();
+  test_app_touch();
   test_fill_rect_matches_set_pixel();
   test_fill_rect_clips();
   test_display_queue_cadence();

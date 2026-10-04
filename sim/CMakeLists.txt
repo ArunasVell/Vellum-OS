@@ -25,3 +25,6 @@ add_test(NAME core COMMAND vellum-tests)
 # Home, open the current book, turn pages, back home, library, settings.
 add_test(NAME sim-headless COMMAND vellum-sim --headless --time 14:05 --keys onnnpnhnnnnohnnnnnono
          --screenshot sim-test.png)
+# The same by touch: tap the current book, tap and swipe pages, then Settings.
+add_test(NAME sim-touch COMMAND vellum-sim --headless --time 14:05
+         --keys "[240,200][400,400][400,400>100,410]h[240,700][240,330]" --screenshot sim-touch.png)

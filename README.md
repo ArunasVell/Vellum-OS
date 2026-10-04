@@ -2,7 +2,7 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books plus any EPUB books on the SD card, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, set in Literata with justified, hyphenated text. Settings and the page you are on in each book are saved to the card. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons, frontlight and SD card, not yet tested on a device. Touch is not written yet.
+> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books plus any EPUB books on the SD card, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, set in Literata with justified, hyphenated text. Settings and the page you are on in each book are saved to the card. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons, touch screen, frontlight and SD card, not yet tested on a device.
 
 ## Goals
 
@@ -35,7 +35,7 @@ cmake --build build/sim
 ./build/sim/vellum-sim
 ```
 
-Right arrow or Space turns the page or moves the highlight, Left goes back, Enter opens the highlighted item (the power button on the device), H goes to the home screen, Esc quits. A full refresh briefly flashes the window, like e-ink does.
+Right arrow or Space turns the page or moves the highlight, Left goes back, Enter opens the highlighted item (the power button on the device), H goes to the home screen, Esc quits. The mouse is the touch screen: click to tap, drag to swipe. A full refresh briefly flashes the window, like e-ink does.
 
 Run the tests with `ctest --test-dir build/sim`. Take a screenshot without a window:
 
@@ -43,7 +43,7 @@ Run the tests with `ctest --test-dir build/sim`. Take a screenshot without a win
 ./build/sim/vellum-sim --headless --keys onnn --time 14:05 --screenshot page.png
 ```
 
-Keys: `n` next, `p` previous, `o` open (power), `h` home. `--time` fixes the clock so screenshots repeat.
+Keys: `n` next, `p` previous, `o` open (power), `h` home, `[X,Y]` taps a point and `[X,Y>X2,Y2]` swipes (logical portrait pixels, 480 x 800). `--time` fixes the clock so screenshots repeat.
 
 Add `--card DIR` to use a folder as the SD card (works with or without `--headless`).
 

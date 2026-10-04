@@ -106,6 +106,20 @@ EMSCRIPTEN_KEEPALIVE void vellum_key(int key) {
   app->handle(ev);
 }
 
+// 0 = finger down, 1 = move, 2 = up; (x, y) in logical (portrait) pixels.
+EMSCRIPTEN_KEEPALIVE void vellum_touch(int kind, int x, int y) {
+  if (!app || kind < 0 || kind > 2) return;
+  constexpr vellum::InputEvent::Type kTypes[] = {
+      vellum::InputEvent::Type::TouchDown, vellum::InputEvent::Type::TouchMove, vellum::InputEvent::Type::TouchUp};
+  vellum::InputEvent ev;
+  ev.type = kTypes[kind];
+  int px, py;
+  vellum::rotate_to_physical(board.rotation, kPanelW, kPanelH, x, y, px, py);
+  ev.x = static_cast<int16_t>(px < 0 ? 0 : px >= kPanelW ? kPanelW - 1 : px);
+  ev.y = static_cast<int16_t>(py < 0 ? 0 : py >= kPanelH ? kPanelH - 1 : py);
+  app->handle(ev);
+}
+
 // Call after writing books into /card/books.
 EMSCRIPTEN_KEEPALIVE void vellum_reload_library() {
   if (app) app->reload_library();

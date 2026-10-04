@@ -21,6 +21,7 @@ set(VELLUM_CORE_SRCS
   src/strings.cpp
   src/text.cpp
   src/textfile.cpp
+  src/touch.cpp
   src/ui.cpp
   src/xml.cpp
   src/zip.cpp

@@ -27,6 +27,50 @@ struct Rect {
   bool operator==(const Rect& o) const { return x == o.x && y == o.y && w == o.w && h == o.h; }
 };
 
+// Maps a point between logical coordinates and the physical coordinates of a
+// pw x ph panel under rotation r. Touch input arrives in physical coordinates.
+inline void rotate_to_physical(Rotation r, int pw, int ph, int x, int y, int& px, int& py) {
+  px = x;  // R0
+  py = y;
+  switch (r) {
+    case Rotation::R0:
+      break;
+    case Rotation::R90:
+      px = pw - 1 - y;
+      py = x;
+      break;
+    case Rotation::R180:
+      px = pw - 1 - x;
+      py = ph - 1 - y;
+      break;
+    case Rotation::R270:
+      px = y;
+      py = ph - 1 - x;
+      break;
+  }
+}
+
+inline void rotate_to_logical(Rotation r, int pw, int ph, int px, int py, int& x, int& y) {
+  x = px;  // R0
+  y = py;
+  switch (r) {
+    case Rotation::R0:
+      break;
+    case Rotation::R90:
+      x = py;
+      y = pw - 1 - px;
+      break;
+    case Rotation::R180:
+      x = pw - 1 - px;
+      y = ph - 1 - py;
+      break;
+    case Rotation::R270:
+      x = ph - 1 - py;
+      y = px;
+      break;
+  }
+}
+
 class Framebuffer {
  public:
   static constexpr size_t bytes_for(int physical_w, int physical_h) {
@@ -70,9 +114,10 @@ class Framebuffer {
 
   // Maps a logical rectangle to the physical rectangle it covers.
   Rect to_physical(Rect r) const;
+  void to_physical(int x, int y, int& px, int& py) const { rotate_to_physical(rotation_, pw_, ph_, x, y, px, py); }
+  void to_logical(int px, int py, int& x, int& y) const { rotate_to_logical(rotation_, pw_, ph_, px, py, x, y); }
 
  private:
-  void to_physical(int x, int y, int& px, int& py) const;
   void fill_physical(Rect r, Color c);
 
   uint8_t* buf_;

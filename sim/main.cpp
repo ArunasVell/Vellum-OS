@@ -4,11 +4,14 @@
 // refresh briefly flashes the screen inverted, like e-ink does.
 //
 // Keys: Right/Space/PageDown = next, Left/PageUp = prev, H = home,
-// Enter/P = power (opens the highlighted item), Esc/Q = quit.
+// Enter/P = power (opens the highlighted item), Esc/Q = quit. The mouse is
+// the touch screen: click to tap, drag to swipe.
 //
 // Headless (for CI and screenshots):
 //   vellum-sim --headless --keys onnp --time 14:05 --screenshot page.png
-// where n = next, p = prev, h = home, o = power. --time fixes the clock.
+// where n = next, p = prev, h = home, o = power, [X,Y] taps the logical
+// point (X,Y) and [X,Y>X2,Y2] swipes from one point to the other.
+// --time fixes the clock.
 // --card DIR uses a folder as the SD card: EPUBs go in DIR/books.
 #include <SDL.h>
 
@@ -17,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -138,12 +142,54 @@ class SimInput : public vellum::InputSource {
   }
 
  private:
+  // A touch event at logical point (x, y) on the portrait screen.
+  static vellum::InputEvent touch(vellum::InputEvent::Type type, int x, int y) {
+    vellum::InputEvent ev;
+    ev.type = type;
+    int px, py;
+    vellum::rotate_to_physical(vellum::Rotation::R90, kPanelW, kPanelH, x, y, px, py);
+    ev.x = static_cast<int16_t>(std::clamp(px, 0, kPanelW - 1));
+    ev.y = static_cast<int16_t>(std::clamp(py, 0, kPanelH - 1));
+    return ev;
+  }
+
+  // Parses "[X,Y]" or "[X,Y>X2,Y2]" at pos_ (just after the '[') into touch events.
+  void script_touch() {
+    using T = vellum::InputEvent::Type;
+    const size_t end = opt_.keys.find(']', pos_);
+    if (end == std::string::npos) {
+      pos_ = opt_.keys.size();
+      return;
+    }
+    int x0, y0, x1, y1;
+    const std::string spec = opt_.keys.substr(pos_, end - pos_);
+    pos_ = end + 1;
+    const int n = std::sscanf(spec.c_str(), "%d,%d>%d,%d", &x0, &y0, &x1, &y1);
+    if (n < 2) return;
+    if (n < 4) {
+      x1 = x0;
+      y1 = y0;
+    }
+    pending_.push_back(touch(T::TouchDown, x0, y0));
+    if (n == 4) pending_.push_back(touch(T::TouchMove, (x0 + x1) / 2, (y0 + y1) / 2));
+    pending_.push_back(touch(T::TouchUp, x1, y1));
+  }
+
   bool next_scripted(vellum::InputEvent& out) {
     using T = vellum::InputEvent::Type;
-    while (pos_ < opt_.keys.size()) {
+    for (;;) {
+      if (!pending_.empty()) {
+        out = pending_.front();
+        pending_.pop_front();
+        return true;
+      }
+      if (pos_ >= opt_.keys.size()) break;
       const char c = opt_.keys[pos_++];
       out.type = T::KeyDown;
       switch (c) {
+        case '[':
+          script_touch();
+          break;
         case 'n':
           out.key = vellum::Key::Next;
           return true;
@@ -171,6 +217,22 @@ class SimInput : public vellum::InputSource {
     if (!SDL_WaitEventTimeout(&e, ms)) return false;
     if (e.type == SDL_QUIT) {
       out.type = T::Quit;
+      return true;
+    }
+    if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP || (e.type == SDL_MOUSEMOTION && mouse_down_)) {
+      if (e.type == SDL_MOUSEBUTTONDOWN || e.type == SDL_MOUSEBUTTONUP) {
+        if (e.button.button != SDL_BUTTON_LEFT) {
+          out.type = T::None;
+          return true;
+        }
+        mouse_down_ = e.type == SDL_MOUSEBUTTONDOWN;
+      }
+      const int x = (e.type == SDL_MOUSEMOTION ? e.motion.x : e.button.x) / opt_.scale;
+      const int y = (e.type == SDL_MOUSEMOTION ? e.motion.y : e.button.y) / opt_.scale;
+      const T type = e.type == SDL_MOUSEMOTION       ? T::TouchMove
+                     : e.type == SDL_MOUSEBUTTONDOWN ? T::TouchDown
+                                                     : T::TouchUp;
+      out = touch(type, x, y);
       return true;
     }
     if (e.type != SDL_KEYDOWN && e.type != SDL_KEYUP) {
@@ -208,6 +270,8 @@ class SimInput : public vellum::InputSource {
 
   const Options& opt_;
   size_t pos_ = 0;
+  std::deque<vellum::InputEvent> pending_;
+  bool mouse_down_ = false;
 };
 
 class SimPower : public vellum::Power {

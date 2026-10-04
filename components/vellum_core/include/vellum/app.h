@@ -8,6 +8,7 @@
 #include "vellum/reader.h"
 #include "vellum/settings.h"
 #include "vellum/strings.h"
+#include "vellum/touch.h"
 
 namespace vellum {
 
@@ -17,6 +18,9 @@ namespace vellum {
 //
 // Controls: the side buttons (Prev/Next) move through lists and turn pages,
 // Power opens the highlighted item, Home returns to the home screen.
+// Touch: tap an item to open it (or change a setting); in the reader, tap
+// the left third or swipe right to go back, tap elsewhere or swipe left to
+// go forward. Swipes page through the library.
 class App {
  public:
   explicit App(Board& board);
@@ -39,6 +43,14 @@ class App {
   void home_activate();
   void library_activate();
   void settings_activate();
+
+  // Remembers where a tappable item was drawn; `item` is its selection index.
+  void add_hit(Rect r, int item);
+  int hit_at(int x, int y) const;
+  bool handle_key(Key key);
+  bool handle_gesture(const Gesture& g);
+  // Turns a page in the reader; returns false at the start or end of the book.
+  bool turn(int step);
 
   void open_book(int index);
   void save_progress();
@@ -66,6 +78,15 @@ class App {
   int home_sel_ = 0;
   int library_sel_ = 0;
   int settings_sel_ = 0;
+
+  struct Hit {
+    Rect r;
+    int item;
+  };
+  static constexpr int kMaxHits = 16;
+  Hit hits_[kMaxHits] = {};
+  int hit_count_ = 0;
+  TouchTracker touch_;
 };
 
 // Blocking main loop around App. Returns only when the input source reports

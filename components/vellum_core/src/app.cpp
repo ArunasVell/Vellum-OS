@@ -221,6 +221,7 @@ void App::draw_home() {
 
   // The current book: cover, title, author, chapter and progress.
   const Rect hero = row_rect(fb_, kHeroTop, kHeroHeight);
+  add_hit(hero, 0);
   if (home_sel_ == 0) {
     fb_.fill_round_rect(hero, 12, Color::Black);
     fb_.fill_round_rect({hero.x + 3, hero.y + 3, hero.w - 6, hero.h - 6}, 9, Color::White);
@@ -269,12 +270,15 @@ void App::draw_home() {
     const bool selected = home_sel_ == item;
     if (item > 1 && !selected && home_sel_ != item - 1) dotted_rule(fb_, y);
     ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.entry(order[k]), t, selected);
+    add_hit(row_rect(fb_, y, kHomeRowHeight), item);
     y += kHomeRowHeight;
     ++item;
   }
   y += 4;
   draw_link(fb_, row_rect(fb_, y, kLinkHeight), t.all_books, home_sel_ == item);
   draw_link(fb_, row_rect(fb_, y + kLinkHeight, kLinkHeight), t.settings, home_sel_ == item + 1);
+  add_hit(row_rect(fb_, y, kLinkHeight), item);
+  add_hit(row_rect(fb_, y + kLinkHeight, kLinkHeight), item + 1);
 
   ui::draw_hint(fb_, t.hint_home);
 }
@@ -319,6 +323,7 @@ void App::draw_library() {
     const bool selected = i == library_sel_;
     if (i > first && !selected && library_sel_ != i - 1) dotted_rule(fb_, y);
     ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.entry(i), t, selected);
+    add_hit(row_rect(fb_, y, ui::kRowHeight), i);
   }
   ui::draw_hint(fb_, t.hint_list);
 }
@@ -341,6 +346,7 @@ void App::draw_settings() {
     const Row row = kRows[i];
     const bool selected = i == settings_sel_;
     const Rect r = row_rect(fb_, y, kSettingRowHeight);
+    add_hit(r, i);
     const Color fg = highlight(fb_, r, selected);
     const int base = r.y + 28;
     draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, row_name(t, row), fg);
@@ -402,7 +408,20 @@ void App::show(Screen s) {
   queue_.submit_full();  // a new screen: clear the previous one's ghosting
 }
 
+void App::add_hit(Rect r, int item) {
+  if (hit_count_ < kMaxHits) hits_[hit_count_++] = {r, item};
+}
+
+int App::hit_at(int x, int y) const {
+  for (int i = 0; i < hit_count_; ++i) {
+    const Rect& r = hits_[i].r;
+    if (x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) return hits_[i].item;
+  }
+  return -1;
+}
+
 void App::draw() {
+  hit_count_ = 0;
   char time[16];
   time_text(time, sizeof(time));
   const int battery = board_.power.battery_percent();
@@ -433,47 +452,117 @@ void App::start() {
 }
 
 bool App::handle(const InputEvent& ev) {
-  if (ev.type == InputEvent::Type::Quit) return false;
-  if (ev.type != InputEvent::Type::KeyDown) return true;
+  switch (ev.type) {
+    case InputEvent::Type::Quit:
+      return false;
+    case InputEvent::Type::KeyDown:
+      if (!handle_key(ev.key)) return true;
+      break;
+    case InputEvent::Type::TouchDown:
+    case InputEvent::Type::TouchMove:
+    case InputEvent::Type::TouchUp:
+      if (!handle_gesture(touch_.feed(ev, fb_))) return true;
+      break;
+    default:
+      return true;
+  }
+  draw();
+  queue_.submit();
+  return true;
+}
 
-  if (ev.key == Key::Home) {
+bool App::turn(int step) {
+  if (step == 0 || !(step > 0 ? reader_.next() : reader_.prev())) return false;
+  BookState& state = library_.state(reading_);
+  state.position = reader_.position();
+  state.percent = static_cast<uint8_t>(reader_.percent());
+  // Save now and then, not on every turn: card writes cost power.
+  if (++turns_since_save_ >= 10) save_progress();
+  return true;
+}
+
+// Returns true when the screen needs a redraw; screen changes draw themselves.
+bool App::handle_key(Key key) {
+  if (key == Key::Home) {
     if (screen_ == Screen::Home) {
       queue_.submit_full();  // already home: just clean the screen
     } else {
       if (screen_ == Screen::Reader) save_progress();
       show(Screen::Home);
     }
-    return true;
+    return false;
   }
 
-  const int step = ev.key == Key::Next ? 1 : ev.key == Key::Prev ? -1 : 0;
+  const int step = key == Key::Next ? 1 : key == Key::Prev ? -1 : 0;
   switch (screen_) {
     case Screen::Reader:
-      if (step == 0 || !(step > 0 ? reader_.next() : reader_.prev())) return true;
-      {
-        BookState& state = library_.state(reading_);
-        state.position = reader_.position();
-        state.percent = static_cast<uint8_t>(reader_.percent());
-        // Save now and then, not on every turn: card writes cost power.
-        if (++turns_since_save_ >= 10) save_progress();
-      }
-      break;
+      return turn(step);
     case Screen::Home:
-      if (ev.key == Key::Power) return home_activate(), true;
+      if (key == Key::Power) return home_activate(), false;
       home_sel_ = wrap_index(home_sel_ + step, home_item_count());
-      break;
+      return true;
     case Screen::Library:
-      if (ev.key == Key::Power) return library_activate(), true;
+      if (key == Key::Power) return library_activate(), false;
       library_sel_ = wrap_index(library_sel_ + step, library_.count());
-      break;
+      return true;
     case Screen::Settings:
-      if (ev.key == Key::Power) settings_activate();
+      if (key == Key::Power) settings_activate();
       settings_sel_ = wrap_index(settings_sel_ + step, kRowCount);
+      return true;
+  }
+  return false;
+}
+
+bool App::handle_gesture(const Gesture& g) {
+  using K = Gesture::Kind;
+  if (g.kind == K::None) return false;
+
+  if (screen_ == Screen::Reader) {
+    switch (g.kind) {
+      case K::Tap:
+        return turn(g.x < fb_.width() / 3 ? -1 : 1);
+      case K::SwipeLeft:
+      case K::SwipeUp:
+        return turn(1);
+      case K::SwipeRight:
+      case K::SwipeDown:
+        return turn(-1);
+      case K::None:
+        break;
+    }
+    return false;
+  }
+
+  if (screen_ == Screen::Library && g.kind != K::Tap) {
+    // Swipes page through the list, keeping the highlight on the same row.
+    const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
+    if (pages <= 1) return false;
+    const int forward = g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1;
+    const int page = wrap_index(library_sel_ / kLibraryRows + forward, pages);
+    library_sel_ = std::min(page * kLibraryRows + library_sel_ % kLibraryRows, library_.count() - 1);
+    return true;
+  }
+  if (g.kind != K::Tap) return false;
+
+  const int item = hit_at(g.x, g.y);
+  if (item < 0) return false;
+  switch (screen_) {
+    case Screen::Home:
+      home_sel_ = item;
+      home_activate();
+      return false;
+    case Screen::Library:
+      library_sel_ = item;
+      library_activate();
+      return false;
+    case Screen::Settings:
+      settings_sel_ = item;
+      settings_activate();
+      return true;
+    case Screen::Reader:
       break;
   }
-  draw();
-  queue_.submit();
-  return true;
+  return false;
 }
 
 void run(Board& board) {

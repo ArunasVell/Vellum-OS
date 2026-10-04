@@ -29,10 +29,15 @@ class DisplayPanel {
 
 enum class Key : uint8_t { Prev, Next, Home, Power };
 
+// A key press or release, or one sample of a finger on the touch screen.
+// Touch coordinates are physical panel pixels, like the framebuffer's
+// storage; the app maps them to logical coordinates.
 struct InputEvent {
-  enum class Type : uint8_t { None, KeyDown, KeyUp, Quit };
+  enum class Type : uint8_t { None, KeyDown, KeyUp, TouchDown, TouchMove, TouchUp, Quit };
   Type type = Type::None;
   Key key = Key::Next;
+  int16_t x = 0;
+  int16_t y = 0;
 };
 
 class InputSource {
