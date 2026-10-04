@@ -8,10 +8,12 @@
 #include "vellum/font_library.h"
 #include "vellum/hal.h"
 #include "vellum/library.h"
+#include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/settings.h"
 #include "vellum/strings.h"
 #include "vellum/touch.h"
+#include "vellum/updates.h"
 
 namespace vellum {
 
@@ -32,8 +34,18 @@ namespace vellum {
 // Settings › Device check shows every button press and touch, and what the
 // board reports (battery, clock, card), for trying out new hardware.
 //
+// A book's Contents can send it to another Vellum nearby (Board::peers);
+// the other one receives while its "Add books" screen is open.
+//
 // "Add books" opens a Wi-Fi network and an upload page (Board::transfer);
 // Home closes it and reloads the library.
+//
+// Settings › Updates looks for new versions of Vellum (Board::updater) and
+// installs them, now or at night: before sleeping the reader sets a wake
+// timer for kNightHour, checks then without touching the screen, and goes
+// back to sleep. A version found but not installed shows as a small notice
+// on the home screen. The same screen opens a phone page (the transfer
+// network again) to set the home Wi-Fi or send an update file.
 class App {
  public:
   explicit App(Board& board);
@@ -55,9 +67,21 @@ class App {
   void timeout();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery, Light, Check };
+  enum class Screen : uint8_t {
+    Home,
+    Library,
+    Settings,
+    Reader,
+    Transfer,
+    Contents,
+    Battery,
+    Light,
+    Check,
+    Updates,
+    Send
+  };
   // One line of the contents screen.
-  enum class ContentsRow : uint8_t { Back, Mark, Light, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
+  enum class ContentsRow : uint8_t { Back, Mark, Light, Send, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
   static constexpr int kHomeRows = 2;     // other books listed under the current one
@@ -73,8 +97,26 @@ class App {
   // Makes the menu and book typefaces from Settings current.
   void apply_fonts();
   // Starts or stops receiving books over Wi-Fi (the "Add books" screen).
-  void open_transfer();
+  // `setup` opens the phone page for home Wi-Fi and update files instead.
+  void open_transfer(bool setup = false);
   void close_transfer();
+  // An update arrived from the phone page: restart into it.
+  void finish_update();
+  // Software updates (Settings › Updates).
+  void open_updates();
+  void draw_updates();
+  void updates_activate();
+  // A newer version than the running one is known.
+  bool update_available() const;
+  void check_for_update();
+  void install_update();
+  // Shows that the new version is installed, then restarts into it.
+  void restart_into_update();
+  // The timer woke the reader at night: check, maybe install, sleep again.
+  void night_update();
+  // Before sleeping: wake at night for the update check, when it can run.
+  void schedule_night_check();
+  void record_update_check(UpdateResult result, const char* latest);
   // The contents screen: rows are back, bookmark toggle, bookmarks, chapters.
   void open_contents();
   int contents_row_count() const;
@@ -131,6 +173,16 @@ class App {
   void open_check();
   bool check_event(const InputEvent& ev);
   void draw_check();
+  // Sending the open book to another reader, and receiving on "Add books".
+  bool can_send() const;
+  void open_send();
+  void close_send();
+  bool send_activate();  // false when it switched screens (and drew)
+  void draw_send();
+  // Hands waiting packets to the sender or receiver; with `tick`, also tells
+  // them a quiet spell passed. Returns true when the screen should change.
+  bool service_peers(bool tick);
+  bool peers_ticking() const;
   const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
@@ -159,6 +211,15 @@ class App {
   int contents_marks_[Library::kMaxBookmarks] = {};  // the open book's bookmarks, in order
   int contents_mark_count_ = 0;
   TransferState transfer_state_ = TransferState::Off;
+  bool transfer_setup_ = false;  // the phone page for updates, not books
+  // Updates: what is known, and what this session has tried.
+  enum class UpdateBusy : uint8_t { No, Checking, Installing };
+  UpdateState update_state_;
+  UpdateBusy update_busy_ = UpdateBusy::No;
+  bool update_error_ = false;  // update_result_ is a failure to show
+  UpdateResult update_result_ = UpdateResult::UpToDate;
+  int install_percent_ = 0;
+  int updates_sel_ = 0;
   bool power_held_ = false;  // Power is down and has not acted yet
   bool asleep_ = false;
   bool resume_reader_ = false;  // reopen the current book on start
@@ -176,6 +237,10 @@ class App {
     int16_t x = 0, y = 0;    // last touch, logical
     int16_t px = 0, py = 0;  // the same, as the panel reports it
   } check_;
+  PeerSender sender_;
+  PeerReceiver receiver_;
+  int send_sel_ = 0;
+  bool radio_failed_ = false;  // Peers::start() failed for the send screen
 
   struct Hit {
     Rect r;

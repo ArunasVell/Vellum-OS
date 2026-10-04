@@ -5,6 +5,7 @@
 // interfaces and hands them to vellum::run() as a Board.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "vellum/framebuffer.h"
@@ -41,6 +42,7 @@ struct InputEvent {
     TouchMove,
     TouchUp,
     Transfer,  // something changed in the book transfer; see Transfer::status()
+    Peer,      // a packet from another reader is waiting; see Peers::receive()
     Quit,
   };
   Type type = Type::None;
@@ -67,6 +69,14 @@ class Power {
   // returns; one that does not (the simulators) returns at once, and the
   // app then waits for the next button press.
   virtual void sleep() {}
+  // Starts the device again, after a software update. Boards that cannot
+  // (the simulators) return and the app carries on.
+  virtual void restart() {}
+  // Asks the next sleep() to also wake by itself after `seconds` (0: only
+  // the Power button wakes it), for the nightly update check.
+  virtual void set_wake_timer(uint32_t seconds) { (void)seconds; }
+  // True when this start is that timer waking the device, not a person.
+  virtual bool woke_by_timer() { return false; }
 };
 
 class Frontlight {
@@ -105,6 +115,13 @@ class File {
   virtual int32_t read_at(uint32_t offset, void* buf, uint32_t len) = 0;
 };
 
+// A file being written from start to end (see Storage::create).
+class Writer {
+ public:
+  virtual ~Writer() = default;
+  virtual bool write(const void* data, uint32_t len) = 0;
+};
+
 // The memory card. Paths are relative to its root and use '/', e.g.
 // "books/Alice.epub".
 class Storage {
@@ -120,6 +137,13 @@ class Storage {
   // Calls fn for each entry in dir. Returns false when dir cannot be read.
   using ListFn = void (*)(void* ctx, const char* name, bool is_dir, uint32_t size);
   virtual bool list(const char* dir, ListFn fn, void* ctx) = 0;
+  // Starts writing `path` piece by piece, for files too large to hold in
+  // memory. The file appears only when finish() keeps it, so a broken
+  // transfer leaves nothing behind. One writer at a time; nullptr on error.
+  virtual Writer* create(const char*) { return nullptr; }
+  // Closes the writer; `keep` replaces `path` with what was written, else it
+  // is thrown away. Returns false when keeping failed.
+  virtual bool finish(Writer*, bool) { return false; }
 };
 
 // Receiving books from a phone or computer over Wi-Fi. The device opens its
@@ -133,11 +157,24 @@ struct TransferInfo {
 };
 
 struct TransferStatus {
+  // A software update sent from the upload page.
+  enum class Update : uint8_t {
+    None,
+    Receiving,  // update_percent tells how far
+    Installed,  // the next start runs it
+    NotVellum,  // the file was not a Vellum update for this device; nothing changed
+    Broken,     // it did not arrive whole; nothing changed
+  };
+
   int devices = 0;           // phones or computers joined to the network
   int received = 0;          // books saved since start()
   char last[128] = {};       // file name of the newest book saved
   char receiving[128] = {};  // file name being received now, or ""
   bool card_full = false;    // the last book did not fit
+  Update update = Update::None;
+  int update_percent = 0;
+  char update_version[32] = {};  // version of the update being installed
+  int home_wifi_saved = 0;       // counts home Wi-Fi settings saved from the page
 };
 
 class Transfer {
@@ -148,6 +185,64 @@ class Transfer {
   // Stops both and turns the radio off.
   virtual void stop() = 0;
   virtual void status(TransferStatus& out) = 0;
+};
+
+// New versions of Vellum from the internet: the device joins the home
+// Wi-Fi network set from the phone page, asks the release server for the
+// newest version and installs it into the spare slot. Calls block for a
+// few seconds (a whole download for install()) and leave the radio off.
+enum class UpdateResult : uint8_t {
+  UpToDate,
+  Available,  // a newer version is out; check() fills in its number
+  Installed,  // it runs after restart()
+  NoNetwork,  // no home Wi-Fi is set
+  NoWifi,     // the home Wi-Fi could not be joined
+  NoServer,   // the release server could not be reached or read
+  Failed,     // the download broke off or was not a Vellum update; nothing changed
+};
+
+class Updater {
+ public:
+  virtual ~Updater() = default;
+  // The home Wi-Fi network's name, or "" when none is set.
+  virtual void home_network(char* out, size_t size) = 0;
+  // Asks for the newest release. Available when it is newer than `current`.
+  virtual UpdateResult check(const char* current, char* latest, size_t size) = 0;
+  // Downloads and installs the newest release; progress(ctx, percent) is
+  // called now and then.
+  using ProgressFn = void (*)(void* ctx, int percent);
+  virtual UpdateResult install(ProgressFn progress, void* ctx) = 0;
+};
+
+// Short messages straight to other readers nearby, with no Wi-Fi network in
+// between (ESP-NOW on the X4 Pro). Used to send books reader to reader.
+// While started, the board posts InputEvent::Type::Peer when packets arrive.
+struct PeerAddress {
+  uint8_t bytes[6] = {};
+  bool operator==(const PeerAddress&) const = default;
+};
+
+struct PeerPacket {
+  static constexpr int kMaxSize = 1400;
+  PeerAddress from;
+  uint16_t size = 0;
+  uint8_t data[kMaxSize];
+};
+
+class Peers {
+ public:
+  virtual ~Peers() = default;
+  // Turns the radio on and starts listening. Returns false when it cannot.
+  virtual bool start() = 0;
+  // Stops listening and turns the radio off (unless Transfer still uses it).
+  virtual void stop() = 0;
+  // This reader's name as others see it, e.g. "Vellum-3F2A".
+  virtual const char* name() = 0;
+  // Sends up to PeerPacket::kMaxSize bytes; `to` = nullptr reaches everyone
+  // in range. Delivery is not guaranteed.
+  virtual bool send(const PeerAddress* to, const void* data, uint32_t len) = 0;
+  // Takes the oldest packet received; false when there is none.
+  virtual bool receive(PeerPacket& out) = 0;
 };
 
 struct Board {
@@ -161,6 +256,9 @@ struct Board {
   Rotation rotation;             // logical orientation for reading
   uint8_t* framebuffer;          // Framebuffer::bytes_for(display size) bytes
   Transfer* transfer = nullptr;  // nullptr when the device has no Wi-Fi
+  Peers* peers = nullptr;        // nullptr when it cannot reach other readers
+  const char* version = "dev";   // the software version running
+  Updater* updater = nullptr;    // nullptr when the device cannot update itself
 };
 
 }  // namespace vellum

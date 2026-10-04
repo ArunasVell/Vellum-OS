@@ -1,5 +1,7 @@
 #include "board_x4pro.h"
 
+#include <atomic>
+
 #include "bm8563.h"
 #include "cw2017.h"
 #include "driver/gpio.h"
@@ -7,13 +9,18 @@
 #include "driver/ledc.h"
 #include "driver/rtc_io.h"
 #include "epd_controller.h"
+#include "esp_app_desc.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_now_peers.h"
+#include "esp_ota_ops.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "gt911.h"
+#include "ota_updater.h"
 #include "sd_card.h"
 #include "vellum/stdio_storage.h"
 #include "wifi_transfer.h"
@@ -100,6 +107,13 @@ class Input : public vellum::InputSource {
     if (queue_ != nullptr) xQueueSend(queue_, &i, 0);
   }
 
+  // Wakes it with an InputEvent::Type::Peer, at most one waiting at a time so
+  // packets never crowd button presses out of the queue. Safe from any task.
+  static void post_peer() {
+    const uint32_t i = kPeerSource;
+    if (queue_ != nullptr && !peer_pending_.exchange(true)) xQueueSend(queue_, &i, 0);
+  }
+
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
     if (pop(out)) return true;
     const bool held = touching_ || home_;
@@ -110,6 +124,11 @@ class Input : public vellum::InputSource {
     }
     if (i == kTransferSource) {
       out.type = vellum::InputEvent::Type::Transfer;
+      return true;
+    }
+    if (i == kPeerSource) {
+      peer_pending_ = false;  // the app takes every packet waiting
+      out.type = vellum::InputEvent::Type::Peer;
       return true;
     }
     if (i == kTouchSource) {
@@ -142,6 +161,8 @@ class Input : public vellum::InputSource {
   };
   static constexpr uint32_t kTouchSource = kCount;
   static constexpr uint32_t kTransferSource = kCount + 1;
+  static constexpr uint32_t kPeerSource = kCount + 2;
+  static inline std::atomic<bool> peer_pending_{false};
   static constexpr uint32_t kPollMs = 25;
 
   static void IRAM_ATTR on_edge(void* arg) {
@@ -208,7 +229,7 @@ class Input : public vellum::InputSource {
   int count_ = 0;
 };
 
-void enter_deep_sleep();
+void enter_deep_sleep(uint32_t wake_after_s);
 
 // Charge level from the CW2017 gauge; charging state from the charger's status pin.
 class Power : public vellum::Power {
@@ -229,13 +250,19 @@ class Power : public vellum::Power {
 
   bool charging() override { return gpio_get_level(static_cast<gpio_num_t>(x4pro::kChargeStatus)) == 1; }
 
-  void sleep() override { enter_deep_sleep(); }
+  void sleep() override { enter_deep_sleep(wake_after_s_); }
+  void restart() override { esp_restart(); }
+  void set_wake_timer(uint32_t seconds) override { wake_after_s_ = seconds; }
+  bool woke_by_timer() override { return woke_by_timer_; }
 
  private:
   static constexpr int64_t kCacheUs = 60LL * 1000 * 1000;
   Cw2017 gauge_;
   int cached_ = -1;
   int64_t read_at_ = 0;
+  uint32_t wake_after_s_ = 0;
+  // Read once at start: later light sleeps would change the answer.
+  const bool woke_by_timer_ = (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) != 0;
 };
 
 // Two LEDC channels mixed for brightness and colour temperature.
@@ -279,9 +306,13 @@ class Frontlight : public vellum::Frontlight {
   }
 };
 
-// Deep sleep until the Power button is pressed; waking restarts the firmware.
-// The e-ink panel keeps showing the sleep screen with no power at all.
-void enter_deep_sleep() {
+// Deep sleep until the Power button is pressed (or `wake_after_s` passes,
+// when not 0); waking restarts the firmware. The e-ink panel keeps showing
+// the sleep screen with no power at all.
+void enter_deep_sleep(uint32_t wake_after_s) {
+  // Reaching sleep normally proves a new version works: keep it.
+  esp_ota_mark_app_valid_cancel_rollback();
+
   const auto power_btn = static_cast<gpio_num_t>(x4pro::kBtnPower);
   // Wait for the button that sent us here to be let go, or it would wake us at once.
   while (gpio_get_level(power_btn) == 0) vTaskDelay(pdMS_TO_TICKS(10));
@@ -306,7 +337,8 @@ void enter_deep_sleep() {
   rtc_gpio_pullup_en(power_btn);
   rtc_gpio_pulldown_dis(power_btn);
   esp_sleep_enable_ext0_wakeup(power_btn, 0);
-  ESP_LOGI(kTag, "deep sleep");
+  if (wake_after_s > 0) esp_sleep_enable_timer_wakeup(uint64_t{wake_after_s} * 1000 * 1000);
+  ESP_LOGI(kTag, "deep sleep (timer %lu s)", static_cast<unsigned long>(wake_after_s));
   esp_deep_sleep_start();
 }
 
@@ -349,6 +381,24 @@ i2c_master_bus_handle_t init_i2c() {
   return bus;
 }
 
+// After an update the new version runs on trial: if it restarts before this
+// timer fires (a crash, a hang caught by the watchdog), the bootloader goes
+// back to the previous version. A minute of running normally keeps it.
+void keep_this_version_once_settled() {
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  if (esp_ota_get_state_partition(running, &state) != ESP_OK || state != ESP_OTA_IMG_PENDING_VERIFY) return;
+  ESP_LOGI(kTag, "new version on trial");
+  static esp_timer_handle_t timer = nullptr;
+  esp_timer_create_args_t args = {};
+  args.callback = [](void*) {
+    esp_ota_mark_app_valid_cancel_rollback();
+    ESP_LOGI(kTag, "new version kept");
+  };
+  args.name = "keep_version";
+  if (esp_timer_create(&args, &timer) == ESP_OK) esp_timer_start_once(timer, 60LL * 1000 * 1000);
+}
+
 }  // namespace
 
 vellum::Board& board_x4pro_init() {
@@ -379,10 +429,15 @@ vellum::Board& board_x4pro_init() {
 
   // Wi-Fi stays off until "Add books" starts it.
   static WifiTransfer transfer(kSdMountPoint, Input::post_transfer, &clock);
+  static EspNowPeers peers(Input::post_peer);
 
   static vellum::Board board{
-      "XTEINK X4 Pro",       display, input,    power, &light, &clock, have_card ? &card : nullptr,
-      vellum::Rotation::R90, fb,      &transfer};
+      "XTEINK X4 Pro",       display, input,     power, &light, &clock, have_card ? &card : nullptr,
+      vellum::Rotation::R90, fb,      &transfer, &peers};
+  board.version = esp_app_get_description()->version;
+  static OtaUpdater updater;
+  board.updater = &updater;
+  keep_this_version_once_settled();
   ESP_LOGI(kTag, "board ready");
   return board;
 }

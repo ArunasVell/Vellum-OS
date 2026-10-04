@@ -8,9 +8,12 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
+#include <deque>
 #include <vector>
 
+#include "../demo_updater.h"
 #include "vellum/app.h"
 #include "vellum/stdio_storage.h"
 
@@ -107,17 +110,60 @@ class WebTransfer : public vellum::Transfer {
   bool running = false;
 };
 
+// Other readers are other tabs with this page open: the page carries packets
+// between them over a BroadcastChannel.
+class WebPeers : public vellum::Peers {
+ public:
+  bool start() override {
+    started = true;
+    inbox.clear();
+    return true;
+  }
+  void stop() override {
+    started = false;
+    inbox.clear();
+  }
+  const char* name() override { return name_; }
+  bool send(const vellum::PeerAddress* to, const void* data, uint32_t len) override {
+    if (!started) return false;
+    EM_ASM(
+        {
+          if (window.vellumPeerSend) window.vellumPeerSend($0, $1, $2, $3);
+        },
+        to != nullptr ? to->bytes : nullptr, address.bytes, data, len);
+    return true;
+  }
+  bool receive(vellum::PeerPacket& out) override {
+    if (inbox.empty()) return false;
+    out = inbox.front();
+    inbox.pop_front();
+    return true;
+  }
+  void pick_name() {
+    for (uint8_t& b : address.bytes) b = static_cast<uint8_t>(EM_ASM_INT({ return Math.floor(Math.random() * 256); }));
+    std::snprintf(name_, sizeof(name_), "Vellum-%02X%02X", address.bytes[4], address.bytes[5]);
+  }
+
+  bool started = false;
+  vellum::PeerAddress address;
+  std::deque<vellum::PeerPacket> inbox;
+  uint8_t incoming[6 + vellum::PeerPacket::kMaxSize];  // the page writes the sender, then the bytes
+  char name_[16] = "Vellum";
+};
+
 WebDisplay display;
 WebTransfer transfer;
+DemoUpdater updater;
 NoInput input;
 WebPower power;
+WebPeers peers;
 WebClock clock;
 WebFrontlight light;
 // The page writes dropped EPUBs into /card/books in Emscripten's in-memory file system.
 vellum::StdioStorage card("/card");
 std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
-vellum::Board board{"Browser simulator", display,  input, power, &light, &clock, &card, vellum::Rotation::R90,
-                    framebuffer.data(),  &transfer};
+vellum::Board board{"Browser simulator", display,   input, power, &light, &clock, &card, vellum::Rotation::R90,
+                    framebuffer.data(),  &transfer, &peers};
 vellum::App* app = nullptr;
 
 }  // namespace
@@ -126,6 +172,9 @@ extern "C" {
 
 EMSCRIPTEN_KEEPALIVE void vellum_start(int battery) {
   power.percent = battery;
+  board.version = "sim";
+  board.updater = &updater;
+  peers.pick_name();
   static vellum::App instance(board);
   app = &instance;
   app->start();
@@ -184,6 +233,27 @@ EMSCRIPTEN_KEEPALIVE int vellum_book_received(const char* name) {
 // Call after writing books into /card/books.
 EMSCRIPTEN_KEEPALIVE void vellum_reload_library() {
   if (app) app->reload_library();
+}
+
+// Another tab's packet, written into vellum_peer_buffer(): 6 address bytes,
+// then `len` bytes of the packet.
+EMSCRIPTEN_KEEPALIVE uint8_t* vellum_peer_buffer() { return peers.incoming; }
+EMSCRIPTEN_KEEPALIVE const uint8_t* vellum_peer_address() { return peers.address.bytes; }
+EMSCRIPTEN_KEEPALIVE void vellum_peer_packet(int len) {
+  if (!app || !peers.started || len < 0 || len > vellum::PeerPacket::kMaxSize || peers.inbox.size() > 64) return;
+  vellum::PeerPacket& p = peers.inbox.emplace_back();
+  std::memcpy(p.from.bytes, peers.incoming, 6);
+  std::memcpy(p.data, peers.incoming + 6, static_cast<size_t>(len));
+  p.size = static_cast<uint16_t>(len);
+  vellum::InputEvent ev;
+  ev.type = vellum::InputEvent::Type::Peer;
+  app->handle(ev);
+}
+
+// Called every few hundred milliseconds: stands in for the device's input
+// wait timing out, which keeps a transfer going when packets are lost.
+EMSCRIPTEN_KEEPALIVE void vellum_poll() {
+  if (app && app->wait_ms() <= vellum::peer::kTickMs) app->timeout();
 }
 
 EMSCRIPTEN_KEEPALIVE int vellum_frame_count() { return display.frames_; }

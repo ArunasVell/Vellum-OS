@@ -36,6 +36,8 @@ constexpr SettingKey kKeys[] = {
      [](Settings& s, int v) { s.light = static_cast<uint8_t>(v); }},
     {"warmth", kLightSteps + 1, [](const Settings& s) { return int{s.warmth}; },
      [](Settings& s, int v) { s.warmth = static_cast<uint8_t>(v); }},
+    {"updates", 3, [](const Settings& s) { return static_cast<int>(s.auto_update); },
+     [](Settings& s, int v) { s.auto_update = static_cast<AutoUpdate>(v); }},
     {"text_size", 4, [](const Settings& s) { return static_cast<int>(s.text_size); },
      [](Settings& s, int v) { s.text_size = static_cast<TextSize>(v); }},
     {"line_spacing", 3, [](const Settings& s) { return static_cast<int>(s.line_spacing); },

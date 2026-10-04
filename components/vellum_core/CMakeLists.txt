@@ -19,6 +19,7 @@ set(VELLUM_CORE_SRCS
   src/hyphenation/en_us.cpp
   src/hyphenation/lt.cpp
   src/library.cpp
+  src/peer_transfer.cpp
   src/reader.cpp
   src/settings.cpp
   src/stdio_storage.cpp
@@ -28,6 +29,7 @@ set(VELLUM_CORE_SRCS
   src/touch.cpp
   src/ui.cpp
   src/upload.cpp
+  src/updates.cpp
   src/upload_page.cpp
   src/xml.cpp
   src/zip.cpp

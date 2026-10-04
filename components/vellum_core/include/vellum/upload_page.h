@@ -9,6 +9,13 @@
 //                           507 when the card is full, 4xx/5xx otherwise
 //   POST /time              the phone's local time, "YYYY-MM-DD HH:MM:SS",
 //                           to set the reader's clock
+//
+// A second page, opened from Settings › Updates, sets the home Wi-Fi and
+// installs an update file:
+//   GET  /setup             that page
+//   GET  /info              JSON: {"version": "0.1.42", "home_network": "..."}
+//   POST /wifi              form body ssid=...&password=...; 200 when saved
+//   POST /update            a Vellum .bin as the body; 200 once installed
 #pragma once
 
 #include <cstddef>
@@ -19,12 +26,18 @@ namespace vellum {
 
 extern const char kUploadPage[];
 extern const unsigned kUploadPageSize;
+extern const char kSetupPage[];
+extern const unsigned kSetupPageSize;
 
 // Helpers for the transfer servers, shared so every board treats names the same.
 
 // Decodes %XX escapes and '+' (a space in a query string) into out.
 // Returns false when the result does not fit or an escape is malformed.
 bool url_decode(const char* in, size_t in_len, char* out, size_t size);
+
+// Finds `key` in a form body ("a=1&b=two") and URL-decodes its value into
+// out. Returns false when it is missing, malformed or does not fit.
+bool form_field(const char* body, size_t len, const char* key, char* out, size_t size);
 
 // Turns a file name sent by a browser into one that is safe to save in the
 // books folder: no folders, no characters FAT rejects, no leading dots, at
