@@ -145,8 +145,8 @@ struct Strings {
   const char* waiting_phone;
   const char* wifi_saved;  // printf: network name
   const char* hint_setup;
-  const char* update_notice;     // printf: version; small notice on the home screen
-  const char* update_new;        // settings row value when one is ready
+  const char* update_notice;  // printf: version; small notice on the home screen
+  const char* update_new;     // settings row value when one is ready
   // Sending books reader to reader
   const char* send_book;     // contents row
   const char* send_title;    // screen title
@@ -163,7 +163,21 @@ struct Strings {
   const char* hint_sending;
   const char* hint_sent;
   const char* hint_retry;
-  const char* peer_hint;         // on "Add books"
+  const char* peer_hint;  // on "Add books"
+  // Words: dictionaries and highlights
+  const char* look_up_word;      // contents row
+  const char* highlights_label;  // uppercase label in the contents
+  const char* highlight;         // button under a definition
+  const char* remove_highlight;  // the same, on a highlighted word
+  const char* close;
+  const char* save;
+  const char* cancel;
+  const char* no_dictionary;  // no dictionary on the card
+  const char* not_in_dictionary;
+  const char* preparing_dictionary;
+  const char* hint_pick_line;    // choosing a line with the side buttons
+  const char* hint_pick_word;    // then a word
+  const char* hint_extend;       // choosing where a highlight ends
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };

@@ -2,11 +2,13 @@
 
 #include "vellum/battery_log.h"
 #include "vellum/covers.h"
+#include "vellum/dictionary.h"
 #include "vellum/display_queue.h"
 #include "vellum/document.h"
 #include "vellum/epub.h"
 #include "vellum/font_library.h"
 #include "vellum/hal.h"
+#include "vellum/highlights.h"
 #include "vellum/library.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
@@ -30,6 +32,12 @@ namespace vellum {
 // Touch: tap an item to open it (or change a setting); in the reader, tap
 // the left third or swipe right to go back, the right third or swipe left
 // to go forward, the middle for the contents. Swipes page through lists.
+//
+// Holding a word on the page looks it up in the card's dictionaries and
+// offers to highlight it, or a passage ending at a word tapped next.
+// Without touch, Contents › Look up a word picks a line, then a word, with
+// the side buttons. Highlights are underlined on the page and listed in
+// Contents; their notes are written on the phone page of "Add books".
 //
 // Settings › Device check shows every button press and touch, and what the
 // board reports (battery, clock, card), for trying out new hardware.
@@ -81,7 +89,28 @@ class App {
     Send
   };
   // One line of the contents screen.
-  enum class ContentsRow : uint8_t { Back, Mark, Light, Send, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
+  enum class ContentsRow : uint8_t {
+    Back,
+    Mark,
+    Light,
+    LookUp,
+    Send,
+    BookmarksLabel,
+    Bookmark,
+    HighlightsLabel,
+    Highlight,
+    Note,  // under its highlight
+    ChaptersLabel,
+    Chapter
+  };
+  // Choosing words on the page (the reader screen stays underneath).
+  enum class WordMode : uint8_t {
+    Off,
+    PickLine,  // side buttons move between lines
+    PickWord,  // then between words
+    Look,      // a word's definition, with Highlight and Close
+    Extend,    // a passage from that word: tap or move to its last word
+  };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
   static constexpr int kHomeRows = 2;     // other books listed under the current one
@@ -129,6 +158,24 @@ class App {
   int page_bookmark() const;
   // Moves the reader to `pos` in the open book and shows it.
   void jump_to(BookPos pos);
+  // Rows that do nothing themselves: labels, and notes (their highlight opens).
+  bool contents_skipped(int row) const;
+
+  // Words on the page (app_words.cpp). Those returning bool say whether the
+  // screen needs a redraw.
+  void open_word_pick();
+  bool word_hold(int x, int y);
+  bool word_key(Key key);
+  bool word_tap(int x, int y);
+  void select_word(int i);
+  void look_up_word();
+  void save_highlight();
+  void close_words();
+  // The highlight holding word i of the page, or -1.
+  int highlight_at_word(int i) const;
+  // Underlines for highlights and marks for the words in hand.
+  int page_marks(TextMark* out, int max) const;
+  void draw_word_overlay();
 
   // Remembers where a tappable item was drawn; `item` is its selection index.
   void add_hit(Rect r, int item);
@@ -210,6 +257,26 @@ class App {
   Screen light_back_ = Screen::Settings;
   int contents_marks_[Library::kMaxBookmarks] = {};  // the open book's bookmarks, in order
   int contents_mark_count_ = 0;
+  // The open book's highlights as contents rows: index * 2, plus 1 for its note.
+  int16_t contents_hl_rows_[2 * Highlights::kMax] = {};
+  int contents_hl_row_count_ = 0;
+  Highlights highlights_;
+  Dictionaries dictionaries_;
+  bool dictionaries_scanned_ = false;
+  WordMode word_mode_ = WordMode::Off;
+  int word_sel_ = 0;    // the word in hand, as an index into the page's words
+  int word_end_ = 0;    // Extend: the passage's last word
+  int word_line_ = 0;   // PickLine: the line in hand
+  int word_mark_ = -1;  // the highlight under word_sel_, or -1
+  enum class Lookup : uint8_t { Found, NotFound, NoDictionary, Preparing };
+  Lookup lookup_ = Lookup::NotFound;
+  Dictionaries::Result lookup_result_;
+  static constexpr uint32_t kDefinitionBytes = 4096;  // as much of a definition as is shown
+  char* definition_;                                  // the definition shown, allocated once
+  Rect word_overlay_;                                 // where the panel or bar was drawn
+  int definition_scroll_ = 0;                         // first line shown
+  int definition_lines_ = 0;                          // lines it takes, as last drawn
+  int definition_rows_ = 1;                           // lines that fit in the panel
   TransferState transfer_state_ = TransferState::Off;
   bool transfer_setup_ = false;  // the phone page for updates, not books
   // Updates: what is known, and what this session has tried.

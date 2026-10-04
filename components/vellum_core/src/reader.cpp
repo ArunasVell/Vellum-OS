@@ -63,6 +63,7 @@ bool Reader::open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos
   id_ = id;
   style_ = style;
   fb_ = &fb;
+  words_page_ = -1;  // the style or book may differ
   if (!same) {
     chapter_ = -1;
     if (!load(pos.chapter < doc.chapter_count() ? pos.chapter : 0)) return false;
@@ -73,6 +74,7 @@ bool Reader::open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos
 }
 
 bool Reader::load(int chapter) {
+  words_page_ = -1;
   if (!doc_->load_chapter(chapter, chapter_info_)) return false;
   chapter_ = chapter;
   paginate();
@@ -159,6 +161,64 @@ void Reader::snippet(char* out, size_t size) const {
   std::memcpy(out + end, "\xE2\x80\xA6", 4);  // …
 }
 
+const PageWords& Reader::words() const {
+  if (words_page_ != page_ || words_chapter_ != chapter_ || words_doc_ != doc_) {
+    typeset_page(page_style(style_, *fb_, doc_->language(), opening()), chapter_info_.paragraphs,
+                 chapter_info_.paragraph_count, page_starts_[page_], nullptr, &words_);
+    words_page_ = page_;
+    words_chapter_ = chapter_;
+    words_doc_ = doc_;
+  }
+  return words_;
+}
+
+void Reader::word_text(int i, char* out, size_t size) const {
+  if (size == 0) return;
+  out[0] = '\0';
+  const PageWords& w = words();
+  size_t n = 0;
+  // A word hyphenated across lines is its boxes joined.
+  for (; i >= 0 && i < w.count; ++i) {
+    const WordBox& b = w.words[i];
+    const char* p = chapter_info_.paragraphs[b.begin.paragraph];
+    for (uint32_t k = b.begin.offset; k < b.end && n + 1 < size; ++k) out[n++] = p[k];
+    if (!b.hyphen) break;
+  }
+  out[n] = '\0';
+}
+
+void Reader::passage(TextPos begin, TextPos end, char* out, size_t size) const {
+  if (size < 8) {
+    if (size > 0) out[0] = '\0';
+    return;
+  }
+  const Chapter& ch = chapter_info_;
+  size_t n = 0;
+  bool cut = false;
+  for (uint32_t i = begin.paragraph; i <= end.paragraph && i < ch.paragraph_count && !cut; ++i) {
+    const char* p = ch.paragraphs[i];
+    const uint32_t len = static_cast<uint32_t>(std::strlen(p));
+    uint32_t from = i == begin.paragraph ? std::min(begin.offset, len) : 0;
+    const uint32_t to = i == end.paragraph ? std::min(end.offset, len) : len;
+    if (from == 0 && *p == kHeadingMark) from = 1;
+    if (from >= to) continue;
+    if (n > 0) out[n++] = ' ';
+    for (uint32_t k = from; k < to; ++k) {
+      if (n >= size - 1) {
+        cut = true;
+        break;
+      }
+      out[n++] = p[k];
+    }
+  }
+  out[n] = '\0';
+  if (!cut) return;
+  // Shorten to a whole character that leaves room for the ellipsis.
+  size_t at = size - 4;
+  while (at > 0 && (static_cast<uint8_t>(out[at]) & 0xC0) == 0x80) --at;
+  std::memcpy(out + at, "\xE2\x80\xA6", 4);  // …
+}
+
 int Reader::percent() const {
   uint64_t before = 0;
   uint64_t total = 0;
@@ -172,8 +232,22 @@ int Reader::percent() const {
   return static_cast<int>(done * 100 / (total * page_count_));
 }
 
-void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent,
-                  bool bookmarked) const {
+namespace {
+
+bool marked(const TextMark& m, const WordBox& b) { return !(b.begin < m.begin) && b.begin < m.end; }
+
+// A dotted line, a pixel on and a pixel off, two rows thick.
+void dotted_line(Framebuffer& fb, int x, int y, int w) {
+  for (int i = 0; i < w; i += 2) {
+    fb.set_pixel(x + i, y, Color::Black);
+    fb.set_pixel(x + i + 1, y + 1, Color::Black);
+  }
+}
+
+}  // namespace
+
+void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent, bool bookmarked,
+                  std::span<const TextMark> marks) const {
   const Chapter& ch = chapter_info_;
   fb.clear(Color::White);
   const int w = fb.width();
@@ -189,7 +263,48 @@ void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, i
   }
 
   typeset_page(page_style(style_, fb, doc_->language(), opening()), ch.paragraphs, ch.paragraph_count,
-               page_starts_[page_], &fb);
+               page_starts_[page_], &fb, marks.empty() ? nullptr : &words_);
+  if (!marks.empty()) {
+    words_page_ = page_;
+    words_chapter_ = chapter_;
+    words_doc_ = doc_;
+    // Marks under (or around) the words they cover. Underlines run on across
+    // the space to the next word when it is marked too, so a passage reads
+    // as one line.
+    const int under = std::max(3, style_.font->descent / 3);
+    for (const TextMark& m : marks) {
+      for (int i = 0; i < words_.count; ++i) {
+        const WordBox& b = words_.words[i];
+        if (!marked(m, b)) continue;
+        int right = b.x + b.w;
+        if (i + 1 < words_.count && words_.words[i + 1].baseline == b.baseline && marked(m, words_.words[i + 1])) {
+          right = words_.words[i + 1].x;
+        }
+        const int y = b.baseline + under;
+        switch (m.style) {
+          case TextMark::Style::Underline:
+            fb.fill_rect({b.x, y, right - b.x, 2}, Color::Black);
+            break;
+          case TextMark::Style::Dotted:
+            dotted_line(fb, b.x, y, right - b.x);
+            break;
+          case TextMark::Style::Boxed:
+            fb.draw_rect({b.x - 3, b.y - 2, b.w + 6, b.h + 4}, Color::Black);
+            break;
+          case TextMark::Style::Selected: {
+            // Inverted: white letters on a black, slightly rounded patch.
+            const Rect r{b.x - 4, b.y - 2, b.w + 8, b.h + 4};
+            fb.fill_round_rect(r, 4, Color::Black);
+            const char* p = ch.paragraphs[b.begin.paragraph];
+            const int32_t after = draw_text(fb, *style_.font, b.pen, b.baseline,
+                                            std::string_view(p + b.begin.offset, b.end - b.begin.offset), Color::White);
+            if (b.hyphen) draw_text(fb, *style_.font, after, b.baseline, "-", Color::White);
+            break;
+          }
+        }
+      }
+    }
+  }
 
   // Footer: dotted progress track through the whole book, then time, page
   // number within the chapter and battery on one low line.

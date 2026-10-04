@@ -191,6 +191,7 @@ class Input : public vellum::InputSource {
       if (x4pro::kTouchFlipY) y = x4pro::kPanelHeight - 1 - y;
       vellum::InputEvent ev;
       ev.type = touching_ ? T::TouchMove : T::TouchDown;
+      ev.ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);  // tells a held finger from a tap
       ev.x = static_cast<int16_t>(x < 0 ? 0 : x >= x4pro::kPanelWidth ? x4pro::kPanelWidth - 1 : x);
       ev.y = static_cast<int16_t>(y < 0 ? 0 : y >= x4pro::kPanelHeight ? x4pro::kPanelHeight - 1 : y);
       if (!touching_) ESP_LOGI(kTag, "touch raw %d,%d -> panel %d,%d", r.x, r.y, ev.x, ev.y);
@@ -201,6 +202,7 @@ class Input : public vellum::InputSource {
       touching_ = false;
       vellum::InputEvent ev = last_;  // lift where the finger last was
       ev.type = T::TouchUp;
+      ev.ms = static_cast<uint32_t>(esp_timer_get_time() / 1000);
       push(ev);
     }
   }

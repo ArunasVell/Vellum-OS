@@ -319,7 +319,8 @@ App::App(Board& board)
     : board_(board),
       fb_(board.framebuffer, board.display.width(), board.display.height()),
       queue_(board.display, fb_),
-      library_() {
+      library_(),
+      definition_(new(std::nothrow) char[kDefinitionBytes]) {
   large_cover_.px = new (std::nothrow) uint8_t[covers::kLargeW * covers::kLargeH];
   small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   fb_.set_rotation(board.rotation);
@@ -330,6 +331,7 @@ App::App(Board& board)
     resume_reader_ = n >= 6 && std::strncmp(state, "reader", 6) == 0;
     battery_.load(*board_.storage);
     load_update_state(*board_.storage, update_state_);
+    highlights_.load(*board_.storage);
   }
   library_.load(builtin_books(), board_.storage, epub_);
   fonts_.scan(board_.storage);
@@ -339,6 +341,7 @@ App::App(Board& board)
 App::~App() {
   delete[] large_cover_.px;
   delete[] small_cover_.px;
+  delete[] definition_;
 }
 
 const CoverImage* App::cover_of(int book, bool large) {
@@ -357,6 +360,7 @@ void App::reload_library() {
   library_.load(builtin_books(), board_.storage, epub_);
   fonts_.scan(board_.storage);  // fonts may have arrived with the books
   apply_fonts();
+  dictionaries_scanned_ = false;  // and dictionaries
   show(Screen::Home);
 }
 
@@ -661,6 +665,9 @@ void App::close_transfer() {
     board_.transfer->stop();
   }
   transfer_state_ = TransferState::Off;
+  // The phone page may have changed notes or sent dictionaries.
+  if (board_.storage != nullptr && !transfer_setup_) highlights_.load(*board_.storage);
+  dictionaries_scanned_ = false;
   if (transfer_setup_) {
     transfer_setup_ = false;
     show(Screen::Updates);
@@ -1170,6 +1177,15 @@ void App::draw_send() {
 
 void App::open_contents() {
   contents_mark_count_ = library_.bookmarks_of(reading_, contents_marks_, Library::kMaxBookmarks);
+  int marked[Highlights::kMax];
+  const int n = highlights_.of_book(library_.entry(reading_).path, -1, marked, Highlights::kMax);
+  contents_hl_row_count_ = 0;
+  for (int k = 0; k < n; ++k) {
+    contents_hl_rows_[contents_hl_row_count_++] = static_cast<int16_t>(marked[k] * 2);
+    if (highlights_.at(marked[k]).note[0] != '\0') {
+      contents_hl_rows_[contents_hl_row_count_++] = static_cast<int16_t>(marked[k] * 2 + 1);
+    }
+  }
   contents_sel_ = 0;
   show(Screen::Contents);
 }
@@ -1179,7 +1195,15 @@ int App::contents_rows_per_page() const { return (fb_.height() - kListTop - kCon
 int App::contents_row_count() const {
   const Document& doc = *reader_.document();
   const int chapters = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
-  return (can_send() ? 4 : 3) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) + 1 + chapters;
+  return (can_send() ? 5 : 4) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) +
+         (contents_hl_row_count_ > 0 ? 1 + contents_hl_row_count_ : 0) + 1 + chapters;
+}
+
+bool App::contents_skipped(int row) const {
+  int index;
+  const ContentsRow kind = contents_row(row, index);
+  return kind == ContentsRow::BookmarksLabel || kind == ContentsRow::HighlightsLabel ||
+         kind == ContentsRow::ChaptersLabel || kind == ContentsRow::Note;
 }
 
 App::ContentsRow App::contents_row(int i, int& index) const {
@@ -1187,11 +1211,12 @@ App::ContentsRow App::contents_row(int i, int& index) const {
   if (i == 0) return ContentsRow::Back;
   if (i == 1) return ContentsRow::Mark;
   if (i == 2) return ContentsRow::Light;
+  if (i == 3) return ContentsRow::LookUp;
   if (can_send()) {
-    if (i == 3) return ContentsRow::Send;
+    if (i == 4) return ContentsRow::Send;
     --i;
   }
-  i -= 3;
+  i -= 4;
   if (contents_mark_count_ > 0) {
     if (i == 0) return ContentsRow::BookmarksLabel;
     if (i <= contents_mark_count_) {
@@ -1199,6 +1224,15 @@ App::ContentsRow App::contents_row(int i, int& index) const {
       return ContentsRow::Bookmark;
     }
     i -= 1 + contents_mark_count_;
+  }
+  if (contents_hl_row_count_ > 0) {
+    if (i == 0) return ContentsRow::HighlightsLabel;
+    if (i <= contents_hl_row_count_) {
+      const int code = contents_hl_rows_[i - 1];
+      index = code / 2;  // the highlight, for its note too
+      return code % 2 == 0 ? ContentsRow::Highlight : ContentsRow::Note;
+    }
+    i -= 1 + contents_hl_row_count_;
   }
   if (i == 0) return ContentsRow::ChaptersLabel;
   index = i - 1;
@@ -1258,10 +1292,15 @@ void App::contents_activate() {
     }
     case ContentsRow::Light:
       return open_light(Screen::Reader);
+    case ContentsRow::LookUp:
+      return open_word_pick();
     case ContentsRow::Send:
       return open_send();
     case ContentsRow::Bookmark:
       return jump_to(library_.bookmark(contents_marks_[index]).position);
+    case ContentsRow::Highlight:
+    case ContentsRow::Note:
+      return jump_to(highlights_.at(index).begin);
     case ContentsRow::Chapter: {
       Document& doc = *reader_.document();
       if (doc.toc_count() == 0) return jump_to({static_cast<uint16_t>(index), {}});
@@ -1273,6 +1312,7 @@ void App::contents_activate() {
       return jump_to({e.chapter, {e.paragraph == TocEntry::kUnknown ? 0 : e.paragraph, 0}});
     }
     case ContentsRow::BookmarksLabel:
+    case ContentsRow::HighlightsLabel:
     case ContentsRow::ChaptersLabel:
       return;
   }
@@ -1309,14 +1349,19 @@ void App::draw_contents() {
     const Rect r = row_rect(fb_, y, kContentsRowHeight);
     const int base = y + 33;
     const bool selected = i == contents_sel_;
-    const bool listed = kind == ContentsRow::Bookmark || kind == ContentsRow::Chapter;
-    if (listed && i > first && prev_kind == kind && !selected && contents_sel_ != i - 1) dotted_rule(fb_, y);
+    const bool listed = kind == ContentsRow::Bookmark || kind == ContentsRow::Chapter || kind == ContentsRow::Highlight;
+    // A note belongs to the highlight above it: no rule between them.
+    const ContentsRow group = prev_kind == ContentsRow::Note ? ContentsRow::Highlight : prev_kind;
+    if (listed && i > first && group == kind && !selected && contents_sel_ != i - 1) dotted_rule(fb_, y);
     prev_kind = kind;
     switch (kind) {
       case ContentsRow::BookmarksLabel:
+      case ContentsRow::HighlightsLabel:
       case ContentsRow::ChaptersLabel:
         ui::draw_label(fb_, kSide, base + 6,
-                       kind == ContentsRow::BookmarksLabel ? t.bookmarks_label : t.chapters_label);
+                       kind == ContentsRow::BookmarksLabel    ? t.bookmarks_label
+                       : kind == ContentsRow::HighlightsLabel ? t.highlights_label
+                                                              : t.chapters_label);
         continue;
       case ContentsRow::Back:
       case ContentsRow::Mark:
@@ -1328,9 +1373,33 @@ void App::draw_contents() {
                                                : t.add_bookmark,
                   selected);
         break;
+      case ContentsRow::LookUp:
       case ContentsRow::Send:
-        draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight}, t.send_book, selected);
+        draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight}, kind == ContentsRow::Send ? t.send_book : t.look_up_word,
+                  selected);
         break;
+      case ContentsRow::Highlight: {
+        const Highlight& h = highlights_.at(index);
+        const Color fg = highlight(fb_, r, selected);
+        char percent[8];
+        std::snprintf(percent, sizeof(percent), "%d%%", h.percent);
+        const int right = r.x + r.w - kPad;
+        ui::draw_right(fb_, ui::label_font(), right, base, percent, fg);
+        const int x = r.x + kPad;
+        // The passage's first words, underlined as on the page.
+        const int shown = std::min(text_width_px(ui::small_italic_font(), h.text), right - 56 - x);
+        ui::draw_fitted(fb_, ui::small_italic_font(), x, base, right - 56 - x, h.text, fg);
+        fb_.fill_rect({x, base + 5, shown, 1}, fg);
+        break;
+      }
+      case ContentsRow::Note: {
+        // The note from the phone, set in from its highlight behind a bar.
+        const Highlight& h = highlights_.at(index);
+        const int x = r.x + kPad + kIndent;
+        fb_.fill_rect({x - 10, y + 6, 2, kContentsRowHeight - 16}, Color::Black);
+        ui::draw_wrapped(fb_, ui::label_font(), x, y + 22, r.x + r.w - kPad - x, 2, h.note, false);
+        break;
+      }
       case ContentsRow::Bookmark: {
         const Bookmark& b = library_.bookmark(contents_marks_[index]);
         const Color fg = highlight(fb_, r, selected);
@@ -1589,6 +1658,7 @@ void App::open_book(int index) {
 }
 
 void App::show(Screen s) {
+  if (s != Screen::Reader) word_mode_ = WordMode::Off;
   screen_ = s;
   if (s == Screen::Home) home_sel_ = 0;
   draw();
@@ -1613,7 +1683,10 @@ void App::draw() {
   time_text(time, sizeof(time));
   const int battery = board_.power.battery_percent();
   if (screen_ == Screen::Reader) {
-    reader_.draw(fb_, text(), time, battery, page_bookmark() >= 0);
+    TextMark marks[48];
+    const int n = page_marks(marks, 48);
+    reader_.draw(fb_, text(), time, battery, page_bookmark() >= 0, {marks, static_cast<size_t>(n)});
+    if (word_mode_ != WordMode::Off) draw_word_overlay();
     return;
   }
   fb_.clear(Color::White);
@@ -1675,6 +1748,7 @@ uint32_t App::wait_ms() const {
   constexpr uint32_t kForever = 60 * 60 * 1000;
   if (asleep_) return kForever;
   if (power_held_) return kHoldMs;
+  if (touch_.holding()) return TouchTracker::kLongPressMs;
   if (peers_ticking()) return peer::kTickMs;
   const uint32_t idle = sleep_after_ms(settings_.sleep_after);
   if (idle == 0 || screen_ == Screen::Transfer) return kForever;  // books may still be arriving
@@ -1686,6 +1760,14 @@ void App::timeout() {
   if (power_held_) {
     power_held_ = false;  // the release that follows does nothing
     sleep();
+    return;
+  }
+  if (touch_.holding()) {
+    // No events while the finger rests (the simulators): it is a long press.
+    if (handle_gesture(touch_.hold())) {
+      draw();
+      queue_.submit();
+    }
     return;
   }
   if (peers_ticking()) {
@@ -1700,6 +1782,7 @@ void App::timeout() {
 
 void App::sleep() {
   if (screen_ == Screen::Transfer) close_transfer();  // radio off first
+  word_mode_ = WordMode::Off;
   if (screen_ == Screen::Send) {
     close_send();
     screen_ = Screen::Reader;  // wake to the book
@@ -1987,6 +2070,7 @@ bool App::handle_key(Key key) {
     if (screen_ == Screen::Home) {
       queue_.submit_full();  // already home: just clean the screen
     } else {
+      if (screen_ == Screen::Reader && word_mode_ != WordMode::Off) return close_words(), true;
       if (screen_ == Screen::Reader || screen_ == Screen::Contents) save_progress();
       if (screen_ == Screen::Light && board_.storage != nullptr) save_settings(*board_.storage, settings_);
       if (screen_ == Screen::Transfer) return close_transfer(), false;
@@ -2007,16 +2091,15 @@ bool App::handle_key(Key key) {
   const int step = key == Key::Next ? 1 : key == Key::Prev ? -1 : 0;
   switch (screen_) {
     case Screen::Reader:
+      if (word_mode_ != WordMode::Off) return word_key(key);
       if (key == Key::Power) return open_contents(), false;
       return turn(step);
     case Screen::Contents: {
       if (key == Key::Power) return contents_activate(), false;
       const int count = contents_row_count();
-      int index;
       do {
         contents_sel_ = wrap_index(contents_sel_ + step, count);
-      } while (step != 0 && (contents_row(contents_sel_, index) == ContentsRow::BookmarksLabel ||
-                             contents_row(contents_sel_, index) == ContentsRow::ChaptersLabel));
+      } while (step != 0 && contents_skipped(contents_sel_));
       return true;
     }
     case Screen::Home:
@@ -2072,9 +2155,21 @@ bool App::handle_key(Key key) {
 bool App::handle_gesture(const Gesture& g) {
   using K = Gesture::Kind;
   if (g.kind == K::None) return false;
+  if (g.kind == K::LongPress && screen_ != Screen::Reader) {
+    Gesture tap = g;  // holding a row or button is the same as tapping it
+    tap.kind = K::Tap;
+    return handle_gesture(tap);
+  }
 
   if (screen_ == Screen::Reader) {
+    if (word_mode_ != WordMode::Off) {
+      if (g.kind == K::Tap) return word_tap(g.x, g.y);
+      if (g.kind == K::LongPress) return word_hold(g.x, g.y);
+      return false;  // the page stays put while words are chosen
+    }
     switch (g.kind) {
+      case K::LongPress:
+        return word_hold(g.x, g.y);
       case K::Tap:
         if (g.x >= fb_.width() / 3 && g.x < fb_.width() * 2 / 3) return open_contents(), false;
         return turn(g.x < fb_.width() / 3 ? -1 : 1);
@@ -2098,11 +2193,7 @@ bool App::handle_gesture(const Gesture& g) {
     if (pages <= 1) return false;
     const int forward = g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1;
     contents_sel_ = wrap_index(contents_sel_ / per_page + forward, pages) * per_page;
-    int index;
-    while (contents_sel_ + 1 < count && (contents_row(contents_sel_, index) == ContentsRow::BookmarksLabel ||
-                                         contents_row(contents_sel_, index) == ContentsRow::ChaptersLabel)) {
-      ++contents_sel_;
-    }
+    while (contents_sel_ + 1 < count && contents_skipped(contents_sel_)) ++contents_sel_;
     return true;
   }
   if (screen_ == Screen::Library && g.kind != K::Tap) {

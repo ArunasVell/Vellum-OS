@@ -11,10 +11,12 @@
 #include <cstring>
 #include <ctime>
 #include <deque>
+#include <string>
 #include <vector>
 
 #include "../demo_updater.h"
 #include "vellum/app.h"
+#include "vellum/highlights.h"
 #include "vellum/stdio_storage.h"
 
 namespace {
@@ -203,8 +205,9 @@ EMSCRIPTEN_KEEPALIVE void vellum_hold_power() {
   app->handle(ev);
 }
 
-// 0 = finger down, 1 = move, 2 = up; (x, y) in logical (portrait) pixels.
-EMSCRIPTEN_KEEPALIVE void vellum_touch(int kind, int x, int y) {
+// 0 = finger down, 1 = move, 2 = up; (x, y) in logical (portrait) pixels;
+// ms is when, in milliseconds (a finger held still is a long press).
+EMSCRIPTEN_KEEPALIVE void vellum_touch(int kind, int x, int y, int ms) {
   if (!app || kind < 0 || kind > 2) return;
   constexpr vellum::InputEvent::Type kTypes[] = {
       vellum::InputEvent::Type::TouchDown, vellum::InputEvent::Type::TouchMove, vellum::InputEvent::Type::TouchUp};
@@ -214,7 +217,39 @@ EMSCRIPTEN_KEEPALIVE void vellum_touch(int kind, int x, int y) {
   vellum::rotate_to_physical(board.rotation, kPanelW, kPanelH, x, y, px, py);
   ev.x = static_cast<int16_t>(px < 0 ? 0 : px >= kPanelW ? kPanelW - 1 : px);
   ev.y = static_cast<int16_t>(py < 0 ? 0 : py >= kPanelH ? kPanelH - 1 : py);
+  ev.ms = static_cast<uint32_t>(ms);
   app->handle(ev);
+}
+
+// The phone page's highlights, while "Add books" is open: the page lists
+// them and sets notes, as a phone would through the reader's server.
+EMSCRIPTEN_KEEPALIVE int vellum_transfer_open() { return transfer.running ? 1 : 0; }
+
+vellum::Highlights* phone_highlights() {
+  static vellum::Highlights* h = new vellum::Highlights;
+  h->load(card);
+  return h;
+}
+
+EMSCRIPTEN_KEEPALIVE const char* vellum_highlights_json() {
+  static std::string json;
+  json.clear();
+  phone_highlights()->write_json(
+      [](void* ctx, const char* text, size_t len) { static_cast<std::string*>(ctx)->append(text, len); }, &json);
+  return json.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int vellum_highlight_note(int id, const char* note) {
+  vellum::Highlights* h = phone_highlights();
+  return h->set_note(static_cast<uint32_t>(id), note) && h->save(card) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int vellum_highlight_remove(int id) {
+  vellum::Highlights* h = phone_highlights();
+  const int k = h->find(static_cast<uint32_t>(id));
+  if (k < 0) return 0;
+  h->remove(k);
+  return h->save(card) ? 1 : 0;
 }
 
 // Call after writing a book into /card/books. Returns 1 when the "Add books"

@@ -34,6 +34,17 @@ const char kUploadPage[] = R"page(<!doctype html>
   .bar { height: 3px; background: var(--line); border-radius: 2px; margin-top: 6px; overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
   .empty { color: var(--muted); padding: 10px 0; }
+  .tools { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  button.small { font-size: 14px; padding: 9px 14px; }
+  button.quiet { color: var(--accent); background: transparent; border: 1px solid var(--line); }
+  .book { margin-top: 18px; }
+  .book h3 { font: italic 600 20px/1.25 Georgia, "Iowan Old Style", serif; margin: 0 0 6px; }
+  .hl { border-top: 1px solid var(--line); padding: 12px 0; display: flex; flex-direction: column; gap: 8px; }
+  .hl blockquote { margin: 0; font: 17px/1.45 Georgia, "Iowan Old Style", serif; overflow-wrap: anywhere; }
+  .hl .meta { font: 12px/1.3 ui-monospace, Menlo, monospace; color: var(--muted); }
+  .hl textarea { font: 15px/1.4 system-ui, sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; resize: vertical; min-height: 2.6em; width: 100%; }
+  .hl .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .hl .saved { font: 12px/1 ui-monospace, Menlo, monospace; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -42,11 +53,11 @@ const char kUploadPage[] = R"page(<!doctype html>
     <div class="eyebrow">Vellum</div>
     <h1 data-t="title">Add books</h1>
   </div>
-  <p data-t="lead">Choose EPUB books on this phone or computer. They go straight onto the reader's SD card. Fonts (.ttf or .otf) work too: pick them in Settings › Menu font or Reading › Book font.</p>
+  <p data-t="lead">Choose EPUB books on this phone or computer. They go straight onto the reader's SD card. Fonts (.ttf or .otf) work too: pick them in Settings › Menu font or Reading › Book font. So do StarDict dictionaries (.ifo, .idx and .dict or .dict.dz, all three): hold a word while reading to look it up.</p>
   <div class="drop" id="drop">
     <button id="pick" type="button" data-t="pick">Choose books</button>
-    <p data-t="drop">or drop EPUB or font files here</p>
-    <input id="file" type="file" accept=".epub,application/epub+zip,.ttf,.otf,font/ttf,font/otf" multiple hidden>
+    <p data-t="drop">or drop EPUB, font or dictionary files here</p>
+    <input id="file" type="file" accept=".epub,application/epub+zip,.ttf,.otf,font/ttf,font/otf,.ifo,.idx,.dict,.dz,.syn" multiple hidden>
   </div>
   <section id="sending" hidden>
     <h2 data-t="sending">Sending</h2>
@@ -56,6 +67,15 @@ const char kUploadPage[] = R"page(<!doctype html>
     <h2 data-t="onreader">On the reader</h2>
     <ul id="books"></ul>
   </section>
+  <section id="hl-section" hidden>
+    <h2 data-t="highlights">Highlights</h2>
+    <div class="tools">
+      <button class="small" id="hl-copy" type="button" data-t="copyall">Copy all</button>
+      <button class="small quiet" id="hl-txt" type="button" data-t="dltxt">Download .txt</button>
+      <button class="small quiet" id="hl-md" type="button" data-t="dlmd">Download .md</button>
+    </div>
+    <div id="highlights"></div>
+  </section>
   <p data-t="done">When you're done, press Home on the reader. The new books appear in its library.</p>
 </main>
 <script>
@@ -63,12 +83,17 @@ const char kUploadPage[] = R"page(<!doctype html>
   const lt = /^lt\b/i.test(navigator.language || "");
   const T = lt ? {
     title: "Įkelti knygas",
-    lead: "Pasirinkite EPUB knygas šiame telefone ar kompiuteryje. Jos įrašomos tiesiai į skaityklės SD kortelę. Tinka ir šriftai (.ttf ar .otf): juos pasirinkite Nustatymai › Meniu šriftas arba Skaitymas › Knygos šriftas.",
-    pick: "Pasirinkti knygas", drop: "arba įmeskite EPUB ar šriftų failus čia", sending: "Siunčiama",
+    lead: "Pasirinkite EPUB knygas šiame telefone ar kompiuteryje. Jos įrašomos tiesiai į skaityklės SD kortelę. Tinka ir šriftai (.ttf ar .otf): juos pasirinkite Nustatymai › Meniu šriftas arba Skaitymas › Knygos šriftas. Tinka ir StarDict žodynai (.ifo, .idx ir .dict arba .dict.dz, visi trys): skaitydami palaikykite žodį ir pamatysite jo reikšmę.",
+    pick: "Pasirinkti knygas", drop: "arba įmeskite EPUB, šriftų ar žodynų failus čia", sending: "Siunčiama",
     onreader: "Skaityklėje", done: "Baigę paspauskite skaityklės Namų mygtuką. Naujos knygos atsiras bibliotekoje.",
-    waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "netinka", none: "Knygų dar nėra."
+    waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "netinka", none: "Knygų dar nėra.",
+    highlights: "Pabraukimai", copyall: "Kopijuoti viską", dltxt: "Atsisiųsti .txt", dlmd: "Atsisiųsti .md",
+    copied: "Nukopijuota", note: "Pastaba", addnote: "Pridėkite pastabą…", savenote: "Išsaugoti", saved: "išsaugota",
+    remove: "Pašalinti", removeq: "Pašalinti šį pabraukimą?"
   } : {
-    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book or font", none: "No books yet."
+    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book, font or dictionary", none: "No books yet.",
+    copied: "Copied", note: "Note", addnote: "Add a note…", savenote: "Save", saved: "saved",
+    remove: "Remove", removeq: "Remove this highlight?"
   };
   if (lt) {
     document.documentElement.lang = "lt";
@@ -110,7 +135,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       const r = row(f.name, T.waiting);
       sendingEl.hidden = false;
       queueEl.append(r.li);
-      if (!/\.(epub|ttf|otf)$/i.test(f.name)) { r.state.textContent = T.notepub; r.state.classList.add("bad"); continue; }
+      if (!/\.(epub|ttf|otf|ifo|idx|dict|dict\.dz|syn)$/i.test(f.name)) { r.state.textContent = T.notepub; r.state.classList.add("bad"); continue; }
       const bar = document.createElement("div"); bar.className = "bar"; bar.innerHTML = "<i></i>";
       r.left.append(bar);
       jobs.push({ f, r, bar: bar.firstChild });
@@ -147,6 +172,112 @@ const char kUploadPage[] = R"page(<!doctype html>
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); add([...e.dataTransfer.files]); });
   refresh();
+
+  // Highlights made on the reader: notes are added here, where typing is easy.
+  const hlSection = document.getElementById("hl-section");
+  const hlList = document.getElementById("highlights");
+  let marks = [];
+
+  function post(url, fields) {
+    return fetch(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(fields).toString() });
+  }
+
+  function byBook() {
+    const books = new Map();
+    for (const h of marks) {
+      if (!books.has(h.book)) books.set(h.book, { title: h.title || h.book, items: [] });
+      books.get(h.book).items.push(h);
+    }
+    return [...books.values()];
+  }
+
+  function asText(md) {
+    let out = md ? "# " + (T.highlights || "Highlights") + "\n" : "";
+    for (const b of byBook()) {
+      out += md ? "\n## " + b.title + "\n" : (out ? "\n" : "") + b.title + "\n" + "=".repeat(Math.min(b.title.length, 60)) + "\n";
+      for (const h of b.items) {
+        const meta = [h.date, h.percent + "%"].filter(Boolean).join(" · ");
+        out += md ? "\n> " + h.text + "\n" : "\n\u201C" + h.text + "\u201D\n";
+        if (h.note) out += md ? "\n" + (T.note || "Note") + ": " + h.note + "\n" : (T.note || "Note") + ": " + h.note + "\n";
+        out += md ? "\n*" + meta + "*\n" : meta + "\n";
+      }
+    }
+    return out;
+  }
+
+  function download(md) {
+    const blob = new Blob([asText(md)], { type: md ? "text/markdown" : "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = md ? "highlights.md" : "highlights.txt";
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+
+  // The reader's page is plain http, where the clipboard API is often
+  // missing: fall back to selecting hidden text.
+  async function copyAll(btn) {
+    const text = asText(false);
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch (_) {}
+    if (!ok) {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.append(ta); ta.select();
+      try { ok = document.execCommand("copy"); } catch (_) {}
+      ta.remove();
+    }
+    if (ok) { const was = btn.textContent; btn.textContent = T.copied; setTimeout(() => { btn.textContent = was; }, 1500); }
+  }
+
+  function renderHighlights() {
+    hlSection.hidden = marks.length === 0;
+    hlList.replaceChildren();
+    for (const b of byBook()) {
+      const book = document.createElement("div"); book.className = "book";
+      const h3 = document.createElement("h3"); h3.textContent = b.title;
+      book.append(h3);
+      for (const h of b.items) {
+        const item = document.createElement("div"); item.className = "hl";
+        const quote = document.createElement("blockquote"); quote.textContent = h.text;
+        const meta = document.createElement("div"); meta.className = "meta";
+        meta.textContent = [h.date, h.percent + "%"].filter(Boolean).join(" · ");
+        const note = document.createElement("textarea"); note.rows = 2; note.maxLength = 230;
+        note.placeholder = T.addnote; note.value = h.note || "";
+        const row = document.createElement("div"); row.className = "row";
+        const save = document.createElement("button"); save.className = "small"; save.type = "button"; save.textContent = T.savenote;
+        const remove = document.createElement("button"); remove.className = "small quiet"; remove.type = "button"; remove.textContent = T.remove;
+        const state = document.createElement("span"); state.className = "saved";
+        save.addEventListener("click", async () => {
+          state.textContent = "";
+          try {
+            const r = await post("/highlights/note", { id: h.id, note: note.value.replace(/\s+/g, " ").trim() });
+            if (!r.ok) throw 0;
+            h.note = note.value.replace(/\s+/g, " ").trim();
+            state.textContent = T.saved;
+          } catch (_) { state.textContent = T.failed; }
+        });
+        remove.addEventListener("click", async () => {
+          if (!confirm(T.removeq)) return;
+          try { if ((await post("/highlights/remove", { id: h.id })).ok) { marks = marks.filter((m) => m.id !== h.id); renderHighlights(); } } catch (_) {}
+        });
+        row.append(save, remove, state);
+        item.append(quote, meta, note, row);
+        book.append(item);
+      }
+      hlList.append(book);
+    }
+  }
+
+  async function loadHighlights() {
+    try { marks = await (await fetch("/highlights")).json(); renderHighlights(); } catch (_) {}
+  }
+  document.getElementById("hl-copy").addEventListener("click", (e) => copyAll(e.currentTarget));
+  document.getElementById("hl-txt").addEventListener("click", () => download(false));
+  document.getElementById("hl-md").addEventListener("click", () => download(true));
+  loadHighlights();
 
   // The phone knows the time: the reader's clock takes it from here.
   const d = new Date();

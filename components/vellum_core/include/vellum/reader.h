@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 #include <string_view>
 
 #include "vellum/book.h"
@@ -46,6 +47,20 @@ struct BookPos {
   TextPos text;
 };
 
+// A run of text in the current chapter drawn with a mark: words starting at
+// or after `begin` and before `end`.
+struct TextMark {
+  enum class Style : uint8_t {
+    Underline,  // a highlight
+    Dotted,     // a passage being chosen
+    Selected,   // the word in hand: drawn inverted
+    Boxed,      // a line being chosen: a frame around each word
+  };
+  TextPos begin;
+  TextPos end;
+  Style style = Style::Underline;
+};
+
 class Reader {
  public:
   static constexpr int kMaxPages = 1024;  // per chapter
@@ -59,8 +74,9 @@ class Reader {
   // Draws the current page. The footer shows `time` (may be empty) on the
   // left, the page number in the middle and the battery on the right. A
   // bookmarked page wears a ribbon in its top corner.
-  void draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent,
-            bool bookmarked = false) const;
+  // `marks` underline or invert words on the page.
+  void draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent, bool bookmarked = false,
+            std::span<const TextMark> marks = {}) const;
   bool next();  // false at the end of the book
   bool prev();  // false at the start of the book
 
@@ -77,6 +93,15 @@ class Reader {
   // The first words of the current page, ending in an ellipsis when cut short.
   void snippet(char* out, size_t size) const;
 
+  // The words of the current page as drawn, laid out again only when the
+  // page changed.
+  const PageWords& words() const;
+  // Word i of the current page as written, a hyphenated word whole.
+  void word_text(int i, char* out, size_t size) const;
+  // The text of the chapter from `begin` to `end`, paragraphs joined by
+  // spaces, cut short with an ellipsis to fit.
+  void passage(TextPos begin, TextPos end, char* out, size_t size) const;
+
  private:
   bool load(int chapter);
   void paginate();
@@ -91,6 +116,11 @@ class Reader {
   TextPos page_starts_[kMaxPages];
   int page_count_ = 0;
   int page_ = 0;
+  // The current page's words, for words(); valid while the key matches.
+  mutable PageWords words_;
+  mutable int words_chapter_ = -1;
+  mutable int words_page_ = -1;
+  mutable const Document* words_doc_ = nullptr;
 };
 
 }  // namespace vellum
