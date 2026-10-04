@@ -930,8 +930,9 @@ void test_app_device_check() {
   Board board{"test", panel, input, power, nullptr, nullptr, nullptr, Rotation::R90, buf.data()};
   Framebuffer view(buf.data(), kW, kH);
   view.set_rotation(Rotation::R90);
-  // The touch box's left edge runs down the side margin (28); Settings has none.
-  auto on_check = [&] { return view.pixel(28, 340) == Color::Black; };
+  // The touch box's left edge runs down the side margin (28); on Settings a
+  // highlighted row starts further left.
+  auto on_check = [&] { return view.pixel(28, 340) == Color::Black && view.pixel(26, 340) == Color::White; };
   auto* app = new App(board);
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
