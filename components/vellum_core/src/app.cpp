@@ -19,9 +19,12 @@ constexpr int kOpeningDrop = 120;  // extra space above the text on a chapter's 
 
 const Font& body() { return fonts::literata_26; }
 
-PageStyle page_style(const Framebuffer& fb, int page) {
+PageStyle page_style(const Framebuffer& fb, const Book& book, int page) {
   const int top = kTextTop + (page == 0 ? kOpeningDrop : 0);
-  return {&body(), {kSide, top, fb.width() - 2 * kSide, fb.height() - top - kTextBottom}, body().size};
+  return {&body(),
+          {kSide, top, fb.width() - 2 * kSide, fb.height() - top - kTextBottom},
+          body().size,
+          hyphenator_for(book.language)};
 }
 
 void draw_centered(Framebuffer& fb, const Font& font, int baseline, std::string_view text) {
@@ -54,7 +57,7 @@ void App::paginate() {
   while (pos.paragraph < book_.paragraph_count && page_count_ < kMaxPages) {
     page_starts_[page_count_] = pos;
     const TextPos next =
-        typeset_page(page_style(fb_, page_count_), book_.paragraphs, book_.paragraph_count, pos, nullptr);
+        typeset_page(page_style(fb_, book_, page_count_), book_.paragraphs, book_.paragraph_count, pos, nullptr);
     ++page_count_;
     if (next == pos) break;  // nothing fits; avoid looping forever
     pos = next;
@@ -75,7 +78,7 @@ void App::draw_page() {
     draw_centered(fb_, fonts::literata_italic_26, kTextTop + 80, book_.chapter_title);
   }
 
-  typeset_page(page_style(fb_, page_), book_.paragraphs, book_.paragraph_count, page_starts_[page_], &fb_);
+  typeset_page(page_style(fb_, book_, page_), book_.paragraphs, book_.paragraph_count, page_starts_[page_], &fb_);
 
   // Footer: dotted progress track and page number.
   const int track_y = h - kTrackRise;

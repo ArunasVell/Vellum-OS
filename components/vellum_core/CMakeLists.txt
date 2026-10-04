@@ -5,6 +5,9 @@ set(VELLUM_CORE_SRCS
   src/app.cpp
   src/display_queue.cpp
   src/framebuffer.cpp
+  src/hyphenation.cpp
+  src/hyphenation/en_us.cpp
+  src/hyphenation/lt.cpp
   src/sample_book.cpp
   src/text.cpp
   src/fonts/literata_20.cpp

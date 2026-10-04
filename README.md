@@ -75,7 +75,7 @@ idf.py build
 
 The X4 Pro pin map, hardware notes, screen drivers (SSD1677, UC8179, UC8279 and the boot-time detection between them) and the CW2017 battery gauge driver are ported from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) (MIT, see [NOTICE](NOTICE)). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices.
 
-Literata is by the Literata Project Authors, under the SIL Open Font License ([assets/fonts/literata/OFL.txt](assets/fonts/literata/OFL.txt)). The sample chapter is from Lewis Carroll's *Alice's Adventures in Wonderland* (public domain).
+Literata is by the Literata Project Authors, under the SIL Open Font License ([assets/fonts/literata/OFL.txt](assets/fonts/literata/OFL.txt)). Hyphenation patterns come from the [hyph-utf8](https://www.hyphenation.org/tex) project: American English by Gerard D.C. Kuiken, Lithuanian by Vytas Statulevičius, Sigitas Tolušis and Yannis Haralambous (MIT); licences are kept in [assets/hyphenation](assets/hyphenation) and the generated tables. The sample chapter is from Lewis Carroll's *Alice's Adventures in Wonderland* (public domain).
 
 ## License
 

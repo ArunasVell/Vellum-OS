@@ -120,12 +120,16 @@ constexpr const char* kParagraphs[] = {
     "sure, this generally happens when one eats cake, but Alice had got so much into the way of expecting nothing but "
     "out-of-the-way things to happen, that it seemed quite dull and stupid for life to go on in the common way.",
     "So she set to work, and very soon finished off the cake.",
-    "",  // scene break
 };
 
 constexpr Book kBook = {
-    "Alice’s Adventures in Wonderland",           "Lewis Carroll", "Chapter I", "Down the Rabbit-Hole", kParagraphs,
-    sizeof(kParagraphs) / sizeof(kParagraphs[0]),
+    .title = "Alice’s Adventures in Wonderland",
+    .author = "Lewis Carroll",
+    .chapter_label = "Chapter I",
+    .chapter_title = "Down the Rabbit-Hole",
+    .language = "en",
+    .paragraphs = kParagraphs,
+    .paragraph_count = sizeof(kParagraphs) / sizeof(kParagraphs[0]),
 };
 
 }  // namespace

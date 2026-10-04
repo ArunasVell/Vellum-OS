@@ -11,6 +11,7 @@
 
 #include "vellum/fonts.h"
 #include "vellum/framebuffer.h"
+#include "vellum/hyphenation.h"
 
 namespace vellum {
 
@@ -37,12 +38,14 @@ struct TextPos {
 
 struct PageStyle {
   const Font* font;
-  Rect area;   // where text may go, logical pixels
-  int indent;  // first-line indent of every paragraph but the first, px
+  Rect area;                     // where text may go, logical pixels
+  int indent;                    // first-line indent of every paragraph but the first, px
+  const Hyphenator* hyphenator;  // language rules for breaking words; nullptr = none
 };
 
 // Lays out one page of `paragraphs` from `start`: justified lines, the last
-// line of each paragraph set ragged. Draws when `fb` is not null, so the
+// line of each paragraph set ragged, words hyphenated when the next one does
+// not fit. Draws when `fb` is not null, so the
 // same call paginates (fb = nullptr) and renders. Returns where the next
 // page starts; that equals {count, 0} once all text is placed.
 TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint32_t count, TextPos start,
