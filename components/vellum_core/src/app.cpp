@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "vellum/text.h"
 #include "vellum/textfile.h"
@@ -269,6 +270,8 @@ App::App(Board& board)
       fb_(board.framebuffer, board.display.width(), board.display.height()),
       queue_(board.display, fb_),
       library_() {
+  large_cover_.px = new (std::nothrow) uint8_t[covers::kLargeW * covers::kLargeH];
+  small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   fb_.set_rotation(board.rotation);
   if (board_.storage != nullptr) {
     load_settings(*board_.storage, settings_);
@@ -278,6 +281,20 @@ App::App(Board& board)
     battery_.load(*board_.storage);
   }
   library_.load(builtin_books(), board_.storage, epub_);
+}
+
+App::~App() {
+  delete[] large_cover_.px;
+  delete[] small_cover_.px;
+}
+
+const CoverImage* App::cover_of(int book, bool large) {
+  const LibraryEntry& e = library_.entry(book);
+  CoverImage& img = large ? large_cover_ : small_cover_;
+  if (e.cover <= 0 || board_.storage == nullptr || img.px == nullptr) return nullptr;
+  char path[64];
+  covers::path_for(e.path, e.file_size, path, sizeof(path));
+  return covers::load(*board_.storage, path, large, img) ? &img : nullptr;
 }
 
 void App::reload_library() {
@@ -325,7 +342,7 @@ void App::draw_home() {
     fb_.fill_round_rect({hero.x + 3, hero.y + 3, hero.w - 6, hero.h - 6}, 9, Color::White);
   }
   const Rect cover{kSide, kHeroTop + (kHeroHeight - kCoverH) / 2, kCoverW, kCoverH};
-  ui::draw_cover(fb_, cover, book.title, book.author);
+  ui::draw_cover(fb_, cover, book.title, book.author, cover_of(current, true));
   const int col_x = cover.x + cover.w + 22;
   const int col_w = w - kSide - col_x;
   int y = ui::draw_wrapped(fb_, fonts::literata_italic_26, col_x, cover.y + 28, col_w, 3, book.title, false);
@@ -367,7 +384,8 @@ void App::draw_home() {
     if (order[k] == current) continue;
     const bool selected = home_sel_ == item;
     if (item > 1 && !selected && home_sel_ != item - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.entry(order[k]), t, selected);
+    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.entry(order[k]), t, selected,
+                      cover_of(order[k], false));
     add_hit(row_rect(fb_, y, kHomeRowHeight), item);
     y += kHomeRowHeight;
     ++item;
@@ -423,7 +441,7 @@ void App::draw_library() {
     const int y = kListTop + (i - first) * ui::kRowHeight;
     const bool selected = i == library_sel_;
     if (i > first && !selected && library_sel_ != i - 1) dotted_rule(fb_, y);
-    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.entry(i), t, selected);
+    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.entry(i), t, selected, cover_of(i, false));
     add_hit(row_rect(fb_, y, ui::kRowHeight), i);
   }
   ui::draw_hint(fb_, t.hint_list);
@@ -1159,7 +1177,8 @@ void App::draw_sleep() {
     const LibraryEntry& book = library_.entry(library_.current());
     const int cw = w - 2 * kSleepCoverSide;
     const int ch = cw * 3 / 2;
-    ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author);
+    ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author,
+                   cover_of(library_.current(), true));
   }
   ui::draw_centered(fb_, fonts::literata_16, h - 96, t.sleeping);
   ui::draw_hint(fb_, t.wake_hint);

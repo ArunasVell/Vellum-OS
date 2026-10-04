@@ -171,6 +171,7 @@ void Epub::close() {
   loaded_ = -1;
   paragraph_count_ = 0;
   toc_count_ = 0;
+  cover_ = -1;
   info_ = {};
 }
 
@@ -241,6 +242,10 @@ bool Epub::read_package(const char* opf_path) {
   // survive reading another entry into buf_.
   char nav[512] = {};
   char ncx[512] = {};
+  // The cover: EPUB 3 marks its manifest item; EPUB 2 names the item's id
+  // in <meta name="cover" content="...">, which may come before the item.
+  char cover[512] = {};
+  std::string_view cover_id;
   while (xml::next_tag(s, pos, tag, start)) {
     if (tag.closing) {
       if (xml::name_is(tag.name, "spine")) in_spine = false;
@@ -268,11 +273,17 @@ bool Epub::read_package(const char* opf_path) {
       const std::string_view type = xml::attr(tag.attrs, "media-type");
       manifest_[items++] = {xml::attr(tag.attrs, "id"), xml::attr(tag.attrs, "href"),
                             type == "application/xhtml+xml" || type == "text/html"};
+      const bool image = type == "image/jpeg" || type == "image/jpg" || type == "image/png";
+      if (image && has_word(xml::attr(tag.attrs, "properties"), "cover-image")) {
+        resolve(base, manifest_[items - 1].href, cover, sizeof(cover));
+      }
       if (has_word(xml::attr(tag.attrs, "properties"), "nav") && nav[0] == '\0')
         resolve(base, manifest_[items - 1].href, nav, sizeof(nav));
       if (type == "application/x-dtbncx+xml" && ncx[0] == '\0') {
         resolve(base, manifest_[items - 1].href, ncx, sizeof(ncx));
       }
+    } else if (xml::name_is(tag.name, "meta") && xml::attr(tag.attrs, "name") == "cover") {
+      cover_id = xml::attr(tag.attrs, "content");
     } else if (xml::name_is(tag.name, "spine")) {
       in_spine = !tag.self_closing;
     } else if (in_spine && xml::name_is(tag.name, "itemref") && spine_count_ < kMaxChapters) {
@@ -288,6 +299,12 @@ bool Epub::read_package(const char* opf_path) {
     }
   }
   if (spine_count_ == 0) return false;
+  if (cover[0] == '\0' && !cover_id.empty()) {
+    for (int k = 0; k < items; ++k) {
+      if (manifest_[k].id == cover_id) resolve(base, manifest_[k].href, cover, sizeof(cover));
+    }
+  }
+  if (cover[0] != '\0') cover_ = zip_.find(cover);
   if (nav[0] != '\0') read_nav(nav);
   if (toc_count_ == 0 && ncx[0] != '\0') read_ncx(ncx);
   return true;
@@ -382,6 +399,13 @@ void Epub::read_ncx(const char* path) {
       add_toc(base, xml::attr(tag.attrs, "src"), title, depth - 1);
     }
   }
+}
+
+int32_t Epub::read_cover(const uint8_t** data) {
+  if (cover_ < 0) return -1;
+  const int32_t n = read_entry(cover_);
+  if (n > 0) *data = reinterpret_cast<const uint8_t*>(buf_);
+  return n;
 }
 
 uint32_t Epub::chapter_weight(int i) const { return (i >= 0 && i < spine_count_) ? zip_.size(spine_[i]) + 1 : 1; }
