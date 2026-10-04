@@ -1,44 +1,71 @@
-// Reader: lays out the built-in sample chapter in Literata and pages through it.
+// Screens and navigation: home, library, settings and the reader.
 #include "vellum/app.h"
 
 #include <algorithm>
 #include <cstdio>
 
 #include "vellum/text.h"
+#include "vellum/ui.h"
 
 namespace vellum {
 namespace {
 
-constexpr int kSide = 28;          // left and right margin
-constexpr int kHeaderBase = 40;    // baseline of the running header
-constexpr int kTextTop = 70;       // top of the text block
-constexpr int kTextBottom = 70;    // space below the text block
-constexpr int kFooterBase = 28;    // page number baseline, from the bottom edge
-constexpr int kTrackRise = 56;     // progress track, from the bottom edge
-constexpr int kOpeningDrop = 120;  // extra space above the text on a chapter's first page
+using ui::kSide;
 
-const Font& body() { return fonts::literata_26; }
+// Home screen geometry, logical pixels on a 480x800 portrait screen.
+constexpr int kHeroLabelBase = 98;
+constexpr int kHeroTop = 112;
+constexpr int kHeroHeight = 252;
+constexpr int kCoverW = 150;
+constexpr int kCoverH = 220;
+constexpr int kShelfLabelBase = 410;
+constexpr int kShelfTop = 424;
+constexpr int kHomeRowHeight = 72;
+constexpr int kLinkHeight = 46;
 
-PageStyle page_style(const Framebuffer& fb, const Book& book, int page) {
-  const int top = kTextTop + (page == 0 ? kOpeningDrop : 0);
-  return {&body(),
-          {kSide, top, fb.width() - 2 * kSide, fb.height() - top - kTextBottom},
-          body().size,
-          hyphenator_for(book.language)};
+// Library and settings geometry.
+constexpr int kTitleBase = 112;  // large screen title
+constexpr int kSubtitleBase = 142;
+constexpr int kListTop = 160;
+
+constexpr int kPad = 12;  // selection highlights extend this far into the margins
+
+Rect row_rect(const Framebuffer& fb, int y, int h) { return {kSide - kPad, y, fb.width() - 2 * (kSide - kPad), h}; }
+
+// Inverted, rounded highlight behind a selected row; returns the text colour.
+Color highlight(Framebuffer& fb, Rect r, bool selected) {
+  if (selected) fb.fill_round_rect(r, 10, Color::Black);
+  return selected ? Color::White : Color::Black;
 }
 
-void draw_centered(Framebuffer& fb, const Font& font, int baseline, std::string_view text) {
-  draw_text(fb, font, (fb.width() - text_width_px(font, text)) / 2 * 64, baseline, text);
+// Dotted rule between list rows, matching the reader's progress track.
+void dotted_rule(Framebuffer& fb, int y) {
+  for (int x = kSide; x < fb.width() - kSide; x += 4) fb.set_pixel(x, y, Color::Black);
 }
 
-void draw_battery(Framebuffer& fb, int right, int baseline, int percent) {
-  if (percent < 0) return;
-  const Rect body{right - 24, baseline - 11, 20, 11};
-  fb.draw_rect(body, Color::Black);
-  fb.fill_rect({body.x + body.w, body.y + 3, 2, 5}, Color::Black);
-  const int fill = (body.w - 4) * std::clamp(percent, 0, 100) / 100;
-  fb.fill_rect({body.x + 2, body.y + 2, fill, body.h - 4}, Color::Black);
+void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
+  const Color c = highlight(fb, r, selected);
+  draw_text(fb, fonts::literata_20, (r.x + kPad) * 64, r.y + 30, text, c);
+  ui::draw_right(fb, fonts::literata_20, r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);  // ›
 }
+
+void draw_radio(Framebuffer& fb, int x, int cy, bool on, Color fg, Color bg) {
+  fb.fill_round_rect({x, cy - 9, 18, 18}, 9, fg);
+  fb.fill_round_rect({x + 2, cy - 7, 14, 14}, 7, bg);
+  if (on) fb.fill_round_rect({x + 5, cy - 4, 8, 8}, 4, fg);
+}
+
+int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
+
+struct TimeOption {
+  TimeFormat format;
+  const char* name;
+};
+constexpr TimeOption kTimeOptions[] = {{TimeFormat::H24, "24-hour"}, {TimeFormat::H12, "12-hour"}};
+constexpr int kSettingsCount = sizeof(kTimeOptions) / sizeof(kTimeOptions[0]);
+
+// A fixed afternoon time to show what each format looks like.
+constexpr DateTime kSampleTime{2026, 10, 4, 14, 5, 0};
 
 }  // namespace
 
@@ -46,52 +73,210 @@ App::App(Board& board)
     : board_(board),
       fb_(board.framebuffer, board.display.width(), board.display.height()),
       queue_(board.display, fb_),
-      book_(sample_book()) {
+      library_(builtin_books()) {
   fb_.set_rotation(board.rotation);
-  paginate();
 }
 
-void App::paginate() {
-  TextPos pos{};
-  page_count_ = 0;
-  while (pos.paragraph < book_.paragraph_count && page_count_ < kMaxPages) {
-    page_starts_[page_count_] = pos;
-    const TextPos next =
-        typeset_page(page_style(fb_, book_, page_count_), book_.paragraphs, book_.paragraph_count, pos, nullptr);
-    ++page_count_;
-    if (next == pos) break;  // nothing fits; avoid looping forever
-    pos = next;
+void App::time_text(char* out, size_t size) const {
+  DateTime t;
+  if (board_.clock != nullptr && board_.clock->now(t)) {
+    format_time(t, settings_.time_format, out, size);
+  } else if (size > 0) {
+    out[0] = '\0';
   }
 }
 
-void App::draw_page() {
-  fb_.clear(Color::White);
+// ---- Home ------------------------------------------------------------------
+
+int App::home_item_count() const {
+  return 1 + std::min(kHomeRows, library_.count() - 1) + 2;  // current book, others, two links
+}
+
+void App::draw_home() {
   const int w = fb_.width();
-  const int h = fb_.height();
+  const int current = library_.current();
+  const Book& book = library_.book(current);
+  const BookState& state = library_.state(current);
 
-  // Running header: book title, battery.
-  draw_text(fb_, fonts::literata_italic_20, kSide * 64, kHeaderBase, book_.title);
-  draw_battery(fb_, w - kSide, kHeaderBase, board_.power.battery_percent());
+  ui::draw_label(fb_, kSide, kHeroLabelBase, state.started() ? "CONTINUE READING" : "START READING");
 
-  if (page_ == 0) {
-    draw_centered(fb_, fonts::literata_italic_20, kTextTop + 40, book_.chapter_label);
-    draw_centered(fb_, fonts::literata_italic_26, kTextTop + 80, book_.chapter_title);
+  // The current book: cover, title, author, chapter and progress.
+  const Rect hero = row_rect(fb_, kHeroTop, kHeroHeight);
+  if (home_sel_ == 0) {
+    fb_.fill_round_rect(hero, 12, Color::Black);
+    fb_.fill_round_rect({hero.x + 3, hero.y + 3, hero.w - 6, hero.h - 6}, 9, Color::White);
+  }
+  const Rect cover{kSide, kHeroTop + (kHeroHeight - kCoverH) / 2, kCoverW, kCoverH};
+  ui::draw_cover(fb_, cover, book);
+  const int col_x = cover.x + cover.w + 22;
+  const int col_w = w - kSide - col_x;
+  int y = ui::draw_wrapped(fb_, fonts::literata_italic_26, col_x, cover.y + 28, col_w, 3, book.title, false);
+  ui::draw_fitted(fb_, fonts::literata_20, col_x, y + 4, col_w, book.author);
+  char chapter[96];
+  if (book.chapter_title[0] != '\0') {
+    std::snprintf(chapter, sizeof(chapter), "%s \xC2\xB7 %s", book.chapter_label, book.chapter_title);  // ·
+  } else {
+    std::snprintf(chapter, sizeof(chapter), "%s", book.chapter_label);
+  }
+  ui::draw_wrapped(fb_, fonts::literata_16, col_x, y + 32, col_w, 2, chapter, false);
+
+  const int track_y = cover.y + cover.h - 6;
+  if (state.started() && state.page_count > 0) {
+    char page[32];
+    std::snprintf(page, sizeof(page), "Page %d of %d", state.page + 1, state.page_count);
+    draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, page);
+    char percent[16];
+    std::snprintf(percent, sizeof(percent), "%d%%", state.percent());
+    ui::draw_right(fb_, fonts::literata_16, col_x + col_w, track_y - 14, percent);
+    ui::draw_progress(fb_, col_x, track_y, col_w, state.page + 1, state.page_count);
+  } else {
+    draw_text(fb_, fonts::literata_16, col_x * 64, track_y - 14, "Not started");
+    ui::draw_progress(fb_, col_x, track_y, col_w, 0, 1);
   }
 
-  typeset_page(page_style(fb_, book_, page_), book_.paragraphs, book_.paragraph_count, page_starts_[page_], &fb_);
+  // The rest of the shelf, most recently read first.
+  ui::draw_label(fb_, kSide, kShelfLabelBase, "LIBRARY");
+  char count[24];
+  std::snprintf(count, sizeof(count), "%d books", library_.count());
+  ui::draw_right(fb_, fonts::literata_16, w - kSide, kShelfLabelBase, count);
 
-  // Footer: dotted progress track and page number.
-  const int track_y = h - kTrackRise;
-  const int track_w = w - 2 * kSide;
-  for (int x = kSide; x < w - kSide; x += 4) fb_.set_pixel(x, track_y, Color::Black);
-  fb_.fill_rect({kSide, track_y - 1, track_w * (page_ + 1) / page_count_, 3}, Color::Black);
-  char label[24];
-  std::snprintf(label, sizeof(label), "%d of %d", page_ + 1, page_count_);
-  draw_centered(fb_, fonts::literata_20, h - kFooterBase, label);
+  int order[Library::kMaxBooks];
+  const int n = library_.by_recent(order, Library::kMaxBooks);
+  int item = 1;
+  y = kShelfTop;
+  for (int k = 0; k < n && item <= kHomeRows; ++k) {
+    if (order[k] == current) continue;
+    const bool selected = home_sel_ == item;
+    if (item > 1 && !selected && home_sel_ != item - 1) dotted_rule(fb_, y);
+    ui::draw_book_row(fb_, row_rect(fb_, y, kHomeRowHeight), library_.book(order[k]), library_.state(order[k]),
+                      selected);
+    y += kHomeRowHeight;
+    ++item;
+  }
+  y += 4;
+  draw_link(fb_, row_rect(fb_, y, kLinkHeight), "All books", home_sel_ == item);
+  draw_link(fb_, row_rect(fb_, y + kLinkHeight, kLinkHeight), "Settings", home_sel_ == item + 1);
+
+  ui::draw_hint(fb_, "Side buttons move \xC2\xB7 Power opens");
+}
+
+void App::home_activate() {
+  const int count = home_item_count();
+  if (home_sel_ == count - 1) return show(Screen::Settings);
+  if (home_sel_ == count - 2) return show(Screen::Library);
+  const int current = library_.current();
+  if (home_sel_ == 0) return open_book(current);
+  int order[Library::kMaxBooks];
+  const int n = library_.by_recent(order, Library::kMaxBooks);
+  int item = 1;
+  for (int k = 0; k < n; ++k) {
+    if (order[k] == current) continue;
+    if (item++ == home_sel_) return open_book(order[k]);
+  }
+}
+
+// ---- Library ---------------------------------------------------------------
+
+void App::draw_library() {
+  const int w = fb_.width();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, "Library");
+  char count[24];
+  std::snprintf(count, sizeof(count), "%d books", library_.count());
+  draw_text(fb_, fonts::literata_16, kSide * 64, kSubtitleBase, count);
+
+  const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
+  const int page = library_sel_ / kLibraryRows;
+  if (pages > 1) {
+    char label[32];
+    std::snprintf(label, sizeof(label), "Page %d of %d", page + 1, pages);
+    ui::draw_right(fb_, fonts::literata_16, w - kSide, kSubtitleBase, label);
+  }
+
+  const int first = page * kLibraryRows;
+  const int last = std::min(library_.count(), first + kLibraryRows);
+  for (int i = first; i < last; ++i) {
+    const int y = kListTop + (i - first) * ui::kRowHeight;
+    const bool selected = i == library_sel_;
+    if (i > first && !selected && library_sel_ != i - 1) dotted_rule(fb_, y);
+    ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.book(i), library_.state(i), selected);
+  }
+  ui::draw_hint(fb_, "Side buttons move \xC2\xB7 Power opens \xC2\xB7 Home back");
+}
+
+void App::library_activate() { open_book(library_sel_); }
+
+// ---- Settings --------------------------------------------------------------
+
+void App::draw_settings() {
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, "Settings");
+  ui::draw_label(fb_, kSide, kSubtitleBase + 26, "CLOCK");
+
+  for (int i = 0; i < kSettingsCount; ++i) {
+    const Rect r = row_rect(fb_, kListTop + 24 + i * 56, 56);
+    const bool selected = i == settings_sel_;
+    const Color fg = highlight(fb_, r, selected);
+    const Color bg = selected ? Color::Black : Color::White;
+    draw_radio(fb_, r.x + kPad, r.y + r.h / 2, settings_.time_format == kTimeOptions[i].format, fg, bg);
+    draw_text(fb_, fonts::literata_20, (r.x + kPad + 32) * 64, r.y + 35, kTimeOptions[i].name, fg);
+    char sample[16];
+    format_time(kSampleTime, kTimeOptions[i].format, sample, sizeof(sample));
+    ui::draw_right(fb_, fonts::literata_16, r.x + r.w - kPad, r.y + 35, sample, fg);
+  }
+  ui::draw_hint(fb_, "Side buttons move \xC2\xB7 Power selects \xC2\xB7 Home back");
+}
+
+void App::settings_activate() { settings_.time_format = kTimeOptions[settings_sel_].format; }
+
+// ---- Navigation --------------------------------------------------------------
+
+void App::open_book(int index) {
+  library_.touch(index);
+  BookState& state = library_.state(index);
+  reader_.open(library_.book(index), state.position, fb_);
+  reading_ = index;
+  state.page = static_cast<uint16_t>(reader_.page());
+  state.page_count = static_cast<uint16_t>(reader_.page_count());
+  show(Screen::Reader);
+}
+
+void App::show(Screen s) {
+  screen_ = s;
+  if (s == Screen::Home) home_sel_ = 0;
+  if (s == Screen::Settings) {
+    for (int i = 0; i < kSettingsCount; ++i)
+      if (kTimeOptions[i].format == settings_.time_format) settings_sel_ = i;
+  }
+  draw();
+  queue_.submit_full();  // a new screen: clear the previous one's ghosting
+}
+
+void App::draw() {
+  char time[16];
+  time_text(time, sizeof(time));
+  const int battery = board_.power.battery_percent();
+  if (screen_ == Screen::Reader) {
+    reader_.draw(fb_, time, battery);
+    return;
+  }
+  fb_.clear(Color::White);
+  ui::draw_status_bar(fb_, time, battery);
+  switch (screen_) {
+    case Screen::Home:
+      draw_home();
+      break;
+    case Screen::Library:
+      draw_library();
+      break;
+    case Screen::Settings:
+      draw_settings();
+      break;
+    case Screen::Reader:
+      break;
+  }
 }
 
 void App::start() {
-  draw_page();
+  draw();
   queue_.submit_full();
 }
 
@@ -99,22 +284,39 @@ bool App::handle(const InputEvent& ev) {
   if (ev.type == InputEvent::Type::Quit) return false;
   if (ev.type != InputEvent::Type::KeyDown) return true;
 
-  switch (ev.key) {
-    case Key::Next:
-      if (page_ + 1 >= page_count_) return true;
-      ++page_;
-      break;
-    case Key::Prev:
-      if (page_ == 0) return true;
-      --page_;
-      break;
-    case Key::Home:
-      queue_.submit_full();
-      return true;
-    case Key::Power:
-      return true;
+  if (ev.key == Key::Home) {
+    if (screen_ == Screen::Home) {
+      queue_.submit_full();  // already home: just clean the screen
+    } else {
+      show(Screen::Home);
+    }
+    return true;
   }
-  draw_page();
+
+  const int step = ev.key == Key::Next ? 1 : ev.key == Key::Prev ? -1 : 0;
+  switch (screen_) {
+    case Screen::Reader:
+      if (step == 0 || !(step > 0 ? reader_.next() : reader_.prev())) return true;
+      {
+        BookState& state = library_.state(reading_);
+        state.position = reader_.position();
+        state.page = static_cast<uint16_t>(reader_.page());
+      }
+      break;
+    case Screen::Home:
+      if (ev.key == Key::Power) return home_activate(), true;
+      home_sel_ = wrap_index(home_sel_ + step, home_item_count());
+      break;
+    case Screen::Library:
+      if (ev.key == Key::Power) return library_activate(), true;
+      library_sel_ = wrap_index(library_sel_ + step, library_.count());
+      break;
+    case Screen::Settings:
+      if (ev.key == Key::Power) settings_activate();
+      settings_sel_ = wrap_index(settings_sel_ + step, kSettingsCount);
+      break;
+  }
+  draw();
   queue_.submit();
   return true;
 }

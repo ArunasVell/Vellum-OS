@@ -57,12 +57,30 @@ class Frontlight {
   virtual void set(uint8_t level, uint8_t warmth) = 0;
 };
 
+struct DateTime {
+  uint16_t year;   // e.g. 2026
+  uint8_t month;   // 1..12
+  uint8_t day;     // 1..31
+  uint8_t hour;    // 0..23
+  uint8_t minute;  // 0..59
+  uint8_t second;  // 0..59
+};
+
+class Clock {
+ public:
+  virtual ~Clock() = default;
+  // Local wall-clock time. Returns false when the time is not known yet
+  // (the clock lost power and has not been set since).
+  virtual bool now(DateTime& out) = 0;
+};
+
 struct Board {
   const char* name;
   DisplayPanel& display;
   InputSource& input;
   Power& power;
   Frontlight* frontlight;  // nullptr when the device has none
+  Clock* clock;            // nullptr when the device has none
   Rotation rotation;       // logical orientation for reading
   uint8_t* framebuffer;    // Framebuffer::bytes_for(display size) bytes
 };

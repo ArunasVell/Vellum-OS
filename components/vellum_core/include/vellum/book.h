@@ -2,6 +2,7 @@
 #pragma once
 
 #include <cstdint>
+#include <span>
 
 namespace vellum {
 
@@ -9,13 +10,22 @@ struct Book {
   const char* title;
   const char* author;
   const char* chapter_label;  // e.g. "Chapter I"
-  const char* chapter_title;
-  const char* language;  // BCP 47 tag, e.g. "en" or "lt"
+  const char* chapter_title;  // may be empty
+  const char* language;       // BCP 47 tag, e.g. "en" or "lt"
   const char* const* paragraphs;
   uint32_t paragraph_count;
 };
 
-// Built-in sample until books can be opened from the SD card.
-const Book& sample_book();
+// Public-domain samples built into the firmware until books can be opened
+// from the SD card.
+namespace books {
+extern const Book alice;
+extern const Book moby_dick;
+extern const Book persuasion;
+extern const Book father_brown;
+}  // namespace books
+
+// The built-in books in library order (by title).
+std::span<const Book* const> builtin_books();
 
 }  // namespace vellum

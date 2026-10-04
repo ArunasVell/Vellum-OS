@@ -1,14 +1,19 @@
 #pragma once
 
-#include "vellum/book.h"
 #include "vellum/display_queue.h"
 #include "vellum/hal.h"
-#include "vellum/text.h"
+#include "vellum/library.h"
+#include "vellum/reader.h"
+#include "vellum/settings.h"
 
 namespace vellum {
 
-// Event-driven reader app. Hosts that own their own loop (the browser
-// simulator) call start() once and handle() per input event.
+// Event-driven app: home, library, settings and the reader. Hosts that own
+// their own loop (the browser simulator) call start() once and handle() per
+// input event.
+//
+// Controls: the side buttons (Prev/Next) move through lists and turn pages,
+// Power opens the highlighted item, Home returns to the home screen.
 class App {
  public:
   explicit App(Board& board);
@@ -19,18 +24,37 @@ class App {
   bool handle(const InputEvent& ev);
 
  private:
-  static constexpr int kMaxPages = 512;
+  enum class Screen : uint8_t { Home, Library, Settings, Reader };
 
-  void paginate();
-  void draw_page();
+  static constexpr int kHomeRows = 3;     // other books listed under the current one
+  static constexpr int kLibraryRows = 7;  // books per library page
+
+  // Home lists the current book, up to kHomeRows others, then these links.
+  int home_item_count() const;
+  void home_activate();
+  void library_activate();
+  void settings_activate();
+
+  void open_book(int index);
+  void show(Screen s);  // switches screen with a full refresh
+  void draw();
+  void draw_home();
+  void draw_library();
+  void draw_settings();
+  // Current time in the user's format, or "" when the clock is unknown.
+  void time_text(char* out, size_t size) const;
 
   Board& board_;
   Framebuffer fb_;
   DisplayQueue queue_;
-  const Book& book_;
-  TextPos page_starts_[kMaxPages];
-  int page_count_ = 0;
-  int page_ = 0;
+  Library library_;
+  Settings settings_;
+  Reader reader_;
+  Screen screen_ = Screen::Home;
+  int reading_ = -1;  // library index of the book in reader_
+  int home_sel_ = 0;
+  int library_sel_ = 0;
+  int settings_sel_ = 0;
 };
 
 // Blocking main loop around App. Returns only when the input source reports

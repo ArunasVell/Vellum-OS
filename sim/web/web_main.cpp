@@ -7,6 +7,7 @@
 #include <emscripten/emscripten.h>
 
 #include <cstdint>
+#include <ctime>
 #include <vector>
 
 #include "vellum/app.h"
@@ -59,11 +60,27 @@ class WebPower : public vellum::Power {
   int percent = 82;
 };
 
+// The browser's local time.
+class WebClock : public vellum::Clock {
+ public:
+  bool now(vellum::DateTime& out) override {
+    const std::time_t t = std::time(nullptr);
+    std::tm local{};
+    if (localtime_r(&t, &local) == nullptr) return false;
+    out = {static_cast<uint16_t>(local.tm_year + 1900), static_cast<uint8_t>(local.tm_mon + 1),
+           static_cast<uint8_t>(local.tm_mday),         static_cast<uint8_t>(local.tm_hour),
+           static_cast<uint8_t>(local.tm_min),          static_cast<uint8_t>(local.tm_sec)};
+    return true;
+  }
+};
+
 WebDisplay display;
 NoInput input;
 WebPower power;
+WebClock clock;
 std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
-vellum::Board board{"Browser simulator", display, input, power, nullptr, vellum::Rotation::R90, framebuffer.data()};
+vellum::Board board{"Browser simulator",   display,           input, power, nullptr, &clock,
+                    vellum::Rotation::R90, framebuffer.data()};
 vellum::App* app = nullptr;
 
 }  // namespace

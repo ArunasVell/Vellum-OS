@@ -3,7 +3,7 @@
 // into typographic quotes and em dashes; rows of asterisks become a blank line.
 #include "vellum/book.h"
 
-namespace vellum {
+namespace vellum::books {
 namespace {
 
 constexpr const char* kParagraphs[] = {
@@ -35,13 +35,13 @@ constexpr const char* kParagraphs[] = {
     "house!’ (Which was very likely true.)",
     "Down, down, down. Would the fall NEVER come to an end! ‘I wonder how many miles I’ve fallen by this time?’ she "
     "said aloud. ‘I must be getting somewhere near the centre of the earth. Let me see: that would be four thousand "
-    "miles down, I think—‘ (for, you see, Alice had learnt several things of this sort in her lessons in the "
+    "miles down, I think—’ (for, you see, Alice had learnt several things of this sort in her lessons in the "
     "schoolroom, and though this was not a VERY good opportunity for showing off her knowledge, as there was no one to "
     "listen to her, still it was good practice to say it over) ‘—yes, that’s about the right distance—but then I "
     "wonder what Latitude or Longitude I’ve got to?’ (Alice had no idea what Latitude was, or Longitude either, but "
     "thought they were nice grand words to say.)",
     "Presently she began again. ‘I wonder if I shall fall right THROUGH the earth! How funny it’ll seem to come out "
-    "among the people that walk with their heads downward! The Antipathies, I think—‘ (she was rather glad there WAS "
+    "among the people that walk with their heads downward! The Antipathies, I think—’ (she was rather glad there WAS "
     "no one listening, this time, as it didn’t sound at all the right word) ‘—but I shall have to ask them what the "
     "name of the country is, you know. Please, Ma’am, is this New Zealand or Australia?’ (and she tried to curtsey as "
     "she spoke—fancy CURTSEYING as you’re falling through the air! Do you think you could manage it?) ‘And what an "
@@ -122,7 +122,9 @@ constexpr const char* kParagraphs[] = {
     "So she set to work, and very soon finished off the cake.",
 };
 
-constexpr Book kBook = {
+}  // namespace
+
+extern const Book alice = {
     .title = "Alice’s Adventures in Wonderland",
     .author = "Lewis Carroll",
     .chapter_label = "Chapter I",
@@ -132,8 +134,4 @@ constexpr Book kBook = {
     .paragraph_count = sizeof(kParagraphs) / sizeof(kParagraphs[0]),
 };
 
-}  // namespace
-
-const Book& sample_book() { return kBook; }
-
-}  // namespace vellum
+}  // namespace vellum::books

@@ -3,17 +3,27 @@
 # the host (simulator and tests).
 set(VELLUM_CORE_SRCS
   src/app.cpp
+  src/books/alice.cpp
+  src/books/catalog.cpp
+  src/books/father_brown.cpp
+  src/books/moby_dick.cpp
+  src/books/persuasion.cpp
   src/display_queue.cpp
   src/framebuffer.cpp
   src/hyphenation.cpp
   src/hyphenation/en_us.cpp
   src/hyphenation/lt.cpp
-  src/sample_book.cpp
+  src/library.cpp
+  src/reader.cpp
+  src/settings.cpp
   src/text.cpp
+  src/ui.cpp
+  src/fonts/literata_16.cpp
   src/fonts/literata_20.cpp
   src/fonts/literata_26.cpp
   src/fonts/literata_italic_20.cpp
   src/fonts/literata_italic_26.cpp
+  src/fonts/literata_italic_40.cpp
 )
 
 if(ESP_PLATFORM)

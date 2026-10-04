@@ -2,7 +2,7 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The simulator shows a sample chapter set in Literata, with justified text and page numbers. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, buttons and frontlight, not yet tested on a device. Touch and the SD card are not written yet, so books cannot be opened from a card yet.
+> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books, settings (12- or 24-hour clock) and the reader, set in Literata with justified, hyphenated text. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons and frontlight, not yet tested on a device. Touch and the SD card are not written yet, so books cannot be opened from a card yet.
 
 ## Goals
 
@@ -35,13 +35,15 @@ cmake --build build/sim
 ./build/sim/vellum-sim
 ```
 
-Right arrow or Space turns the page, Left goes back, H forces a full refresh, Esc quits. A full refresh briefly flashes the window, like e-ink does.
+Right arrow or Space turns the page or moves the highlight, Left goes back, Enter opens the highlighted item (the power button on the device), H goes to the home screen, Esc quits. A full refresh briefly flashes the window, like e-ink does.
 
 Run the tests with `ctest --test-dir build/sim`. Take a screenshot without a window:
 
 ```sh
-./build/sim/vellum-sim --headless --keys nnn --screenshot page.png
+./build/sim/vellum-sim --headless --keys onnn --time 14:05 --screenshot page.png
 ```
+
+Keys: `n` next, `p` previous, `o` open (power), `h` home. `--time` fixes the clock so screenshots repeat.
 
 ### In the browser
 
@@ -75,7 +77,7 @@ idf.py build
 
 The X4 Pro pin map, hardware notes, screen drivers (SSD1677, UC8179, UC8279 and the boot-time detection between them) and the CW2017 battery gauge driver are ported from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) (MIT, see [NOTICE](NOTICE)). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices.
 
-Literata is by the Literata Project Authors, under the SIL Open Font License ([assets/fonts/literata/OFL.txt](assets/fonts/literata/OFL.txt)). Hyphenation patterns come from the [hyph-utf8](https://www.hyphenation.org/tex) project: American English by Gerard D.C. Kuiken, Lithuanian by Vytas Statulevičius, Sigitas Tolušis and Yannis Haralambous (MIT); licences are kept in [assets/hyphenation](assets/hyphenation) and the generated tables. The sample chapter is from Lewis Carroll's *Alice's Adventures in Wonderland* (public domain).
+Literata is by the Literata Project Authors, under the SIL Open Font License ([assets/fonts/literata/OFL.txt](assets/fonts/literata/OFL.txt)). Hyphenation patterns come from the [hyph-utf8](https://www.hyphenation.org/tex) project: American English by Gerard D.C. Kuiken, Lithuanian by Vytas Statulevičius, Sigitas Tolušis and Yannis Haralambous (MIT); licences are kept in [assets/hyphenation](assets/hyphenation) and the generated tables. The built-in books are public-domain texts from Project Gutenberg: the first chapters of Lewis Carroll's *Alice's Adventures in Wonderland*, Herman Melville's *Moby-Dick* and Jane Austen's *Persuasion*, and G. K. Chesterton's story *The Absence of Mr Glass*.
 
 ## License
 
