@@ -20,3 +20,6 @@ CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
 # Logs and flashing over the built-in USB serial/JTAG port.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Room for text layout on the main task.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

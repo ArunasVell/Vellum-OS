@@ -1,82 +1,94 @@
-// Placeholder reader: pages through a wireframe book so the display queue,
-// input and refresh cadence can be exercised before text rendering exists.
+// Reader: lays out the built-in sample chapter in Literata and pages through it.
 #include "vellum/app.h"
 
 #include <algorithm>
-#include <cstdint>
+#include <cstdio>
 
-#include "vellum/display_queue.h"
+#include "vellum/text.h"
 
 namespace vellum {
 namespace {
 
-constexpr int kPages = 12;
-constexpr int kMargin = 36;
-constexpr int kLineHeight = 30;
-constexpr int kBarHeight = 6;
+constexpr int kSide = 28;          // left and right margin
+constexpr int kHeaderBase = 40;    // baseline of the running header
+constexpr int kTextTop = 70;       // top of the text block
+constexpr int kTextBottom = 70;    // space below the text block
+constexpr int kFooterBase = 28;    // page number baseline, from the bottom edge
+constexpr int kTrackRise = 56;     // progress track, from the bottom edge
+constexpr int kOpeningDrop = 120;  // extra space above the text on a chapter's first page
 
-// Small deterministic generator so each page has a stable "text" shape.
-struct Lcg {
-  uint32_t state;
-  uint32_t next() {
-    state = state * 1664525u + 1013904223u;
-    return state >> 8;
-  }
-  int range(int lo, int hi) { return lo + static_cast<int>(next() % static_cast<uint32_t>(hi - lo + 1)); }
-};
+const Font& body() { return fonts::literata_26; }
 
-void draw_battery(Framebuffer& fb, int right, int y, int percent) {
-  if (percent < 0) return;
-  const Rect body{right - 26, y, 22, 12};
-  fb.draw_rect(body, Color::Black);
-  fb.fill_rect({body.x + body.w, y + 3, 3, 6}, Color::Black);
-  const int fill = (body.w - 4) * std::clamp(percent, 0, 100) / 100;
-  fb.fill_rect({body.x + 2, y + 2, fill, body.h - 4}, Color::Black);
+PageStyle page_style(const Framebuffer& fb, int page) {
+  const int top = kTextTop + (page == 0 ? kOpeningDrop : 0);
+  return {&body(), {kSide, top, fb.width() - 2 * kSide, fb.height() - top - kTextBottom}, body().size};
 }
 
-void draw_page(Framebuffer& fb, int page, int battery) {
-  const int w = fb.width();
-  const int h = fb.height();
-  fb.clear(Color::White);
+void draw_centered(Framebuffer& fb, const Font& font, int baseline, std::string_view text) {
+  draw_text(fb, font, (fb.width() - text_width_px(font, text)) / 2 * 64, baseline, text);
+}
 
-  // Header: chapter title placeholder and battery.
-  fb.fill_round_rect({kMargin, 30, 120, kBarHeight}, 3, Color::Black);
-  draw_battery(fb, w - kMargin, 27, battery);
-
-  // Body: paragraphs of placeholder lines.
-  Lcg rng{static_cast<uint32_t>(page) * 7919u + 17u};
-  const int text_w = w - 2 * kMargin;
-  int y = 92;
-  const int bottom = h - 96;
-  while (y + kLineHeight < bottom) {
-    const int lines = rng.range(3, 7);
-    for (int i = 0; i < lines && y + kLineHeight < bottom; ++i) {
-      const int indent = (i == 0) ? 24 : 0;
-      const bool last = (i == lines - 1);
-      const int len = last ? rng.range(text_w / 4, text_w * 3 / 4) : text_w - indent;
-      fb.fill_round_rect({kMargin + indent, y, len, kBarHeight}, 3, Color::Black);
-      y += kLineHeight;
-    }
-    y += 14;
-  }
-
-  // Footer: dotted track with reading progress.
-  const int track_y = h - 44;
-  for (int x = kMargin; x < w - kMargin; x += 3) fb.set_pixel(x, track_y, Color::Black);
-  const int done = text_w * (page + 1) / kPages;
-  fb.fill_round_rect({kMargin, track_y - 1, done, 3}, 1, Color::Black);
-  fb.fill_round_rect({kMargin + done - 4, track_y - 4, 9, 9}, 4, Color::Black);
+void draw_battery(Framebuffer& fb, int right, int baseline, int percent) {
+  if (percent < 0) return;
+  const Rect body{right - 24, baseline - 11, 20, 11};
+  fb.draw_rect(body, Color::Black);
+  fb.fill_rect({body.x + body.w, body.y + 3, 2, 5}, Color::Black);
+  const int fill = (body.w - 4) * std::clamp(percent, 0, 100) / 100;
+  fb.fill_rect({body.x + 2, body.y + 2, fill, body.h - 4}, Color::Black);
 }
 
 }  // namespace
 
 App::App(Board& board)
-    : board_(board), fb_(board.framebuffer, board.display.width(), board.display.height()), queue_(board.display, fb_) {
+    : board_(board),
+      fb_(board.framebuffer, board.display.width(), board.display.height()),
+      queue_(board.display, fb_),
+      book_(sample_book()) {
   fb_.set_rotation(board.rotation);
+  paginate();
+}
+
+void App::paginate() {
+  TextPos pos{};
+  page_count_ = 0;
+  while (pos.paragraph < book_.paragraph_count && page_count_ < kMaxPages) {
+    page_starts_[page_count_] = pos;
+    const TextPos next =
+        typeset_page(page_style(fb_, page_count_), book_.paragraphs, book_.paragraph_count, pos, nullptr);
+    ++page_count_;
+    if (next == pos) break;  // nothing fits; avoid looping forever
+    pos = next;
+  }
+}
+
+void App::draw_page() {
+  fb_.clear(Color::White);
+  const int w = fb_.width();
+  const int h = fb_.height();
+
+  // Running header: book title, battery.
+  draw_text(fb_, fonts::literata_italic_20, kSide * 64, kHeaderBase, book_.title);
+  draw_battery(fb_, w - kSide, kHeaderBase, board_.power.battery_percent());
+
+  if (page_ == 0) {
+    draw_centered(fb_, fonts::literata_italic_20, kTextTop + 40, book_.chapter_label);
+    draw_centered(fb_, fonts::literata_italic_26, kTextTop + 80, book_.chapter_title);
+  }
+
+  typeset_page(page_style(fb_, page_), book_.paragraphs, book_.paragraph_count, page_starts_[page_], &fb_);
+
+  // Footer: dotted progress track and page number.
+  const int track_y = h - kTrackRise;
+  const int track_w = w - 2 * kSide;
+  for (int x = kSide; x < w - kSide; x += 4) fb_.set_pixel(x, track_y, Color::Black);
+  fb_.fill_rect({kSide, track_y - 1, track_w * (page_ + 1) / page_count_, 3}, Color::Black);
+  char label[24];
+  std::snprintf(label, sizeof(label), "%d of %d", page_ + 1, page_count_);
+  draw_centered(fb_, fonts::literata_20, h - kFooterBase, label);
 }
 
 void App::start() {
-  draw_page(fb_, page_, board_.power.battery_percent());
+  draw_page();
   queue_.submit_full();
 }
 
@@ -86,7 +98,7 @@ bool App::handle(const InputEvent& ev) {
 
   switch (ev.key) {
     case Key::Next:
-      if (page_ + 1 >= kPages) return true;
+      if (page_ + 1 >= page_count_) return true;
       ++page_;
       break;
     case Key::Prev:
@@ -99,13 +111,13 @@ bool App::handle(const InputEvent& ev) {
     case Key::Power:
       return true;
   }
-  draw_page(fb_, page_, board_.power.battery_percent());
+  draw_page();
   queue_.submit();
   return true;
 }
 
 void run(Board& board) {
-  App app(board);
+  static App app(board);  // too large for a small task stack
   app.start();
   for (;;) {
     InputEvent ev;

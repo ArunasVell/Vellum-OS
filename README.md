@@ -2,7 +2,7 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The desktop simulator runs a placeholder reader. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, buttons and frontlight, not yet tested on a device. Touch and the SD card are not written yet, and there is no text rendering, so do not flash it expecting a working reader.
+> **Status: early skeleton.** The simulator shows a sample chapter set in Literata, with justified text and page numbers. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, buttons and frontlight, not yet tested on a device. Touch and the SD card are not written yet, so books cannot be opened from a card yet.
 
 ## Goals
 
@@ -18,7 +18,8 @@ Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting 
 components/vellum_core/   Portable code: framebuffer, display queue, app. No ESP-IDF or SDL here.
 components/board_x4pro/   XTEINK X4 Pro board profile and drivers (ESP-IDF).
 main/                     Firmware entry point.
-sim/                      Desktop simulator (SDL2), the same core code running on a PC.
+sim/                      Desktop and browser simulators, the same core code running on a PC.
+assets/fonts/             Source fonts; tools/make_fonts.sh turns them into built-in bitmap fonts.
 tests/                    Host unit tests for the core.
 ```
 
@@ -73,6 +74,8 @@ idf.py build
 ## Credits
 
 The X4 Pro pin map, hardware notes, screen drivers (SSD1677, UC8179, UC8279 and the boot-time detection between them) and the CW2017 battery gauge driver are ported from the [FreeInk SDK](https://github.com/Free-Ink/freeink-sdk) (MIT, see [NOTICE](NOTICE)). [CrossPoint Reader](https://github.com/crosspoint-reader/crosspoint-reader) (MIT) is the reference open firmware for these devices.
+
+Literata is by the Literata Project Authors, under the SIL Open Font License ([assets/fonts/literata/OFL.txt](assets/fonts/literata/OFL.txt)). The sample chapter is from Lewis Carroll's *Alice's Adventures in Wonderland* (public domain).
 
 ## License
 
