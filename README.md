@@ -42,6 +42,14 @@ Run the tests with `ctest --test-dir build/sim`. Take a screenshot without a win
 ./build/sim/vellum-sim --headless --keys nnn --screenshot page.png
 ```
 
+### In the browser
+
+The same core code also compiles to WebAssembly, so the simulator runs as one self-contained web page (works on phones too). Needs [Emscripten](https://emscripten.org/docs/getting_started/):
+
+```sh
+sim/web/build.sh   # writes build/web/vellum-simulator.html
+```
+
 ## Firmware
 
 Needs [ESP-IDF v6.1](https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32s3/get-started/).
