@@ -49,6 +49,8 @@ constexpr SettingKey kKeys[] = {
     {"justify", 2, [](const Settings& s) { return s.justify ? 1 : 0; }, [](Settings& s, int v) { s.justify = v != 0; }},
     {"hyphenate", 2, [](const Settings& s) { return s.hyphenate ? 1 : 0; },
      [](Settings& s, int v) { s.hyphenate = v != 0; }},
+    {"footer", 3, [](const Settings& s) { return static_cast<int>(s.footer); },
+     [](Settings& s, int v) { s.footer = static_cast<FooterInfo>(v); }},
 };
 
 }  // namespace

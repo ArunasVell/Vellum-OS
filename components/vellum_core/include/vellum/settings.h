@@ -19,6 +19,8 @@ enum class Spacing : uint8_t { Narrow, Normal, Wide };
 enum class SleepAfter : uint8_t { Min5, Min10, Min30, Never };
 // New versions: installed at night, only announced, or not looked for.
 enum class AutoUpdate : uint8_t { AtNight, AskFirst, Off };
+// What the middle of the reader's footer shows.
+enum class FooterInfo : uint8_t { PageNumber, ChapterTime, Percent };
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 
 struct Settings {
@@ -35,6 +37,7 @@ struct Settings {
   Spacing margins = Spacing::Normal;
   bool justify = true;
   bool hyphenate = true;
+  FooterInfo footer = FooterInfo::PageNumber;
   // Typefaces by family name (vellum/font_library.h); a missing one falls back to Literata.
   char book_font[48] = "Literata";
   char menu_font[48] = "Literata";

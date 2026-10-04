@@ -64,6 +64,7 @@ bool Reader::open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos
   style_ = style;
   fb_ = &fb;
   if (!same) {
+    if (doc_ != &doc || id_ != id || !(style_ == style) || fb_ != &fb) sample_pages_ = 0;
     chapter_ = -1;
     if (!load(pos.chapter < doc.chapter_count() ? pos.chapter : 0)) return false;
   }
@@ -94,6 +95,10 @@ void Reader::paginate() {
     pos = next;
   }
   if (page_count_ == 0) page_starts_[page_count_++] = {};
+  if (page_count_ > sample_pages_) {
+    sample_pages_ = page_count_;
+    sample_weight_ = doc_->chapter_weight(chapter_);
+  }
 }
 
 bool Reader::next() {
@@ -172,8 +177,15 @@ int Reader::percent() const {
   return static_cast<int>(done * 100 / (total * page_count_));
 }
 
-void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent,
-                  bool bookmarked) const {
+int Reader::pages_left_in_book() const {
+  uint64_t later = 0;
+  for (int i = chapter_ + 1; i < doc_->chapter_count(); ++i) later += doc_->chapter_weight(i);
+  if (sample_weight_ == 0) return pages_left_in_chapter();
+  return pages_left_in_chapter() + static_cast<int>((later * sample_pages_ + sample_weight_ / 2) / sample_weight_);
+}
+
+void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, int battery_percent, bool bookmarked,
+                  std::string_view middle) const {
   const Chapter& ch = chapter_info_;
   fb.clear(Color::White);
   const int w = fb.width();
@@ -192,12 +204,13 @@ void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, i
                page_starts_[page_], &fb);
 
   // Footer: dotted progress track through the whole book, then time, page
-  // number within the chapter and battery on one low line.
+  // number within the chapter (or what Settings › Footer asks for) and
+  // battery on one low line.
   ui::draw_progress(fb, style_.margin, h - kTrackRise, w - 2 * style_.margin, percent(), 100);
   draw_text(fb, ui::label_font(), style_.margin * 64, h - kFooterBase, time);
   char label[32];
   std::snprintf(label, sizeof(label), text.short_of, page_ + 1, page_count_);
-  ui::draw_centered(fb, ui::label_font(), h - kFooterBase, label);
+  ui::draw_centered(fb, ui::label_font(), h - kFooterBase, middle.empty() ? std::string_view(label) : middle);
   ui::draw_battery(fb, w - style_.margin, h - kFooterBase, battery_percent);
 
   if (bookmarked) {
