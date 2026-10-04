@@ -22,11 +22,13 @@ set(VELLUM_CORE_SRCS
   src/hyphenation/en_us.cpp
   src/hyphenation/lt.cpp
   src/library.cpp
+  src/opds.cpp
   src/peer_transfer.cpp
   src/reader.cpp
   src/reading_stats.cpp
   src/settings.cpp
   src/stdio_storage.cpp
+  src/store.cpp
   src/strings.cpp
   src/text.cpp
   src/textfile.cpp

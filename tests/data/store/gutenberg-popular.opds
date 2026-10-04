@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Test fixture shaped like Project Gutenberg's OPDS search feed (www.gutenberg.org/ebooks/search.opds/), trimmed. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/" xmlns:relevance="http://a9.com/-/opensearch/extensions/relevance/1.0/">
+<id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=downloads</id>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Books: Sorted by Popularity</title>
+<subtitle>Free ebooks since 1971.</subtitle>
+<author><name>Project Gutenberg</name><uri>https://www.gutenberg.org</uri><email>webmaster@gutenberg.org</email></author>
+<icon>https://www.gutenberg.org/gutenberg/favicon.ico</icon>
+<link rel="search" type="application/opensearchdescription+xml" title="Project Gutenberg Catalog Search" href="https://www.gutenberg.org/catalog/osd-books.xml"/>
+<link rel="self" title="This Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks/search.opds/?sort_order=downloads"/>
+<link rel="alternate" type="text/html" title="HTML Page" href="/ebooks/search/?sort_order=downloads"/>
+<link rel="start" title="Start Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks.opds/"/>
+<link rel="next" title="Next Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks/search.opds/?sort_order=downloads&amp;start_index=26"/>
+<os:itemsPerPage>25</os:itemsPerPage>
+<os:startIndex>1</os:startIndex>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Sort Alphabetically by Title</title>
+<content type="text"></content>
+<id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=title</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=title"/>
+<link type="image/png" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/gutenberg/alpha-sort.png"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Sort by Release Date</title>
+<content type="text"></content>
+<id>https://www.gutenberg.org/ebooks/search.opds/?sort_order=release_date</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/search.opds/?sort_order=release_date"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Pride and Prejudice</title>
+<content type="text">Jane Austen</content>
+<id>https://www.gutenberg.org/ebooks/1342.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/1342.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/1342/pg1342.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Frankenstein; Or, The Modern Prometheus</title>
+<content type="text">Mary Wollstonecraft Shelley</content>
+<id>https://www.gutenberg.org/ebooks/84.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/84.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/84/pg84.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Moby Dick; Or, The Whale</title>
+<content type="text">Herman Melville</content>
+<id>https://www.gutenberg.org/ebooks/2701.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/2701.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/2701/pg2701.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Alice&#039;s Adventures in Wonderland</title>
+<content type="text">Lewis Carroll</content>
+<id>https://www.gutenberg.org/ebooks/11.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/11.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/11/pg11.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>The Adventures of Sherlock Holmes</title>
+<content type="text">Arthur Conan Doyle</content>
+<id>https://www.gutenberg.org/ebooks/1661.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/1661.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/1661/pg1661.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>A Tale of Two Cities</title>
+<content type="text">Charles Dickens</content>
+<id>https://www.gutenberg.org/ebooks/98.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/98.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/98/pg98.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>War and Peace</title>
+<content type="text">graf Leo Tolstoy</content>
+<id>https://www.gutenberg.org/ebooks/2600.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/2600.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/2600/pg2600.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>The Picture of Dorian Gray</title>
+<content type="text">Oscar Wilde</content>
+<id>https://www.gutenberg.org/ebooks/174.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/174.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/174/pg174.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>Dracula</title>
+<content type="text">Bram Stoker</content>
+<id>https://www.gutenberg.org/ebooks/345.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/345.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/345/pg345.cover.small.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:31Z</updated>
+<title>The Yellow Wallpaper</title>
+<content type="text">Charlotte Perkins Gilman</content>
+<id>https://www.gutenberg.org/ebooks/1952.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="subsection" href="/ebooks/1952.opds"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image/thumbnail" href="https://www.gutenberg.org/cache/epub/1952/pg1952.cover.small.jpg"/>
+</entry>
+</feed>

@@ -222,6 +222,33 @@ class Updater {
   virtual UpdateResult install(ProgressFn progress, void* ctx) = 0;
 };
 
+// Files from the internet over the home Wi-Fi (the same network the Updater
+// uses), for the free book store. The first get() joins the network; the
+// radio stays on until disconnect(), so browsing a catalogue does not join
+// again for every page. Calls block until the whole answer has arrived.
+enum class NetResult : uint8_t {
+  Ok,
+  NoNetwork,  // no home Wi-Fi is set
+  NoWifi,     // the home Wi-Fi could not be joined
+  NoServer,   // the server could not be reached, or did not answer 200
+  BrokeOff,   // the answer started but did not arrive whole
+  Stopped,    // the body callback asked to stop
+};
+
+class Network {
+ public:
+  virtual ~Network() = default;
+  // HTTPS (or HTTP) GET of `url`, following redirects. The body arrives in
+  // pieces: body(ctx, data, len, total) where total is the whole length
+  // when the server says (else 0). Returning false stops the transfer.
+  using BodyFn = bool (*)(void* ctx, const uint8_t* data, uint32_t len, uint32_t total);
+  virtual NetResult get(const char* url, BodyFn body, void* ctx) = 0;
+  // Leaves the network and turns the radio off.
+  virtual void disconnect() = 0;
+  // True for the simulators' canned catalogue, which the store marks as such.
+  virtual bool demo() const { return false; }
+};
+
 // Short messages straight to other readers nearby, with no Wi-Fi network in
 // between (ESP-NOW on the X4 Pro). Used to send books reader to reader.
 // While started, the board posts InputEvent::Type::Peer when packets arrive.
@@ -267,6 +294,7 @@ struct Board {
   Peers* peers = nullptr;        // nullptr when it cannot reach other readers
   const char* version = "dev";   // the software version running
   Updater* updater = nullptr;    // nullptr when the device cannot update itself
+  Network* network = nullptr;    // nullptr when it cannot reach the internet
 };
 
 }  // namespace vellum
