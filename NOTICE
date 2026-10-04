@@ -44,3 +44,15 @@ Vellum OS includes Project Nayuki's QR Code generator library (C version,
 https://www.nayuki.io/page/qr-code-generator-library), in
 components/vellum_core/third_party/qrcodegen. Its license is in
 components/vellum_core/third_party/qrcodegen/LICENSE.
+
+----------------------------------------------------------------------------
+
+Vellum OS includes these typefaces, under the SIL Open Font License 1.1
+(full texts in assets/fonts/*/OFL.txt):
+
+  Literata                   assets/fonts/literata
+  Atkinson Hyperlegible Next assets/fonts/atkinson (subset, regular weight)
+  EB Garamond                assets/fonts/ebgaramond (subset, regular weight)
+
+and stb_truetype.h by Sean Barrett (https://github.com/nothings/stb), public
+domain or MIT at your choice, in components/vellum_core/third_party/stb.

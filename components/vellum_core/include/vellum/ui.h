@@ -6,6 +6,7 @@
 
 #include "vellum/book.h"
 #include "vellum/covers.h"
+#include "vellum/font_library.h"
 #include "vellum/fonts.h"
 #include "vellum/framebuffer.h"
 #include "vellum/library.h"
@@ -18,6 +19,17 @@ constexpr int kStatusBase = 40;  // baseline of the status bar text
 constexpr int kStatusRule = 56;  // hairline under the status bar
 constexpr int kHintBase = 28;    // control hint baseline, from the bottom edge
 constexpr int kRowHeight = 76;   // one book in a list
+
+// The menu typeface (Settings › Menu font), Literata until set. Screens
+// draw with these rather than with a built-in font.
+void set_menu_fonts(const MenuFonts& f);
+const MenuFonts& menu_fonts();
+inline const Font& label_font() { return *menu_fonts().label; }                // 16 px
+inline const Font& text_font() { return *menu_fonts().text; }                  // 20 px
+inline const Font& large_font() { return *menu_fonts().large; }                // 26 px
+inline const Font& small_italic_font() { return *menu_fonts().small_italic; }  // 20 px
+inline const Font& italic_font() { return *menu_fonts().italic; }              // 26 px
+inline const Font& screen_title_font() { return *menu_fonts().title; }         // 40 px italic
 
 void draw_centered(Framebuffer& fb, const Font& font, int baseline, std::string_view text, Color c = Color::Black);
 void draw_right(Framebuffer& fb, const Font& font, int right, int baseline, std::string_view text,

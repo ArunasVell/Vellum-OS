@@ -6,6 +6,7 @@
 
 #include "vellum/book.h"
 #include "vellum/document.h"
+#include "vellum/font_library.h"
 #include "vellum/fonts.h"
 #include "vellum/framebuffer.h"
 #include "vellum/settings.h"
@@ -17,16 +18,23 @@ namespace vellum {
 // How pages are set: everything in Settings that changes the layout.
 struct ReadingStyle {
   const Font* font;
-  int line_percent;  // baseline distance, percent of the font's line height
-  int word_space;    // narrowest space between words, percent of the font's space
-  int margin;        // left and right, px
+  const Font* heading_small;  // chapter label on a chapter's opening page
+  const Font* heading;        // chapter title
+  int line_percent;           // baseline distance, percent of the font's line height
+  int word_space;             // narrowest space between words, percent of the font's space
+  int margin;                 // left and right, px
   bool justify;
   bool hyphenate;
 
   bool operator==(const ReadingStyle&) const = default;
 };
 
-ReadingStyle reading_style(const Settings& s);
+// Body text size in pixels for each Settings text size.
+int text_px(TextSize size);
+
+// The style the settings ask for, in `fonts` (from Settings › Book font;
+// Literata when nullptr).
+ReadingStyle reading_style(const Settings& s, const BookFonts* fonts = nullptr);
 
 // Text area for a page: the screen minus margins and footer and, on a
 // chapter's opening page, room for its heading. `language` picks hyphenation.

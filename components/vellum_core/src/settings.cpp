@@ -81,6 +81,8 @@ void load_settings(Storage& storage, Settings& out) {
     const std::string_view key = line.substr(0, eq);
     std::string_view value = line.substr(eq + 1);
     if (!value.empty() && value.back() == '\r') value.remove_suffix(1);
+    if (key == "book_font" && !value.empty()) textfile::copy(value, out.book_font, sizeof(out.book_font));
+    if (key == "menu_font" && !value.empty()) textfile::copy(value, out.menu_font, sizeof(out.menu_font));
     for (const SettingKey& k : kKeys) {
       const uint32_t v = textfile::to_uint(value, UINT32_MAX);
       if (key == k.name && v < static_cast<uint32_t>(k.count)) k.set(out, static_cast<int>(v));
@@ -94,6 +96,9 @@ bool save_settings(Storage& storage, const Settings& s) {
   for (const SettingKey& k : kKeys) {
     n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "%s=%d\n", k.name, k.get(s));
   }
+  n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "book_font=%s\nmenu_font=%s\n", s.book_font,
+                     s.menu_font);
+  if (n >= static_cast<int>(sizeof(buf))) return false;
   return storage.write(kSettingsPath, buf, static_cast<uint32_t>(n));
 }
 

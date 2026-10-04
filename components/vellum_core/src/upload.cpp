@@ -13,16 +13,63 @@ int hex_value(char c) {
   return -1;
 }
 
-bool ends_with_epub(const char* s, size_t len) {
-  if (len < 5) return false;
-  const char* ext = s + len - 5;
-  const char* want = ".epub";
-  for (int i = 0; i < 5; ++i) {
-    const char c = ext[i] >= 'A' && ext[i] <= 'Z' ? static_cast<char>(ext[i] - 'A' + 'a') : ext[i];
-    if (c != want[i]) return false;
+// True when s (len bytes) ends in `ext` (lowercase, with its dot), in any case.
+bool ends_with(const char* s, size_t len, const char* ext) {
+  const size_t n = std::strlen(ext);
+  if (len < n) return false;
+  const char* tail = s + len - n;
+  for (size_t i = 0; i < n; ++i) {
+    const char c = tail[i] >= 'A' && tail[i] <= 'Z' ? static_cast<char>(tail[i] - 'A' + 'a') : tail[i];
+    if (c != ext[i]) return false;
   }
   return true;
 }
+
+// The extension in `exts` (a nullptr-terminated list) that s ends in, or nullptr.
+const char* matching_ext(const char* s, size_t len, const char* const* exts) {
+  for (; *exts != nullptr; ++exts) {
+    if (ends_with(s, len, *exts)) return *exts;
+  }
+  return nullptr;
+}
+
+// A file name a browser sent, made safe to save: no folders, no characters
+// FAT rejects, no leading dots, at most 120 bytes, ending in one of `exts`.
+bool safe_name(const char* in, char* out, size_t size, const char* const* exts) {
+  // Keep only the last path part: browsers may send "C:\fakepath\x.epub".
+  const char* base = in;
+  for (const char* p = in; *p != '\0'; ++p) {
+    if (*p == '/' || *p == '\\') base = p + 1;
+  }
+  while (*base == '.' || *base == ' ') ++base;  // no hidden files
+
+  constexpr size_t kMax = 120;
+  const size_t limit = size - 1 < kMax ? size - 1 : kMax;
+  size_t n = 0;
+  for (const char* p = base; *p != '\0' && n < limit; ++p) {
+    const unsigned char c = static_cast<unsigned char>(*p);
+    const bool bad = c < 0x20 || c == 0x7F || std::strchr("<>:\"|?*", c) != nullptr;
+    out[n++] = bad ? '_' : static_cast<char>(c);
+  }
+  // A long name cut mid-way would lose its extension or split a UTF-8
+  // character: shorten it and put the extension back.
+  if (*base != '\0' && std::strlen(base) > n) {
+    const char* ext = matching_ext(base, std::strlen(base), exts);
+    const size_t ext_len = ext != nullptr ? std::strlen(ext) : 0;
+    if (ext == nullptr || limit < ext_len + 1) return false;
+    n = limit - ext_len;
+    while (n > 0 && (static_cast<unsigned char>(out[n]) & 0xC0) == 0x80) --n;  // UTF-8 boundary
+    std::memcpy(out + n, ext, ext_len);
+    n += ext_len;
+  }
+  while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '.')) --n;  // FAT drops these
+  out[n] = '\0';
+  const char* ext = matching_ext(out, n, exts);
+  return ext != nullptr && n > std::strlen(ext);
+}
+
+constexpr const char* kBookExts[] = {".epub", nullptr};
+constexpr const char* kFontExts[] = {".ttf", ".otf", nullptr};
 
 }  // namespace
 
@@ -65,35 +112,9 @@ bool form_field(const char* body, size_t len, const char* key, char* out, size_t
   return false;
 }
 
-bool safe_book_name(const char* in, char* out, size_t size) {
-  // Keep only the last path part: browsers may send "C:\fakepath\x.epub".
-  const char* base = in;
-  for (const char* p = in; *p != '\0'; ++p) {
-    if (*p == '/' || *p == '\\') base = p + 1;
-  }
-  while (*base == '.' || *base == ' ') ++base;  // no hidden files
+bool safe_book_name(const char* in, char* out, size_t size) { return safe_name(in, out, size, kBookExts); }
 
-  constexpr size_t kMax = 120;
-  const size_t limit = size - 1 < kMax ? size - 1 : kMax;
-  size_t n = 0;
-  for (const char* p = base; *p != '\0' && n < limit; ++p) {
-    const unsigned char c = static_cast<unsigned char>(*p);
-    const bool bad = c < 0x20 || c == 0x7F || std::strchr("<>:\"|?*", c) != nullptr;
-    out[n++] = bad ? '_' : static_cast<char>(c);
-  }
-  // A long name cut mid-way would lose its ".epub" or split a UTF-8
-  // character: shorten it and put the extension back.
-  if (*base != '\0' && std::strlen(base) > n) {
-    if (!ends_with_epub(base, std::strlen(base)) || limit < 6) return false;
-    n = limit - 5;
-    while (n > 0 && (static_cast<unsigned char>(out[n]) & 0xC0) == 0x80) --n;  // UTF-8 boundary
-    std::memcpy(out + n, ".epub", 5);
-    n += 5;
-  }
-  while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '.')) --n;  // FAT drops these
-  out[n] = '\0';
-  return n > 5 && ends_with_epub(out, n);
-}
+bool safe_font_name(const char* in, char* out, size_t size) { return safe_name(in, out, size, kFontExts); }
 
 bool json_escape(const char* s, char* out, size_t size, size_t& len) {
   for (; *s != '\0'; ++s) {
