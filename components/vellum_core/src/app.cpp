@@ -54,6 +54,21 @@ constexpr int kChartAxis = 40;  // room left of the chart for 0, 50, 100
 constexpr int kEstimatesBase = 512;
 constexpr int kChartDays = 7;
 
+// Reading stats geometry.
+constexpr int kTodayLabelBase = 172;
+constexpr int kTodayBase = 222;
+constexpr int kWeekLabelBase = 268;
+constexpr int kBarsTop = 296;  // room above the tallest bar for its figure
+constexpr int kBarsBottom = 400;
+constexpr int kBarW = 30;
+constexpr int kStatRowsTop = 438;
+constexpr int kStatsBookHeight = 52;
+constexpr int kMinScaleMinutes = 30;  // a short day does not fill the chart
+
+// Contents: the time left sits under the book's title, the rows below it.
+constexpr int kContentsLeftBase = 168;
+constexpr int kContentsTop = 186;
+
 // Front light geometry.
 constexpr int kLightTop = 156;    // first slider block
 constexpr int kLightBlock = 130;  // one slider: name, value, track and end labels
@@ -142,19 +157,21 @@ enum class Row : uint8_t {
   Battery,  // opens the battery screen
   Updates,  // opens the updates screen
   Check,    // opens the device check
+  Stats,    // opens the reading stats
   TextSize,
   LineSpacing,
   WordSpacing,
   Margins,
   Alignment,
-  Hyphenation
+  Hyphenation,
+  Footer
 };
 // Settings has two pages: general, ending in a way to the reading page, and
 // reading, with a preview of the text below its rows.
 constexpr Row kGeneralRows[] = {Row::Language, Row::MenuFont, Row::Clock, Row::SleepAfter, Row::Light,
-                                Row::Battery,  Row::Updates,  Row::Check, Row::ReadingPage};
+                                Row::Battery,  Row::Updates,  Row::Stats, Row::Check,      Row::ReadingPage};
 constexpr Row kReadingRows[] = {Row::BookFont, Row::TextSize,  Row::LineSpacing, Row::WordSpacing,
-                                Row::Margins,  Row::Alignment, Row::Hyphenation};
+                                Row::Margins,  Row::Alignment, Row::Hyphenation, Row::Footer};
 constexpr int kGeneralCount = sizeof(kGeneralRows) / sizeof(kGeneralRows[0]);
 constexpr int kReadingCount = sizeof(kReadingRows) / sizeof(kReadingRows[0]);
 
@@ -166,6 +183,7 @@ int value_count(Row r) {
     case Row::LineSpacing:
     case Row::WordSpacing:
     case Row::Margins:
+    case Row::Footer:
       return 3;
     default:
       return 2;
@@ -192,6 +210,8 @@ int get(const Settings& s, Row r) {
       return s.justify ? 0 : 1;
     case Row::Hyphenation:
       return s.hyphenate ? 0 : 1;
+    case Row::Footer:
+      return static_cast<int>(s.footer);
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -199,6 +219,7 @@ int get(const Settings& s, Row r) {
     case Row::Battery:
     case Row::Updates:
     case Row::Check:
+    case Row::Stats:
       break;
   }
   return 0;
@@ -233,6 +254,9 @@ void set(Settings& s, Row r, int v) {
     case Row::Hyphenation:
       s.hyphenate = v == 0;
       break;
+    case Row::Footer:
+      s.footer = static_cast<FooterInfo>(v);
+      break;
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -240,6 +264,7 @@ void set(Settings& s, Row r, int v) {
     case Row::Battery:
     case Row::Updates:
     case Row::Check:
+    case Row::Stats:
       break;
   }
 }
@@ -272,6 +297,10 @@ const char* row_name(const Strings& t, Row r) {
       return t.updates;
     case Row::Check:
       return t.device_check;
+    case Row::Stats:
+      return t.reading_stats;
+    case Row::Footer:
+      return t.footer;
     case Row::MenuFont:
       return t.menu_font;
     case Row::BookFont:
@@ -301,6 +330,8 @@ const char* value_name(const Strings& t, Row r, int v) {
       return v == 0 ? t.justified : t.left;
     case Row::Hyphenation:
       return v == 0 ? t.on : t.off;
+    case Row::Footer:
+      return t.footer_names[v];
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -308,6 +339,7 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::Battery:
     case Row::Updates:
     case Row::Check:
+    case Row::Stats:
       break;
   }
   return "";
@@ -330,6 +362,7 @@ App::App(Board& board)
     const int32_t n = textfile::read(*board_.storage, kStatePath, state, sizeof(state) - 1);
     resume_reader_ = n >= 6 && std::strncmp(state, "reader", 6) == 0;
     battery_.load(*board_.storage);
+    stats_.load(*board_.storage);
     load_update_state(*board_.storage, update_state_);
     highlights_.load(*board_.storage);
   }
@@ -552,6 +585,14 @@ void App::draw_settings() {
       }
     } else if (row == Row::Updates) {
       std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", update_available() ? t.update_new : board_.version);
+    } else if (row == Row::Stats) {
+      // Today's reading so far, and a way in to the rest.
+      std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
+      if (const int day = today(board_.clock); day >= 0 && stats_.seconds_between(day, day) >= 60) {
+        format_duration(settings_.language, static_cast<int>(stats_.seconds_between(day, day) / 60), value,
+                        sizeof(value) - 4);
+        std::strcat(value, " \xE2\x80\xBA");
+      }
     } else if (row == Row::Check || row == Row::ReadingPage) {
       std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
     } else if (row == Row::MenuFont || row == Row::BookFont) {
@@ -596,6 +637,7 @@ void App::open_settings(bool reading) {
 void App::settings_activate() {
   const Row row = (settings_reading_ ? kReadingRows : kGeneralRows)[settings_sel_];
   if (row == Row::Battery) return show(Screen::Battery);
+  if (row == Row::Stats) return show(Screen::Stats);
   if (row == Row::Light) return open_light(Screen::Settings);
   if (row == Row::Check) return open_check();
   if (row == Row::Updates) return open_updates();
@@ -1190,7 +1232,7 @@ void App::open_contents() {
   show(Screen::Contents);
 }
 
-int App::contents_rows_per_page() const { return (fb_.height() - kListTop - kContentsBottom) / kContentsRowHeight; }
+int App::contents_rows_per_page() const { return (fb_.height() - kContentsTop - kContentsBottom) / kContentsRowHeight; }
 
 int App::contents_row_count() const {
   const Document& doc = *reader_.document();
@@ -1336,6 +1378,12 @@ void App::draw_contents() {
     title_w -= text_width_px(ui::label_font(), label) + 16;
   }
   ui::draw_fitted(fb_, ui::label_font(), kSide, kSubtitleBase, title_w, library_.entry(reading_).title);
+  char chapter_left[24], book_left[24];
+  if (time_left(chapter_left, book_left, sizeof(chapter_left))) {
+    char line[128];
+    std::snprintf(line, sizeof(line), t.contents_left, chapter_left, book_left);
+    ui::draw_fitted(fb_, ui::label_font(), kSide, kContentsLeftBase, w - 2 * kSide, line);
+  }
 
   const int mark = page_bookmark();
   const int current = current_chapter_row();
@@ -1345,7 +1393,7 @@ void App::draw_contents() {
   for (int i = first; i < last; ++i) {
     int index;
     const ContentsRow kind = contents_row(i, index);
-    const int y = kListTop + (i - first) * kContentsRowHeight;
+    const int y = kContentsTop + (i - first) * kContentsRowHeight;
     const Rect r = row_rect(fb_, y, kContentsRowHeight);
     const int base = y + 33;
     const bool selected = i == contents_sel_;
@@ -1554,6 +1602,140 @@ void App::draw_battery() {
   ui::draw_hint(fb_, t.hint_battery);
 }
 
+// ---- Reading stats -------------------------------------------------------------
+
+uint32_t App::steady_ms() const {
+  if (const uint32_t ms = board_.input.now_ms(); ms != 0) return ms;
+  // Only differences matter, so the clock's milliseconds may wrap.
+  DateTime now;
+  if (board_.clock != nullptr && board_.clock->now(now)) return seconds_since_2000(now) * 1000u;
+  return 0;
+}
+
+void App::stop_reading() {
+  if (!stats_.running()) return;
+  stats_.stop(steady_ms(), today(board_.clock));
+  if (stats_.dirty() && board_.storage != nullptr) stats_.save(*board_.storage);
+}
+
+bool App::time_left(char* chapter, char* book, size_t size) const {
+  if (reading_ < 0 || reader_.document() == nullptr) return false;
+  const int speed = stats_.pages_per_hour(library_.entry(reading_).path);
+  if (speed <= 0) return false;
+  format_duration(settings_.language, minutes_for_pages(reader_.pages_left_in_chapter(), speed), chapter, size);
+  format_duration(settings_.language, minutes_for_pages(reader_.pages_left_in_book(), speed), book, size);
+  return true;
+}
+
+void App::draw_stats() {
+  const int w = fb_.width();
+  const int h = fb_.height();
+  const Strings& t = text();
+  const Language lang = settings_.language;
+  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.reading_stats);
+  char value[48];
+
+  const int day = today(board_.clock);
+  int y = kStatRowsTop;
+  if (day < 0) {
+    // Without the clock there are no days: say why, and show the rest.
+    y = ui::draw_wrapped(fb_, ui::text_font(), kSide, kTodayLabelBase, w - 2 * kSide, 5, t.stats_clock, false) + 6;
+  } else {
+    // Today, in large figures.
+    ui::draw_label(fb_, kSide, kTodayLabelBase, t.today_label);
+    format_duration(lang, static_cast<int>(stats_.seconds_between(day, day) / 60), value, sizeof(value));
+    draw_text(fb_, ui::screen_title_font(), kSide * 64, kTodayBase, value);
+    format_page_count(lang, static_cast<int>(stats_.pages_between(day, day)), value, sizeof(value));
+    ui::draw_right(fb_, ui::text_font(), w - kSide, kTodayBase, value);
+
+    // The last seven days as bars of minutes, today on the right.
+    ui::draw_label(fb_, kSide, kWeekLabelBase, t.week_label);
+    const int first = day - (kChartDays - 1);
+    format_duration(lang, static_cast<int>(stats_.seconds_between(first, day) / 60), value, sizeof(value));
+    ui::draw_right(fb_, ui::label_font(), w - kSide, kWeekLabelBase, value);
+    int minutes[kChartDays];
+    int top = kMinScaleMinutes;
+    for (int i = 0; i < kChartDays; ++i) {
+      minutes[i] = static_cast<int>(stats_.seconds_between(first + i, first + i) / 60);
+      top = std::max(top, minutes[i]);
+    }
+    const int slot = (w - 2 * kSide) / kChartDays;
+    const int room = kBarsBottom - kBarsTop - 22;  // the figure over the tallest bar
+    dotted_rule(fb_, kBarsBottom + 1);
+    for (int i = 0; i < kChartDays; ++i) {
+      const int cx = kSide + i * slot + slot / 2;
+      const int bar_h = minutes[i] * room / top;
+      if (minutes[i] > 0) {
+        // A solid bar with rounded shoulders, its minutes on top.
+        fb_.fill_round_rect({cx - kBarW / 2, kBarsBottom - bar_h, kBarW, bar_h + 1}, std::min(4, bar_h / 2),
+                            Color::Black);
+        fb_.fill_rect({cx - kBarW / 2, kBarsBottom - std::min(4, bar_h), kBarW, std::min(4, bar_h) + 1}, Color::Black);
+        std::snprintf(value, sizeof(value), "%d", minutes[i]);
+        const int tw = text_width_px(ui::label_font(), value);
+        draw_text(fb_, ui::label_font(), (cx - tw / 2) * 64, kBarsBottom - bar_h - 8, value);
+      } else {
+        fb_.fill_rect({cx - kBarW / 2, kBarsBottom - 1, kBarW, 2}, Color::Black);  // a day without reading
+      }
+      // The day's name; today's in a dark pill.
+      const char* name = t.weekdays[(first + i + 5) % 7];  // 2000-01-01 was a Saturday
+      const int tw = text_width_px(ui::label_font(), name);
+      const int base = kBarsBottom + 26;
+      Color fg = Color::Black;
+      if (i == kChartDays - 1) {
+        fb_.fill_round_rect({cx - tw / 2 - 8, base - 18, tw + 16, 25}, 12, Color::Black);
+        fg = Color::White;
+      }
+      draw_text(fb_, ui::label_font(), (cx - tw / 2) * 64, base, name, fg);
+    }
+  }
+
+  // Totals and speed.
+  uint16_t year;
+  uint8_t month, mday;
+  date_from_days(day < 0 ? 0 : static_cast<uint32_t>(day), year, month, mday);
+  char month_text[32], speed_text[48], all_text[32];
+  format_duration(lang, static_cast<int>(stats_.seconds_between(day - (mday - 1), day) / 60), month_text,
+                  sizeof(month_text));
+  uint32_t all_seconds = 0;
+  for (int i = 0; i < stats_.book_count(); ++i) all_seconds += stats_.book_by_recent(i).seconds;
+  format_duration(lang, static_cast<int>(all_seconds / 60), all_text, sizeof(all_text));
+  std::snprintf(speed_text, sizeof(speed_text), "%s", t.measuring);
+  if (const int speed = stats_.pages_per_hour(); speed > 0)
+    std::snprintf(speed_text, sizeof(speed_text), t.pages_an_hour, speed);
+  const char* names[] = {t.this_month, t.reading_speed, t.all_time};
+  const char* values[] = {month_text, speed_text, all_text};
+  for (int i = day < 0 ? 1 : 0; i < 3; ++i) {
+    if (i > (day < 0 ? 1 : 0)) dotted_rule(fb_, y);
+    draw_text(fb_, ui::text_font(), kSide * 64, y + 28, names[i]);
+    ui::draw_right(fb_, ui::text_font(), w - kSide, y + 28, values[i]);
+    y += kSettingRowHeight;
+  }
+
+  // The books read lately: title, then time and pages.
+  ui::draw_label(fb_, kSide, y + 36, t.books_label);
+  y += 48;
+  int shown = 0;
+  for (int i = 0; i < stats_.book_count() && y + kStatsBookHeight <= h - 48; ++i) {
+    const ReadingStats::BookTotal& b = stats_.book_by_recent(i);
+    const char* title = nullptr;
+    for (int k = 0; k < library_.count() && title == nullptr; ++k) {
+      if (std::strcmp(library_.entry(k).path, b.path) == 0) title = library_.entry(k).title;
+    }
+    if (title == nullptr || (b.seconds < 60 && b.pages == 0)) continue;  // gone from the card, or barely opened
+    if (shown > 0) dotted_rule(fb_, y);
+    ui::draw_fitted(fb_, ui::small_italic_font(), kSide, y + 25, w - 2 * kSide, title);
+    char time_text[24], pages_text[24], line[64];
+    format_duration(lang, static_cast<int>(b.seconds / 60), time_text, sizeof(time_text));
+    format_page_count(lang, static_cast<int>(b.pages), pages_text, sizeof(pages_text));
+    std::snprintf(line, sizeof(line), "%s \xC2\xB7 %s", time_text, pages_text);  // ·
+    draw_text(fb_, ui::label_font(), kSide * 64, y + 45, line);
+    y += kStatsBookHeight;
+    ++shown;
+  }
+  if (shown == 0) ui::draw_wrapped(fb_, ui::text_font(), kSide, y + 24, w - 2 * kSide, 3, t.nothing_read, false);
+  ui::draw_hint(fb_, t.hint_battery);
+}
+
 // ---- Front light --------------------------------------------------------------
 
 void App::apply_light() {
@@ -1659,6 +1841,12 @@ void App::open_book(int index) {
 
 void App::show(Screen s) {
   if (s != Screen::Reader) word_mode_ = WordMode::Off;
+  // Reading time runs in the book and its contents, and stops elsewhere.
+  if (s == Screen::Reader && reading_ >= 0) {
+    stats_.start(library_.entry(reading_).path, steady_ms());
+  } else if (s != Screen::Contents) {
+    stop_reading();
+  }
   screen_ = s;
   if (s == Screen::Home) home_sel_ = 0;
   draw();
@@ -1683,9 +1871,17 @@ void App::draw() {
   time_text(time, sizeof(time));
   const int battery = board_.power.battery_percent();
   if (screen_ == Screen::Reader) {
+    // The middle of the footer: the page number unless Settings asks for more.
+    char middle[64] = "";
+    char chapter[24], book[24];
+    if (settings_.footer == FooterInfo::Percent) {
+      std::snprintf(middle, sizeof(middle), "%d%%", reader_.percent());
+    } else if (settings_.footer == FooterInfo::ChapterTime && time_left(chapter, book, sizeof(chapter))) {
+      std::snprintf(middle, sizeof(middle), text().footer_left, chapter);
+    }
     TextMark marks[48];
     const int n = page_marks(marks, 48);
-    reader_.draw(fb_, text(), time, battery, page_bookmark() >= 0, {marks, static_cast<size_t>(n)});
+    reader_.draw(fb_, text(), time, battery, page_bookmark() >= 0, middle, {marks, static_cast<size_t>(n)});
     if (word_mode_ != WordMode::Off) draw_word_overlay();
     return;
   }
@@ -1721,6 +1917,9 @@ void App::draw() {
       break;
     case Screen::Send:
       draw_send();
+      break;
+    case Screen::Stats:
+      draw_stats();
       break;
     case Screen::Reader:
       break;
@@ -1789,6 +1988,7 @@ void App::sleep() {
   }
   const bool in_book = screen_ == Screen::Reader || screen_ == Screen::Contents;
   if (in_book) save_progress();
+  stop_reading();
   if (board_.storage != nullptr) {
     const char* state = in_book ? "reader\n" : "home\n";
     board_.storage->write(kStatePath, state, static_cast<uint32_t>(std::strlen(state)));
@@ -2061,6 +2261,9 @@ bool App::turn(int step) {
   state.percent = static_cast<uint8_t>(reader_.percent());
   // Save now and then, not on every turn: card writes cost power.
   if (++turns_since_save_ >= 10) save_progress();
+  const uint32_t now = steady_ms();
+  stats_.turn(now, today(board_.clock), step > 0);
+  if (stats_.save_due(now) && board_.storage != nullptr) stats_.save(*board_.storage);
   return true;
 }
 
@@ -2115,6 +2318,7 @@ bool App::handle_key(Key key) {
       settings_sel_ = wrap_index(settings_sel_ + step, settings_reading_ ? kReadingCount : kGeneralCount);
       return true;
     case Screen::Battery:
+    case Screen::Stats:
       if (key == Key::Power) show(Screen::Settings);
       return false;
     case Screen::Light: {
@@ -2206,7 +2410,8 @@ bool App::handle_gesture(const Gesture& g) {
     return true;
   }
   if (g.kind != K::Tap) return false;
-  if (screen_ == Screen::Battery) return show(Screen::Settings), false;  // a tap anywhere goes back
+  if (screen_ == Screen::Battery || screen_ == Screen::Stats)
+    return show(Screen::Settings), false;  // a tap anywhere goes back
   if (screen_ == Screen::Light) return light_tap(g.x, g.y);
   if (screen_ == Screen::Send) {
     // A reader's row sends to it; after sending, a tap anywhere goes on.
@@ -2249,6 +2454,7 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Light:
     case Screen::Check:
     case Screen::Send:
+    case Screen::Stats:
       break;
   }
   return false;

@@ -61,6 +61,10 @@ class InputSource {
   // Blocks (sleeping where possible) until an event arrives or the timeout
   // passes. Returns false on timeout.
   virtual bool wait(InputEvent& out, uint32_t timeout_ms) = 0;
+  // Milliseconds counted steadily since some fixed moment (usually start),
+  // unaffected by setting the clock; it may wrap. 0 when the board keeps no
+  // such count: the app then times reading with the Clock.
+  virtual uint32_t now_ms() { return 0; }
 };
 
 class Power {

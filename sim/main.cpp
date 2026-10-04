@@ -18,6 +18,7 @@
 #include <SDL.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -143,6 +144,10 @@ class SimInput : public vellum::InputSource {
 
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
     return opt_.headless ? next_scripted(out) : next_sdl(out, timeout_ms);
+  }
+  uint32_t now_ms() override {
+    using namespace std::chrono;
+    return static_cast<uint32_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
   }
 
  private:

@@ -60,6 +60,16 @@ jobs:
             build/partition_table/partition-table.bin
             build/ota_data_initial.bin
             build/flash_args
+            build/flasher_args.json
+      - name: Installer page
+        # One HTML file with the firmware inside: opened in Chrome or Edge it
+        # installs Vellum over USB. The releases are private, so the page
+        # cannot fetch anything from them.
+        run: python3 tools/make_installer.py build -o vellum-install.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vellum-installer
+          path: vellum-install.html
 
   release:
     name: Publish update file
@@ -75,13 +85,18 @@ jobs:
         with:
           name: vellum-x4pro
           path: out
+      - uses: actions/download-artifact@v4
+        with:
+          name: vellum-installer
+          path: installer
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: 0.1.${{ github.run_number }}
         run: |
           cp out/vellum.bin "vellum-$VERSION.bin"
+          cp installer/vellum-install.html "vellum-install-$VERSION.html"
           (cd out && zip -r "../vellum-$VERSION-usb.zip" .)
-          gh release create "v$VERSION" "vellum-$VERSION.bin" "vellum-$VERSION-usb.zip" \
+          gh release create "v$VERSION" "vellum-$VERSION.bin" "vellum-install-$VERSION.html" "vellum-$VERSION-usb.zip" \
             --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Vellum $VERSION" \
-            --notes "Update file: vellum-$VERSION.bin (send it from the reader's Add books page). The USB zip is for flashing over a cable."
+            --notes "Update file: vellum-$VERSION.bin (send it from the reader's Add books page). First install over a USB cable: download vellum-install-$VERSION.html and open it in Chrome or Edge. The USB zip is for flashing with esptool."

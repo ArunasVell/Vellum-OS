@@ -12,6 +12,7 @@
 #include "vellum/library.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
+#include "vellum/reading_stats.h"
 #include "vellum/settings.h"
 #include "vellum/strings.h"
 #include "vellum/touch.h"
@@ -38,6 +39,11 @@ namespace vellum {
 // Without touch, Contents › Look up a word picks a line, then a word, with
 // the side buttons. Highlights are underlined on the page and listed in
 // Contents; their notes are written on the phone page of "Add books".
+//
+// Reading time is counted while pages turn (ReadingStats): Settings ›
+// Reading stats shows it by day and by book, and the speed it gives tells
+// the time left in the chapter and the book (in Contents, and in the
+// footer when Settings › Reading › Footer asks for it).
 //
 // Settings › Device check shows every button press and touch, and what the
 // board reports (battery, clock, card), for trying out new hardware.
@@ -86,7 +92,8 @@ class App {
     Light,
     Check,
     Updates,
-    Send
+    Send,
+    Stats
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -208,6 +215,14 @@ class App {
   void draw_transfer();
   void draw_contents();
   void draw_battery();
+  void draw_stats();
+  // Reading stats: a steady count of milliseconds (the clock's when the
+  // board keeps none), and the end of a stretch of reading, written out.
+  uint32_t steady_ms() const;
+  void stop_reading();
+  // "12 min" left in the chapter and in the book at the reading speed;
+  // false when the speed is not known yet.
+  bool time_left(char* chapter, char* book, size_t size) const;
   // Front light: brightness and warmth, applied as they change.
   void open_light(Screen back);
   void close_light();
@@ -295,6 +310,7 @@ class App {
   CoverImage large_cover_;  // buffers for cover thumbnails, allocated once
   CoverImage small_cover_;
   BatteryLog battery_;
+  ReadingStats stats_;
   uint32_t battery_saved_at_ = 0;  // time of the last sample written to the card
   struct CheckState {
     uint8_t pressed = 0;  // bit per Key: pressed at least once

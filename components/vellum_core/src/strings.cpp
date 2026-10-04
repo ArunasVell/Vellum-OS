@@ -171,6 +171,23 @@ constexpr Strings kEnglish = {
     .hint_pick_line = "Side buttons: line · Power: choose · Home: back",
     .hint_pick_word = "Side buttons: word · Power: look up · Home: back",
     .hint_extend = "Tap the last word, or move to it with the side buttons.",
+    .footer = "Footer",
+    .footer_names = {"Page number", "Time left in chapter", "Percent read"},
+    .footer_left = "%s left in chapter",
+    .contents_left = "About %s left in chapter · %s in book",
+    .reading_stats = "Reading stats",
+    .today_label = "TODAY",
+    .week_label = "LAST 7 DAYS · MINUTES",
+    .weekdays = {"Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"},
+    .this_month = "This month",
+    .reading_speed = "Reading speed",
+    .pages_an_hour = "%d pages an hour",
+    .all_time = "All time",
+    .books_label = "BOOKS",
+    .nothing_read = "Nothing read yet. Reading time shows here as you turn the pages.",
+    .stats_clock =
+        "The clock is not set, so reading is not counted by day. Open Add books and load the page on your "
+        "phone once: it sets the clock.",
     .preview_text =
         "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
         "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
@@ -343,6 +360,23 @@ constexpr Strings kLithuanian = {
     .hint_pick_line = "Šoniniai: eilutė · Įjungimo: rinktis · Namų: atgal",
     .hint_pick_word = "Šoniniai: žodis · Įjungimo: ieškoti · Namų: atgal",
     .hint_extend = "Palieskite paskutinį žodį arba nueikite iki jo šoniniais mygtukais.",
+    .footer = "Poraštė",
+    .footer_names = {"Puslapio numeris", "Liko skyriuje", "Perskaityta %"},
+    .footer_left = "Skyriuje liko %s",
+    .contents_left = "Liko apie %s skyriuje · %s knygoje",
+    .reading_stats = "Skaitymo statistika",
+    .today_label = "ŠIANDIEN",
+    .week_label = "MINUTĖS PER 7 DIENAS",
+    .weekdays = {"Pr", "An", "Tr", "Kt", "Pn", "Št", "Sk"},
+    .this_month = "Šį mėnesį",
+    .reading_speed = "Skaitymo greitis",
+    .pages_an_hour = "%d psl. per valandą",
+    .all_time = "Iš viso",
+    .books_label = "KNYGOS",
+    .nothing_read = "Dar nieko neskaityta. Skaitymo laikas atsiras čia, kai versite puslapius.",
+    .stats_clock =
+        "Laikrodis nenustatytas, todėl skaitymas neskaičiuojamas pagal dienas. Atverkite „Įkelti knygas“ "
+        "ir vieną kartą įkelkite puslapį telefone: jis nustatys laikrodį.",
     .preview_text =
         "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
         "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",
@@ -383,6 +417,27 @@ void format_time_left(Language lang, int hours, char* out, size_t size) {
 
 void format_tenths(Language lang, int tenths, char* out, size_t size) {
   std::snprintf(out, size, "%d%c%d", tenths / 10, lang == Language::Lithuanian ? ',' : '.', tenths % 10);
+}
+
+void format_duration(Language lang, int minutes, char* out, size_t size) {
+  const bool lt = lang == Language::Lithuanian;
+  const char* h = lt ? "val." : "h";
+  const char* min = lt ? "min." : "min";
+  if (minutes < 60) {
+    std::snprintf(out, size, "%d %s", minutes, min);
+  } else if (minutes % 60 == 0 || minutes >= 10 * 60) {
+    std::snprintf(out, size, "%d %s", (minutes + (minutes >= 10 * 60 ? 30 : 0)) / 60, h);  // whole hours past ten
+  } else {
+    std::snprintf(out, size, "%d %s %d %s", minutes / 60, h, minutes % 60, min);
+  }
+}
+
+void format_page_count(Language lang, int n, char* out, size_t size) {
+  if (lang == Language::Lithuanian) {
+    std::snprintf(out, size, "%d psl.", n);
+    return;
+  }
+  std::snprintf(out, size, "%d %s", n, n == 1 ? "page" : "pages");
 }
 
 }  // namespace vellum

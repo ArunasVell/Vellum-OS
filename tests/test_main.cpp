@@ -21,6 +21,7 @@
 #include "vellum/library.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
+#include "vellum/reading_stats.h"
 #include "vellum/settings.h"
 #include "vellum/stdio_storage.h"
 #include "vellum/strings.h"
@@ -386,6 +387,7 @@ void test_card_library_and_progress() {
   settings.language = Language::Lithuanian;
   settings.text_size = TextSize::Large;
   settings.justify = false;
+  settings.footer = FooterInfo::ChapterTime;
   CHECK(save_settings(card, settings));
   Settings loaded;
   load_settings(card, loaded);
@@ -1168,7 +1170,7 @@ void test_app_fonts() {
   press(*app, Key::Power);
   CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
   CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);  // down to Reading
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);  // down to Reading
   press(*app, Key::Power);
   press(*app, Key::Power);  // Book font: the next after Literata
   CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
@@ -1502,8 +1504,8 @@ void test_app_device_check() {
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i)
-    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Light, Battery, Updates: Device check
+  for (int i = 0; i < 8; ++i)
+    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Light, Battery, Updates, Stats: Device check
   CHECK(!on_check());
   press(*app, Key::Power);
   CHECK(on_check());
@@ -2174,10 +2176,10 @@ void test_app_words() {
   press(*app, Key::Home);
   press(*app, Key::Power);  // back to Alice
   press(*app, Key::Power);  // contents: the note follows its highlight and is skipped
-  // Rows from y = 160, 50 px each: the note (row 6) wears a bar at its left.
-  CHECK(screen.pixel(38, 470) == Color::Black && screen.pixel(38, 495) == Color::Black);
+  // Rows from y = 186, 50 px each: the note (row 6) wears a bar at its left.
+  CHECK(screen.pixel(38, 496) == Color::Black && screen.pixel(38, 521) == Color::Black);
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);
-  CHECK(screen.pixel(20, 585) == Color::Black);  // row 8, the chapter, is selected
+  CHECK(screen.pixel(20, 611) == Color::Black);  // row 8, the chapter, is selected
   press(*app, Key::Power);                       // the chapter, not the note
   CHECK(read_all("test-card-words/vellum/highlights.txt").find("\tBored, like me.\n") != std::string::npos);
 
@@ -2229,6 +2231,237 @@ void test_dictionary_upload_names() {
   CHECK(!safe_book_name("en.ifo", out, sizeof(out)));
 }
 
+void test_reading_stats() {
+  constexpr uint32_t kMin = 60 * 1000;
+  const int d = 9773;  // 2026-10-04
+  ReadingStats stats;
+  // A page read in 30 s, one left open 10 minutes (counted as 2), a last
+  // one shown 50 s before leaving.
+  stats.start("books/a.epub", 1000);
+  CHECK(stats.running());
+  stats.turn(31000, d, true);
+  stats.turn(31000 + 10 * kMin, d, true);
+  stats.stop(31000 + 10 * kMin + 50000, d);
+  CHECK(!stats.running());
+  CHECK(stats.seconds_between(d, d) == 30 + 120 + 50);
+  CHECK(stats.pages_between(d, d) == 2);
+  CHECK(stats.find_book("books/a.epub")->seconds == 200);
+
+  // Past midnight the time goes to the next day; going back a page counts
+  // time but not a page. Parts of seconds add up.
+  stats.start("books/a.epub", 0);
+  for (int i = 1; i <= 4; ++i) stats.turn(i * 500, d + 1, i != 2);
+  stats.stop(2000, d + 1);
+  CHECK(stats.seconds_between(d + 1, d + 1) == 2 && stats.pages_between(d + 1, d + 1) == 3);
+  CHECK(stats.seconds_between(d, d + 1) == 202);
+
+  // Without the clock only the book's totals grow.
+  stats.start("books/b.epub", 0);
+  stats.turn(40000, -1, true);
+  stats.stop(40000, -1);
+  CHECK(stats.find_book("books/b.epub")->seconds == 40 && stats.find_book("books/b.epub")->pages == 1);
+  CHECK(stats.seconds_between(0, 100000) == 202);
+  CHECK(std::string(stats.book_by_recent(0).path) == "books/b.epub");
+
+  // Speed: too little to tell, then 60 pages an hour for this book.
+  CHECK(stats.pages_per_hour("books/a.epub") == -1);
+  CHECK(stats.pages_per_hour() == -1);
+  stats.start("books/a.epub", 0);
+  for (int i = 1; i <= 20; ++i) stats.turn(i * kMin, d + 2, true);
+  stats.stop(20 * kMin, d + 2);
+  // 25 pages in 1402 s over the three days.
+  CHECK(stats.pages_per_hour("books/a.epub") == 64);
+  CHECK(stats.pages_per_hour("books/b.epub") == 64);  // too little of b: all books instead
+  CHECK(stats.pages_per_hour() > 50);
+  CHECK(minutes_for_pages(12, 60) == 12 && minutes_for_pages(1, 200) == 1 && minutes_for_pages(0, 60) == 0);
+  CHECK(minutes_for_pages(5, -1) == -1);
+
+  // Saving waits a few minutes; leaving writes at once (the app's part).
+  CHECK(stats.dirty());
+  StdioStorage card("test-card");
+  std::remove("test-card/vellum/stats.txt");
+  CHECK(stats.save(card));
+  CHECK(!stats.dirty() && !stats.save_due(20 * kMin + ReadingStats::kSaveMs));
+  const std::string file = read_all("test-card/vellum/stats.txt");
+  CHECK(file.find("d\t2026-10-04\t0\t200\t2\n") != std::string::npos);
+
+  ReadingStats again;
+  again.load(card);
+  CHECK(again.book_count() == 2 && again.day_count() == stats.day_count());
+  CHECK(again.seconds_between(d, d + 2) == stats.seconds_between(d, d + 2));
+  CHECK(again.find_book("books/b.epub")->seconds == 40);
+  CHECK(std::string(again.book_by_recent(0).path) == "books/a.epub");
+  CHECK(again.pages_per_hour("books/a.epub") == 64);
+
+  // A year on, old days are let go.
+  again.start("books/a.epub", 0);
+  again.turn(30000, d + 400, true);
+  CHECK(again.day_count() == 1 && again.seconds_between(d, d + 2) == 0);
+  CHECK(again.find_book("books/a.epub")->seconds > 200);  // the book keeps its totals
+  again.stop(30000, d + 400);
+
+  // Too many books: the one read longest ago gives way; its days still count.
+  ReadingStats many;
+  char path[32];
+  for (int i = 0; i <= ReadingStats::kMaxBooks; ++i) {
+    std::snprintf(path, sizeof(path), "books/%d.epub", i);
+    many.start(path, 0);
+    many.turn(60000, d, true);
+    many.stop(60000, d);
+  }
+  CHECK(many.book_count() == ReadingStats::kMaxBooks);
+  CHECK(many.find_book("books/0.epub") == nullptr && many.find_book("books/64.epub") != nullptr);
+  CHECK(many.seconds_between(d, d) == 60u * (ReadingStats::kMaxBooks + 1));
+  std::remove("test-card/vellum/stats.txt");
+
+  char out[32];
+  format_duration(Language::English, 12, out, sizeof(out));
+  CHECK(std::string(out) == "12 min");
+  format_duration(Language::English, 250, out, sizeof(out));
+  CHECK(std::string(out) == "4 h 10 min");
+  format_duration(Language::Lithuanian, 120, out, sizeof(out));
+  CHECK(std::string(out) == "2 val.");
+  format_duration(Language::English, 14 * 60 + 40, out, sizeof(out));
+  CHECK(std::string(out) == "15 h");
+  format_page_count(Language::English, 1, out, sizeof(out));
+  CHECK(std::string(out) == "1 page");
+  format_page_count(Language::Lithuanian, 12, out, sizeof(out));
+  CHECK(std::string(out) == "12 psl.");
+}
+
+// The four built-in samples as the chapters of one book, weighed by length.
+class SamplerDocument : public Document {
+ public:
+  const char* language() const override { return "en"; }
+  int chapter_count() const override { return 4; }
+  uint32_t chapter_weight(int i) const override {
+    uint32_t n = 0;
+    for (uint32_t p = 0; p < book(i).paragraph_count; ++p)
+      n += static_cast<uint32_t>(std::strlen(book(i).paragraphs[p]));
+    return n;
+  }
+  bool load_chapter(int i, Chapter& out) override {
+    out = {book(i).paragraphs, book(i).paragraph_count, book(i).chapter_label, book(i).chapter_title};
+    return true;
+  }
+  const TocEntry& toc(int) const override { return toc_; }
+
+ private:
+  static const Book& book(int i) { return *builtin_books()[static_cast<size_t>(i)]; }
+  TocEntry toc_;
+};
+
+void test_reader_pages_left() {
+  SamplerDocument doc;
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  Reader reader;
+  CHECK(reader.open(doc, 1, reading_style(Settings{}), {}, f.fb));
+  CHECK(reader.pages_left_in_chapter() == reader.page_count());
+  const int guess = reader.pages_left_in_book();
+  int pages = 1;
+  while (reader.next()) {
+    ++pages;
+    CHECK(reader.pages_left_in_book() >= reader.pages_left_in_chapter());
+  }
+  // The first guess, from one chapter's length, lands near the real count.
+  CHECK(guess * 10 > pages * 8 && guess * 10 < pages * 12);
+  CHECK(reader.pages_left_in_chapter() == 1 && reader.pages_left_in_book() == 1);
+}
+
+// Input with a steady count the test moves forward.
+class TimedInput : public InputSource {
+ public:
+  bool wait(InputEvent&, uint32_t) override { return false; }
+  uint32_t now_ms() override { return ms; }
+  uint32_t ms = 5000;
+};
+
+void test_app_reading_stats() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  TimedInput input;
+  FixedPower power;
+  TestClock clock;
+  StdioStorage card("test-card-stats");  // no books on it: the samples only
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data()};
+  Framebuffer view(buf.data(), kW, kH);
+  view.set_rotation(Rotation::R90);
+  auto footer = [&] {
+    std::string bits;
+    for (int y = 800 - 30; y < 800; ++y)
+      for (int x = 150; x < 330; ++x) bits += view.pixel(x, y) == Color::Black ? '#' : '.';
+    return bits;
+  };
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the current book
+  const std::string page_number = footer();
+  for (int i = 0; i < 8; ++i) {
+    input.ms += 30000;  // a page every half minute
+    press(*app, Key::Next);
+  }
+  CHECK(read_all("test-card-stats/vellum/stats.txt").empty());  // written every few minutes, not yet
+  for (int i = 0; i < 5; ++i) {
+    input.ms += 30000;
+    press(*app, Key::Next);
+  }
+  CHECK(!read_all("test-card-stats/vellum/stats.txt").empty());
+  input.ms += 10 * 60 * 1000;  // left open: only two more minutes count
+  press(*app, Key::Home);
+  const std::string saved = read_all("test-card-stats/vellum/stats.txt");
+  CHECK(saved.find("b\t1\t510\t13\tbuiltin:") != std::string::npos);
+  CHECK(saved.find("d\t2026-10-04\t0\t510\t13\n") != std::string::npos);
+
+  // Settings › Reading stats, the eighth row: opens, Power goes back.
+  press(*app, Key::Prev);  // Settings, the last link
+  press(*app, Key::Power);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  int full = panel.full;
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 1);
+  // Today's weekday sits in a dark pill under the last bar.
+  CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::Black);
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 2);
+  CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::White);
+
+  // Settings › Reading › Footer: time left in the chapter, then the percent.
+  press(*app, Key::Next);  // Device check
+  press(*app, Key::Next);  // Reading
+  press(*app, Key::Power);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(read_all("test-card-stats/vellum/settings.txt").find("footer=1") != std::string::npos);
+  press(*app, Key::Home);
+  press(*app, Key::Home);
+  press(*app, Key::Power);  // back in the book
+  const std::string chapter_time = footer();
+  CHECK(chapter_time != page_number);
+  press(*app, Key::Home);
+  press(*app, Key::Prev);
+  press(*app, Key::Power);
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(read_all("test-card-stats/vellum/settings.txt").find("footer=2") != std::string::npos);
+  delete app;
+
+  // A restart keeps the totals.
+  app = new App(board);
+  app->start();
+  press(*app, Key::Power);
+  input.ms += 60000;
+  press(*app, Key::Next);
+  press(*app, Key::Home);
+  CHECK(read_all("test-card-stats/vellum/stats.txt").find("d\t2026-10-04\t0\t570\t14\n") != std::string::npos);
+  delete app;
+  for (const char* name : {"stats.txt", "settings.txt", "state.txt", "progress.txt", "library.txt"}) {
+    std::remove(("test-card-stats/vellum/" + std::string(name)).c_str());
+  }
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -2278,6 +2511,9 @@ int main() {
   test_highlights_store();
   test_app_words();
   test_dictionary_upload_names();
+  test_reading_stats();
+  test_reader_pages_left();
+  test_app_reading_stats();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;

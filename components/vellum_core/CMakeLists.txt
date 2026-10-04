@@ -24,6 +24,7 @@ set(VELLUM_CORE_SRCS
   src/library.cpp
   src/peer_transfer.cpp
   src/reader.cpp
+  src/reading_stats.cpp
   src/settings.cpp
   src/stdio_storage.cpp
   src/strings.cpp

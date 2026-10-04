@@ -175,9 +175,25 @@ struct Strings {
   const char* no_dictionary;  // no dictionary on the card
   const char* not_in_dictionary;
   const char* preparing_dictionary;
-  const char* hint_pick_line;    // choosing a line with the side buttons
-  const char* hint_pick_word;    // then a word
-  const char* hint_extend;       // choosing where a highlight ends
+  const char* hint_pick_line;  // choosing a line with the side buttons
+  const char* hint_pick_word;  // then a word
+  const char* hint_extend;     // choosing where a highlight ends
+  // Reading stats and time left
+  const char* footer;           // reading settings row: the middle of the reader's footer
+  const char* footer_names[3];  // page number, time left in chapter, percent read
+  const char* footer_left;      // printf: a duration ("12 min left in chapter")
+  const char* contents_left;    // printf: duration in chapter, in book; line under the contents title
+  const char* reading_stats;    // settings row and screen title
+  const char* today_label;      // uppercase label
+  const char* week_label;       // uppercase label over the chart of minutes
+  const char* weekdays[7];      // short names, Monday first
+  const char* this_month;
+  const char* reading_speed;
+  const char* pages_an_hour;  // printf: number
+  const char* all_time;
+  const char* books_label;       // uppercase label
+  const char* nothing_read;      // no reading recorded yet
+  const char* stats_clock;       // without the clock there are no days
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };
@@ -190,5 +206,9 @@ void format_book_count(Language lang, int n, char* out, size_t size);
 void format_time_left(Language lang, int hours, char* out, size_t size);
 // A number given in tenths, with the language's decimal mark: "4.2", "4,2".
 void format_tenths(Language lang, int tenths, char* out, size_t size);
+// A reading time: "12 min", "4 h 10 min".
+void format_duration(Language lang, int minutes, char* out, size_t size);
+// "1 page", "12 pages".
+void format_page_count(Language lang, int n, char* out, size_t size);
 
 }  // namespace vellum

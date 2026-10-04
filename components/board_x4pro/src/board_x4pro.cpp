@@ -114,6 +114,8 @@ class Input : public vellum::InputSource {
     if (queue_ != nullptr && !peer_pending_.exchange(true)) xQueueSend(queue_, &i, 0);
   }
 
+  uint32_t now_ms() override { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
     if (pop(out)) return true;
     const bool held = touching_ || home_;
