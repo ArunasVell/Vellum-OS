@@ -82,6 +82,21 @@ constexpr Strings kEnglish = {
         "The clock is not set, so there is no history yet. Open Add books and load the page on your phone once: it "
         "sets the clock.",
     .hint_battery = "Power or Home: back",
+    .device_check = "Device check",
+    .buttons_label = "BUTTONS",
+    .key_names = {"Up", "Down", "Home", "Power"},
+    .touch_label = "TOUCH",
+    .touch_here = "Touch anywhere on the screen",
+    .about_label = "THIS DEVICE",
+    .device = "Model",
+    .screen = "Screen",
+    .memory_card = "Memory card",
+    .front_light_row = "Front light",
+    .wifi = "Wi-Fi",
+    .present = "Yes",
+    .missing = "Missing",
+    .not_set = "Not set",
+    .hint_check = "Press every button · Home twice: back",
     .preview_text =
         "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
         "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
@@ -165,6 +180,21 @@ constexpr Strings kLithuanian = {
         "Laikrodis nenustatytas, todėl istorijos dar nėra. Atverkite „Įkelti knygas“ ir vieną kartą įkelkite "
         "puslapį telefone: jis nustatys laikrodį.",
     .hint_battery = "Įjungimo ar Namų: atgal",
+    .device_check = "Įrenginio patikra",
+    .buttons_label = "MYGTUKAI",
+    .key_names = {"Aukštyn", "Žemyn", "Namai", "Įjungti"},
+    .touch_label = "LIETIMAS",
+    .touch_here = "Palieskite bet kurią ekrano vietą",
+    .about_label = "ŠIS ĮRENGINYS",
+    .device = "Modelis",
+    .screen = "Ekranas",
+    .memory_card = "Atminties kortelė",
+    .front_light_row = "Apšvietimas",
+    .wifi = "Wi-Fi",
+    .present = "Yra",
+    .missing = "Nėra",
+    .not_set = "Nenustatytas",
+    .hint_check = "Spauskite visus mygtukus · Namų 2 kartus: atgal",
     .preview_text =
         "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
         "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",

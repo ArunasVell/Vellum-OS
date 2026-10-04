@@ -27,6 +27,9 @@ namespace vellum {
 // the left third or swipe right to go back, the right third or swipe left
 // to go forward, the middle for the contents. Swipes page through lists.
 //
+// Settings › Device check shows every button press and touch, and what the
+// board reports (battery, clock, card), for trying out new hardware.
+//
 // "Add books" opens a Wi-Fi network and an upload page (Board::transfer);
 // Home closes it and reloads the library.
 class App {
@@ -47,7 +50,7 @@ class App {
   void timeout();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery };
+  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery, Check };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t { Back, Mark, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
@@ -103,6 +106,11 @@ class App {
   void draw_transfer();
   void draw_contents();
   void draw_battery();
+  // The device check: every button and touch shows on screen, with what
+  // the board reports about itself. Takes all key and touch events.
+  void open_check();
+  bool check_event(const InputEvent& ev);
+  void draw_check();
   const Strings& text() const { return strings(settings_.language); }
   // Current time in the user's format, or "" when the clock is unknown.
   void time_text(char* out, size_t size) const;
@@ -133,6 +141,14 @@ class App {
   TransferInfo transfer_info_;
   BatteryLog battery_;
   uint32_t battery_saved_at_ = 0;  // time of the last sample written to the card
+  struct CheckState {
+    uint8_t pressed = 0;  // bit per Key: pressed at least once
+    uint8_t down = 0;     // bit per Key: down now
+    bool touched = false;
+    bool finger = false;     // a finger is on the screen now
+    int16_t x = 0, y = 0;    // last touch, logical
+    int16_t px = 0, py = 0;  // the same, as the panel reports it
+  } check_;
 
   struct Hit {
     Rect r;

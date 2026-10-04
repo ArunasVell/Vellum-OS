@@ -88,6 +88,22 @@ struct Strings {
   const char* per_day;      // printf: a number such as "0.8"
   const char* clock_unset;  // why there is no history yet
   const char* hint_battery;
+  // Device check
+  const char* device_check;   // settings row and screen title
+  const char* buttons_label;  // uppercase label
+  const char* key_names[4];   // Prev, Next, Home, Power
+  const char* touch_label;    // uppercase label
+  const char* touch_here;
+  const char* about_label;  // uppercase label
+  const char* device;
+  const char* screen;
+  const char* memory_card;
+  const char* front_light_row;
+  const char* wifi;
+  const char* present;
+  const char* missing;
+  const char* not_set;
+  const char* hint_check;
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
 };
