@@ -9,6 +9,7 @@
 #include "vellum/app.h"
 #include "vellum/battery_log.h"
 #include "vellum/book.h"
+#include "vellum/covers.h"
 #include "vellum/display_queue.h"
 #include "vellum/epub.h"
 #include "vellum/framebuffer.h"
@@ -19,6 +20,7 @@
 #include "vellum/strings.h"
 #include "vellum/text.h"
 #include "vellum/touch.h"
+#include "vellum/ui.h"
 #include "vellum/upload_page.h"
 #include "vellum/xml.h"
 
@@ -922,6 +924,103 @@ void test_app_battery_log() {
 
 }  // namespace
 
+// Mean grey of a band of rows in a thumbnail.
+int band_mean(const CoverImage& img, int y0, int y1) {
+  long sum = 0;
+  for (int y = y0; y < y1; ++y)
+    for (int x = 0; x < img.w; ++x) sum += img.px[y * img.w + x];
+  return static_cast<int>(sum / ((y1 - y0) * img.w));
+}
+
+void test_covers() {
+  // Both sample books carry a test card: white top, grey band, black bottom.
+  // sample.epub has a JPEG (EPUB 3 cover-image), sample-ncx.epub a PNG
+  // (EPUB 2 meta name=cover).
+  StdioStorage data(VELLUM_TEST_DATA);
+  StdioStorage card("test-card");
+  std::vector<uint8_t> large(covers::kLargeW * covers::kLargeH);
+  std::vector<uint8_t> small(covers::kSmallW * covers::kSmallH);
+  for (const char* name : {"sample.epub", "sample-ncx.epub"}) {
+    Epub epub;
+    CHECK(epub.open(data, name));
+    const uint8_t* picture = nullptr;
+    const int32_t len = epub.read_cover(&picture);
+    CHECK(len > 0 && picture != nullptr);
+    if (len <= 0) continue;
+    char path[64];
+    covers::path_for(name, 1234, path, sizeof(path));
+    CHECK(std::string(path).starts_with("vellum/covers/"));
+    CHECK(covers::make(card, path, picture, static_cast<uint32_t>(len)));
+    for (bool big : {true, false}) {
+      CoverImage img;
+      img.px = big ? large.data() : small.data();
+      CHECK(covers::load(card, path, big, img));
+      CHECK(img.w > 0 && img.h > 0);
+      CHECK(img.w <= (big ? covers::kLargeW : covers::kSmallW));
+      CHECK(img.h <= (big ? covers::kLargeH : covers::kSmallH));
+      if (!img.valid()) continue;
+      CHECK(band_mean(img, 0, img.h / 5) > 220);
+      CHECK(band_mean(img, img.h * 9 / 10, img.h) < 40);
+    }
+  }
+  // Broken data is refused and leaves no thumbnails behind.
+  const uint8_t junk[] = {0xFF, 0xD8, 0xFF, 0x00, 1, 2, 3};
+  CHECK(!covers::make(card, "vellum/covers/junk.cov", junk, sizeof(junk)));
+  CoverImage none;
+  none.px = small.data();
+  CHECK(!covers::load(card, "vellum/covers/junk.cov", false, none));
+  // Different books get different files.
+  char a[64], b[64];
+  covers::path_for("books/a.epub", 10, a, sizeof(a));
+  covers::path_for("books/a.epub", 11, b, sizeof(b));
+  CHECK(std::string(a) != b);
+
+  // The library makes thumbnails once and remembers that in its cache.
+  std::remove("test-card/vellum/library.txt");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample-ncx.epub");
+  CHECK(card.write("books/ncx.epub", book.data(), static_cast<uint32_t>(book.size())));
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  int found = -1;
+  for (int i = 0; i < lib.count(); ++i) {
+    if (std::string(lib.entry(i).path) == "books/ncx.epub") found = i;
+    if (lib.entry(i).builtin) CHECK(lib.entry(i).cover <= 0);
+  }
+  CHECK(found >= 0);
+  if (found < 0) return;
+  CHECK(lib.entry(found).cover == 1);
+  Library again;
+  again.load(builtin_books(), &card, epub);
+  for (int i = 0; i < again.count(); ++i) {
+    if (std::string(again.entry(i).path) == "books/ncx.epub") CHECK(again.entry(i).cover == 1);
+  }
+  std::remove("test-card/books/ncx.epub");
+
+  // A picture drawn into a cover: light at the top, dark at the bottom,
+  // dithered grey in between.
+  CoverImage img;
+  img.px = large.data();
+  char path[64];
+  covers::path_for("sample.epub", 1234, path, sizeof(path));
+  CHECK(covers::load(card, path, true, img));
+  Fixture f;
+  f.fb.clear(Color::White);
+  const Rect r{100, 40, 120, 180};
+  ui::draw_picture(f.fb, r, img);
+  auto blacks = [&](int y0, int y1) {
+    int n = 0;
+    for (int y = y0; y < y1; ++y)
+      for (int x = r.x; x < r.x + r.w; ++x) n += f.fb.pixel(x, y) == Color::Black ? 1 : 0;
+    return n * 100 / ((y1 - y0) * r.w);
+  };
+  CHECK(blacks(r.y + 2, r.y + 30) < 5);
+  CHECK(blacks(r.y + r.h - 12, r.y + r.h) > 95);
+  const int mid = blacks(r.y + r.h / 2 - 5, r.y + r.h / 2 + 5);
+  CHECK(mid > 10 && mid < 90);
+  CHECK(f.fb.pixel(r.x - 1, r.y + r.h - 2) == Color::White);  // nothing drawn outside
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -944,6 +1043,7 @@ int main() {
   test_epub();
   test_epub_contents();
   test_card_library_and_progress();
+  test_covers();
   test_app_transfer();
   test_app_sleep();
   test_app_contents_and_bookmarks();

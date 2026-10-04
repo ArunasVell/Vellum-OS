@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vellum/battery_log.h"
+#include "vellum/covers.h"
 #include "vellum/display_queue.h"
 #include "vellum/document.h"
 #include "vellum/epub.h"
@@ -32,6 +33,9 @@ namespace vellum {
 class App {
  public:
   explicit App(Board& board);
+  ~App();
+  App(const App&) = delete;
+  App& operator=(const App&) = delete;
 
   // Draws the first screen with a full refresh.
   void start();
@@ -90,6 +94,10 @@ class App {
   void sample_battery();
   void save_battery();
 
+  // Book i's cover thumbnail, or nullptr when it has none (or it cannot be
+  // read). Valid until the next call for the same size.
+  const CoverImage* cover_of(int book, bool large);
+
   void open_book(int index);
   void sleep();
   void wake();
@@ -131,6 +139,8 @@ class App {
   bool resume_reader_ = false;  // reopen the current book on start
   Screen before_sleep_ = Screen::Home;
   TransferInfo transfer_info_;
+  CoverImage large_cover_;  // buffers for cover thumbnails, allocated once
+  CoverImage small_cover_;
   BatteryLog battery_;
   uint32_t battery_saved_at_ = 0;  // time of the last sample written to the card
 

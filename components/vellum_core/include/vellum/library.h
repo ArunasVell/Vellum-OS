@@ -2,7 +2,8 @@
 // samples plus every EPUB in the card's "books" folder (and its root).
 //
 // Book details are cached in vellum/library.txt so a restart does not reopen
-// every EPUB; reading positions are kept in vellum/progress.txt.
+// every EPUB; reading positions are kept in vellum/progress.txt. Cover
+// thumbnails are made when a book is first seen (vellum/covers).
 #pragma once
 
 #include <cstdint>
@@ -30,6 +31,7 @@ struct LibraryEntry {
   char author[96] = {};
   char language[16] = {};
   uint32_t file_size = 0;
+  int8_t cover = -1;  // -1 not looked at yet, 0 none, 1 thumbnails on the card (covers::path_for)
   BookState state;
 };
 

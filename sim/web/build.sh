@@ -7,15 +7,17 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 out="$root/build/web"
 mkdir -p "$out"
 
-# Vendored C libraries (miniz's inflater, the QR code generator): compile
+# Vendored C libraries (miniz's inflater, the QR code generator, the JPEG decoder): compile
 # them on their own, then link them in.
 emcc -O2 -w -c "$root/components/vellum_core/third_party/miniz/miniz_tinfl.c" \
   -I"$root/components/vellum_core/third_party/miniz" -o "$out/miniz_tinfl.o"
 emcc -O2 -w -c "$root/components/vellum_core/third_party/qrcodegen/qrcodegen.c" -o "$out/qrcodegen.o"
+emcc -O2 -w -c "$root/components/vellum_core/third_party/tjpgd/tjpgd.c" -o "$out/tjpgd.o"
 
 em++ -O2 -std=c++20 -fno-exceptions -fno-rtti -Wall -Wextra -Werror \
   -I"$root/components/vellum_core/include" -I"$root/components/vellum_core/third_party/miniz" -I"$root/components/vellum_core/third_party/qrcodegen" \
-  "$root/sim/web/web_main.cpp" "$root"/components/vellum_core/src/*.cpp "$root"/components/vellum_core/src/fonts/*.cpp "$root"/components/vellum_core/src/hyphenation/*.cpp "$root"/components/vellum_core/src/books/*.cpp "$out/miniz_tinfl.o" "$out/qrcodegen.o" \
+  -I"$root/components/vellum_core/third_party/tjpgd" -I"$root/components/vellum_core/third_party/stb" \
+  "$root/sim/web/web_main.cpp" "$root"/components/vellum_core/src/*.cpp "$root"/components/vellum_core/src/fonts/*.cpp "$root"/components/vellum_core/src/hyphenation/*.cpp "$root"/components/vellum_core/src/books/*.cpp "$out/miniz_tinfl.o" "$out/qrcodegen.o" "$out/tjpgd.o" \
   -sMODULARIZE=1 -sEXPORT_NAME=VellumCore -sSINGLE_FILE=1 -sSINGLE_FILE_BINARY_ENCODE=0 \
   -sENVIRONMENT=web -sALLOW_MEMORY_GROWTH=1 -sEXPORTED_RUNTIME_METHODS=HEAPU8,FS,ccall -sFORCE_FILESYSTEM=1 -lidbfs.js \
   -o "$out/vellum-core.js"
