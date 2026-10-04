@@ -6,9 +6,26 @@ package file in a subfolder, an href with an escaped space and "../", a
 navigation document outside the reading order with a nested entry that
 links into the middle of a chapter, entities, headings, scripts and line
 breaks. sample-ncx.epub is the same book with an EPUB 2 NCX table of
-contents instead.
+contents instead. sample.epub has a JPEG cover marked the EPUB 3 way;
+sample-ncx.epub a PNG cover named the EPUB 2 way. Needs Pillow.
 """
+import io
 import zipfile
+
+from PIL import Image, ImageDraw
+
+
+def cover(fmt, size):
+    """A test card: white top half, black bottom half, a grey band between."""
+    w, h = size
+    img = Image.new("L", size, 255)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, h // 2, w, h], fill=0)
+    d.rectangle([0, h * 5 // 12, w, h // 2], fill=128)
+    buf = io.BytesIO()
+    img.save(buf, fmt, **({"quality": 85} if fmt == "JPEG" else {}))
+    return buf.getvalue()
+
 
 CONTAINER = """<?xml version="1.0"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
@@ -26,6 +43,7 @@ OPF = """<?xml version="1.0" encoding="utf-8"?>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="css" href="style.css" media-type="text/css"/>
+    <item id="cover-img" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>
     <item id="c1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>
     <item id="c2" href="text/../text/Chapter%202.xhtml" media-type="application/xhtml+xml"/>
   </manifest>
@@ -91,20 +109,24 @@ CH2 = """<html><body><h2>Second</h2><p>Only paragraph.</p></body></html>"""
 
 OPF_NCX = OPF.replace('version="3.0"', 'version="2.0"').replace(
     '<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>',
-    '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>').replace("<spine>", '<spine toc="ncx">')
+    '<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>').replace("<spine>", '<spine toc="ncx">').replace(
+    '<item id="cover-img" href="images/cover.jpg" media-type="image/jpeg" properties="cover-image"/>',
+    '<item id="cover-img" href="images/cover.png" media-type="image/png"/>').replace(
+    "</metadata>", '<meta name="cover" content="cover-img"/></metadata>')
 
 
-def write(name, opf, toc_name, toc):
+def write(name, opf, toc_name, toc, picture_name, picture):
     with zipfile.ZipFile(name, "w") as z:
         z.writestr("mimetype", "application/epub+zip", compress_type=zipfile.ZIP_STORED)
         z.writestr("META-INF/container.xml", CONTAINER, compress_type=zipfile.ZIP_DEFLATED)
         z.writestr("OEBPS/content.opf", opf, compress_type=zipfile.ZIP_DEFLATED)
         z.writestr("OEBPS/" + toc_name, toc, compress_type=zipfile.ZIP_DEFLATED)
         z.writestr("OEBPS/style.css", "p { text-indent: 1em }", compress_type=zipfile.ZIP_STORED)
+        z.writestr("OEBPS/images/" + picture_name, picture, compress_type=zipfile.ZIP_STORED)
         z.writestr("OEBPS/text/ch1.xhtml", CH1, compress_type=zipfile.ZIP_DEFLATED)
         z.writestr("OEBPS/text/Chapter 2.xhtml", CH2, compress_type=zipfile.ZIP_DEFLATED)
     print("wrote", name)
 
 
-write("sample.epub", OPF, "nav.xhtml", NAV)
-write("sample-ncx.epub", OPF_NCX, "toc.ncx", NCX)
+write("sample.epub", OPF, "nav.xhtml", NAV, "cover.jpg", cover("JPEG", (600, 900)))
+write("sample-ncx.epub", OPF_NCX, "toc.ncx", NCX, "cover.png", cover("PNG", (200, 300)))

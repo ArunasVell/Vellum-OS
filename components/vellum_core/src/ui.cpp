@@ -133,7 +133,59 @@ void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total) {
   if (total > 0) fb.fill_rect({x, y - 1, w * std::clamp(done, 0, total) / total, 3}, Color::Black);
 }
 
-void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_view author) {
+void draw_picture(Framebuffer& fb, Rect r, const CoverImage& p) {
+  if (r.w <= 0 || r.h <= 0 || !p.valid()) return;
+  // The part of the picture that fills r at one scale: all of one side,
+  // the middle of the other.
+  int src_w = p.w, src_h = p.h;
+  if (int64_t{p.w} * r.h > int64_t{p.h} * r.w) {
+    src_w = std::max(1, static_cast<int>(int64_t{p.h} * r.w / r.h));
+  } else {
+    src_h = std::max(1, static_cast<int>(int64_t{p.w} * r.h / r.w));
+  }
+  const int src_x = (p.w - src_w) / 2;
+  const int src_y = (p.h - src_h) / 2;
+
+  // Atkinson dithering: it keeps light areas clean and edges crisp, which
+  // suits e-ink. Errors go to the next two rows, kept in three row buffers.
+  constexpr int kMaxW = 512;
+  const int w = std::min(r.w, kMaxW);
+  int16_t rows[3][kMaxW + 4] = {};
+  for (int y = 0; y < r.h; ++y) {
+    int16_t* cur = rows[y % 3];
+    int16_t* next = rows[(y + 1) % 3];
+    int16_t* after = rows[(y + 2) % 3];
+    const int sy0 = src_y + static_cast<int>(int64_t{y} * src_h / r.h);
+    const int sy1 = std::max(sy0 + 1, src_y + static_cast<int>(int64_t{y + 1} * src_h / r.h));
+    for (int x = 0; x < w; ++x) {
+      // Average the source pixels this one covers.
+      const int sx0 = src_x + static_cast<int>(int64_t{x} * src_w / r.w);
+      const int sx1 = std::max(sx0 + 1, src_x + static_cast<int>(int64_t{x + 1} * src_w / r.w));
+      uint32_t sum = 0;
+      for (int sy = sy0; sy < sy1; ++sy) {
+        for (int sx = sx0; sx < sx1; ++sx) sum += p.px[sy * p.w + sx];
+      }
+      const int v = static_cast<int>(sum / static_cast<uint32_t>((sy1 - sy0) * (sx1 - sx0))) + cur[x + 2];
+      const bool white = v >= 128;
+      fb.set_pixel(r.x + x, r.y + y, white ? Color::White : Color::Black);
+      const int16_t e = static_cast<int16_t>((v - (white ? 255 : 0)) / 8);
+      cur[x + 3] += e;
+      cur[x + 4] += e;
+      next[x + 1] += e;
+      next[x + 2] += e;
+      next[x + 3] += e;
+      after[x + 2] += e;
+    }
+    std::fill_n(cur, kMaxW + 4, int16_t{0});  // becomes the row after next
+  }
+}
+
+void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_view author, const CoverImage* picture) {
+  if (picture != nullptr && picture->valid()) {
+    draw_picture(fb, r, *picture);
+    fb.draw_rect(r, Color::Black, 1);  // a hairline keeps light covers apart from the page
+    return;
+  }
   const int style = static_cast<int>(hash(title) % 3);  // 0 framed, 1 ink, 2 banded
   const bool ink = style == 1;
   const Color bg = ink ? Color::Black : Color::White;
@@ -183,13 +235,14 @@ void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_vie
            author, f, fg);
 }
 
-void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected) {
+void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected,
+                   const CoverImage* picture) {
   const Color fg = selected ? Color::White : Color::Black;
   if (selected) fb.fill_round_rect(r, 10, Color::Black);
 
   const Rect cover{r.x + 12, r.y + (r.h - 60) / 2, 42, 60};
   if (selected) fb.fill_rect({cover.x - 2, cover.y - 2, cover.w + 4, cover.h + 4}, Color::White);
-  draw_cover(fb, cover, book.title, book.author);
+  draw_cover(fb, cover, book.title, book.author, picture);
 
   const BookState& state = book.state;
   char status[32];

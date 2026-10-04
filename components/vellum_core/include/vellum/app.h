@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vellum/battery_log.h"
+#include "vellum/covers.h"
 #include "vellum/display_queue.h"
 #include "vellum/document.h"
 #include "vellum/epub.h"
@@ -28,6 +29,9 @@ namespace vellum {
 // the left third or swipe right to go back, the right third or swipe left
 // to go forward, the middle for the contents. Swipes page through lists.
 //
+// Settings › Device check shows every button press and touch, and what the
+// board reports (battery, clock, card), for trying out new hardware.
+//
 // A book's Contents can send it to another Vellum nearby (Board::peers);
 // the other one receives while its "Add books" screen is open.
 //
@@ -36,6 +40,9 @@ namespace vellum {
 class App {
  public:
   explicit App(Board& board);
+  ~App();
+  App(const App&) = delete;
+  App& operator=(const App&) = delete;
 
   // Draws the first screen with a full refresh.
   void start();
@@ -51,9 +58,9 @@ class App {
   void timeout();
 
  private:
-  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery, Send };
+  enum class Screen : uint8_t { Home, Library, Settings, Reader, Transfer, Contents, Battery, Light, Check, Send };
   // One line of the contents screen.
-  enum class ContentsRow : uint8_t { Back, Mark, Send, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
+  enum class ContentsRow : uint8_t { Back, Mark, Light, Send, BookmarksLabel, Bookmark, ChaptersLabel, Chapter };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
   static constexpr int kHomeRows = 2;     // other books listed under the current one
@@ -94,6 +101,10 @@ class App {
   void sample_battery();
   void save_battery();
 
+  // Book i's cover thumbnail, or nullptr when it has none (or it cannot be
+  // read). Valid until the next call for the same size.
+  const CoverImage* cover_of(int book, bool large);
+
   void open_book(int index);
   void sleep();
   void wake();
@@ -107,6 +118,18 @@ class App {
   void draw_transfer();
   void draw_contents();
   void draw_battery();
+  // Front light: brightness and warmth, applied as they change.
+  void open_light(Screen back);
+  void close_light();
+  void apply_light();
+  void draw_light();
+  // Sets the selected light slider from a tap at x; false when x is off it.
+  bool light_tap(int x, int y);
+  // The device check: every button and touch shows on screen, with what
+  // the board reports about itself. Takes all key and touch events.
+  void open_check();
+  bool check_event(const InputEvent& ev);
+  void draw_check();
   // Sending the open book to another reader, and receiving on "Add books".
   bool can_send() const;
   void open_send();
@@ -137,6 +160,8 @@ class App {
   int library_sel_ = 0;
   int settings_sel_ = 0;
   int contents_sel_ = 0;
+  int light_sel_ = 0;  // 0 brightness, 1 warmth, 2 done
+  Screen light_back_ = Screen::Settings;
   int contents_marks_[Library::kMaxBookmarks] = {};  // the open book's bookmarks, in order
   int contents_mark_count_ = 0;
   TransferState transfer_state_ = TransferState::Off;
@@ -145,8 +170,18 @@ class App {
   bool resume_reader_ = false;  // reopen the current book on start
   Screen before_sleep_ = Screen::Home;
   TransferInfo transfer_info_;
+  CoverImage large_cover_;  // buffers for cover thumbnails, allocated once
+  CoverImage small_cover_;
   BatteryLog battery_;
   uint32_t battery_saved_at_ = 0;  // time of the last sample written to the card
+  struct CheckState {
+    uint8_t pressed = 0;  // bit per Key: pressed at least once
+    uint8_t down = 0;     // bit per Key: down now
+    bool touched = false;
+    bool finger = false;     // a finger is on the screen now
+    int16_t x = 0, y = 0;    // last touch, logical
+    int16_t px = 0, py = 0;  // the same, as the panel reports it
+  } check_;
   PeerSender sender_;
   PeerReceiver receiver_;
   int send_sel_ = 0;

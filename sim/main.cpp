@@ -317,6 +317,21 @@ class SimClock : public vellum::Clock {
   const Options& opt_;
 };
 
+// Prints front light changes; the window does not glow.
+class SimFrontlight : public vellum::Frontlight {
+ public:
+  void set(uint8_t level, uint8_t warmth) override {
+    if (level == level_ && warmth == warmth_) return;
+    level_ = level;
+    warmth_ = warmth;
+    std::printf("front light %d/255, warmth %d/255\n", level, warmth);
+  }
+
+ private:
+  int level_ = -1;
+  int warmth_ = -1;
+};
+
 // Shows the "Add books" screen as the device would; there is no real
 // network here. Copy books into the card folder's books/ instead.
 class SimTransfer : public vellum::Transfer {
@@ -373,6 +388,7 @@ int main(int argc, char** argv) {
   SimInput input(opt);
   SimPower power(opt.battery);
   SimClock clock(opt);
+  SimFrontlight light;
   // Static so it outlives the app run() keeps, which may still hold a book open at exit.
   static vellum::StdioStorage card(opt.card.c_str());
   SimTransfer transfer;
@@ -382,7 +398,7 @@ int main(int argc, char** argv) {
                       display,
                       input,
                       power,
-                      nullptr,
+                      &light,
                       &clock,
                       opt.card.empty() ? nullptr : &card,
                       vellum::Rotation::R90,

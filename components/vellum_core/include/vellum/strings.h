@@ -88,6 +88,29 @@ struct Strings {
   const char* per_day;      // printf: a number such as "0.8"
   const char* clock_unset;  // why there is no history yet
   const char* hint_battery;
+  // Front light
+  const char* front_light;  // settings row, contents row and screen title
+  const char* brightness;
+  const char* warmth;
+  const char* cool;  // the warmth slider's two ends
+  const char* warm;
+  const char* done;
+  const char* hint_light;
+  // Device check
+  const char* device_check;   // settings row and screen title
+  const char* buttons_label;  // uppercase label
+  const char* key_names[4];   // Prev, Next, Home, Power
+  const char* touch_label;    // uppercase label
+  const char* touch_here;
+  const char* about_label;  // uppercase label
+  const char* device;
+  const char* screen;
+  const char* memory_card;
+  const char* wifi;
+  const char* present;
+  const char* missing;
+  const char* not_set;
+  const char* hint_check;
   // Sending books reader to reader
   const char* send_book;     // contents row
   const char* send_title;    // screen title
