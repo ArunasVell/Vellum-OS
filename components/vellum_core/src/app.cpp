@@ -32,8 +32,8 @@ constexpr int kSubtitleBase = 142;
 constexpr int kListTop = 160;
 constexpr int kSettingsTitleBase = 104;
 constexpr int kSettingsTop = 116;
-constexpr int kSectionGap = 38;  // uppercase section label above a group of rows
-constexpr int kSettingRowHeight = 40;
+constexpr int kSectionGap = 32;  // uppercase section label above a group of rows
+constexpr int kSettingRowHeight = 36;
 
 // Sleep screen geometry.
 constexpr int kSleepCoverTop = 120;
@@ -60,6 +60,16 @@ constexpr int kLightTop = 156;    // first slider block
 constexpr int kLightBlock = 130;  // one slider: name, value, track and end labels
 constexpr int kLightTrack = 72;   // track, below the block's top
 constexpr int kKnob = 16;
+// Device check geometry.
+constexpr int kKeysLabelBase = 152;
+constexpr int kKeysTop = 166;
+constexpr int kKeyHeight = 56;
+constexpr int kTouchLabelBase = 258;
+constexpr int kTouchTop = 272;
+constexpr int kTouchHeight = 130;
+constexpr int kAboutLabelBase = 444;
+constexpr int kAboutRowHeight = 34;
+constexpr int kCorner = 14;  // marks in the screen's corners
 
 // "Add books" geometry.
 constexpr int kTransferTop = 192;  // baseline of the first step label
@@ -87,7 +97,7 @@ void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
 }
 
 // A 2 px line; dotted lines leave every other pair of pixels out.
-void draw_line(Framebuffer& fb, int x0, int y0, int x1, int y1, bool dotted) {
+void draw_line(Framebuffer& fb, int x0, int y0, int x1, int y1, bool dotted, Color c = Color::Black) {
   const int dx = x1 > x0 ? x1 - x0 : x0 - x1;
   const int dy = y1 > y0 ? y0 - y1 : y1 - y0;
   const int sx = x0 < x1 ? 1 : -1;
@@ -95,8 +105,8 @@ void draw_line(Framebuffer& fb, int x0, int y0, int x1, int y1, bool dotted) {
   int err = dx + dy;
   for (int step = 0;; ++step) {
     if (!dotted || step % 4 < 2) {
-      fb.set_pixel(x0, y0, Color::Black);
-      fb.set_pixel(x0, y0 + 1, Color::Black);
+      fb.set_pixel(x0, y0, c);
+      fb.set_pixel(x0, y0 + 1, c);
     }
     if (x0 == x1 && y0 == y1) break;
     const int e2 = 2 * err;
@@ -120,6 +130,7 @@ enum class Row : uint8_t {
   SleepAfter,
   Light,    // opens the front light screen
   Battery,  // opens the battery screen
+  Check,    // opens the device check
   TextSize,
   LineSpacing,
   WordSpacing,
@@ -127,11 +138,11 @@ enum class Row : uint8_t {
   Alignment,
   Hyphenation
 };
-constexpr Row kRows[] = {Row::Language, Row::Clock,     Row::SleepAfter,  Row::Light,
-                         Row::Battery,  Row::TextSize,  Row::LineSpacing, Row::WordSpacing,
-                         Row::Margins,  Row::Alignment, Row::Hyphenation};
+constexpr Row kRows[] = {Row::Language,    Row::Clock,   Row::SleepAfter, Row::Light,
+                         Row::Battery,     Row::Check,   Row::TextSize,   Row::LineSpacing,
+                         Row::WordSpacing, Row::Margins, Row::Alignment,  Row::Hyphenation};
 constexpr int kRowCount = sizeof(kRows) / sizeof(kRows[0]);
-constexpr int kGeneralRows = 5;  // rows before the reading section
+constexpr int kGeneralRows = 6;  // rows before the reading section
 
 int value_count(Row r) {
   switch (r) {
@@ -169,6 +180,7 @@ int get(const Settings& s, Row r) {
       return s.hyphenate ? 0 : 1;
     case Row::Light:
     case Row::Battery:
+    case Row::Check:
       break;
   }
   return 0;
@@ -205,6 +217,7 @@ void set(Settings& s, Row r, int v) {
       break;
     case Row::Light:
     case Row::Battery:
+    case Row::Check:
       break;
   }
 }
@@ -233,6 +246,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.front_light;
     case Row::Battery:
       return t.battery;
+    case Row::Check:
+      return t.device_check;
   }
   return "";
 }
@@ -258,6 +273,7 @@ const char* value_name(const Strings& t, Row r, int v) {
       return v == 0 ? t.on : t.off;
     case Row::Light:
     case Row::Battery:
+    case Row::Check:
       break;
   }
   return "";
@@ -459,7 +475,7 @@ void App::draw_settings() {
   int y = kSettingsTop;
   for (int i = 0; i < kRowCount; ++i) {
     if (i == 0 || i == kGeneralRows) {
-      ui::draw_label(fb_, kSide, y + 26, i == 0 ? t.general_label : t.reading_label);
+      ui::draw_label(fb_, kSide, y + 24, i == 0 ? t.general_label : t.reading_label);
       y += kSectionGap;
     }
     const Row row = kRows[i];
@@ -467,7 +483,7 @@ void App::draw_settings() {
     const Rect r = row_rect(fb_, y, kSettingRowHeight);
     add_hit(r, i);
     const Color fg = highlight(fb_, r, selected);
-    const int base = r.y + 28;
+    const int base = r.y + 26;
     draw_text(fb_, fonts::literata_20, (r.x + kPad) * 64, base, row_name(t, row), fg);
     if (row == Row::Light) {
       char level[24];
@@ -484,6 +500,8 @@ void App::draw_settings() {
         std::snprintf(level, sizeof(level), "%d%% \xE2\x80\xBA", percent);
       }
       ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, level, fg);
+    } else if (row == Row::Check) {
+      ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, "\xE2\x80\xBA", fg);  // ›
     } else {
       ui::draw_right(fb_, fonts::literata_20, r.x + r.w - kPad, base, value_name(t, row, get(settings_, row)), fg);
     }
@@ -509,6 +527,7 @@ void App::settings_activate() {
   const Row row = kRows[settings_sel_];
   if (row == Row::Battery) return show(Screen::Battery);
   if (row == Row::Light) return open_light(Screen::Settings);
+  if (row == Row::Check) return open_check();
   set(settings_, row, (get(settings_, row) + 1) % value_count(row));
   if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
 }
@@ -1101,6 +1120,9 @@ void App::draw() {
     case Screen::Light:
       draw_light();
       break;
+    case Screen::Check:
+      draw_check();
+      break;
     case Screen::Reader:
       break;
   }
@@ -1184,6 +1206,171 @@ void App::draw_sleep() {
   ui::draw_hint(fb_, t.wake_hint);
 }
 
+// ---- Device check ------------------------------------------------------------
+
+void App::open_check() {
+  check_ = {};
+  show(Screen::Check);
+}
+
+// Returns true when the screen needs a redraw.
+bool App::check_event(const InputEvent& ev) {
+  const uint8_t bit = static_cast<uint8_t>(1u << static_cast<int>(ev.key));
+  switch (ev.type) {
+    case InputEvent::Type::KeyDown:
+      if (ev.key == Key::Home && (check_.pressed & bit) != 0) {
+        show(Screen::Settings);  // the second Home press leaves
+        return false;
+      }
+      if (ev.key == Key::Power) power_held_ = true;  // holding it still sleeps
+      check_.pressed |= bit;
+      check_.down |= bit;
+      return true;
+    case InputEvent::Type::KeyUp:
+      if (ev.key == Key::Power) {
+        if (!power_held_) return false;  // it slept and woke
+        power_held_ = false;
+        check_.down &= static_cast<uint8_t>(~bit);
+        draw();
+        queue_.submit_full();  // Power also tests the full refresh
+        return false;
+      }
+      check_.down &= static_cast<uint8_t>(~bit);
+      return true;
+    case InputEvent::Type::TouchDown:
+    case InputEvent::Type::TouchMove: {
+      int x, y;
+      fb_.to_logical(ev.x, ev.y, x, y);
+      check_.touched = check_.finger = true;
+      check_.x = static_cast<int16_t>(x);
+      check_.y = static_cast<int16_t>(y);
+      check_.px = ev.x;
+      check_.py = ev.y;
+      return true;
+    }
+    case InputEvent::Type::TouchUp:
+      check_.finger = false;
+      return true;
+    default:
+      return false;
+  }
+}
+
+void App::draw_check() {
+  const int w = fb_.width();
+  const int h = fb_.height();
+  const Strings& t = text();
+  draw_text(fb_, fonts::literata_italic_40, kSide * 64, kTitleBase, t.device_check);
+
+  // Marks in the four corners: all four visible means nothing is cut off.
+  for (int i = 0; i < kCorner; ++i) {
+    const int len = kCorner - i;
+    fb_.hline(0, i, len, Color::Black);
+    fb_.hline(w - len, i, len, Color::Black);
+    fb_.hline(0, h - 1 - i, len, Color::Black);
+    fb_.hline(w - len, h - 1 - i, len, Color::Black);
+  }
+
+  // One box per button: black while held, ticked once it has worked.
+  ui::draw_label(fb_, kSide, kKeysLabelBase, t.buttons_label);
+  constexpr int kKeys = 4;
+  constexpr int kGap = 8;
+  const int key_w = (w - 2 * kSide - (kKeys - 1) * kGap) / kKeys;
+  for (int k = 0; k < kKeys; ++k) {
+    const Rect r{kSide + k * (key_w + kGap), kKeysTop, key_w, kKeyHeight};
+    const bool down = (check_.down >> k) & 1;
+    const bool done = (check_.pressed >> k) & 1;
+    Color fg = Color::Black;
+    if (down) {
+      fb_.fill_round_rect(r, 8, Color::Black);
+      fg = Color::White;
+    } else {
+      fb_.fill_round_rect(r, 8, Color::Black);
+      fb_.fill_round_rect({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, 6, Color::White);
+    }
+    const char* name = t.key_names[k];
+    const int name_w = text_width(fonts::literata_16, name) / 64;
+    draw_text(fb_, fonts::literata_16, (r.x + (r.w - name_w) / 2) * 64, r.y + 24, name, fg);
+    if (done) {
+      // A tick, three pixels thick (each line is two).
+      const int cx = r.x + r.w / 2;
+      const int cy = r.y + 40;
+      for (int d = 0; d < 2; ++d) {
+        draw_line(fb_, cx - 9, cy + d, cx - 3, cy + 6 + d, false, fg);
+        draw_line(fb_, cx - 3, cy + 6 + d, cx + 9, cy - 6 + d, false, fg);
+      }
+    }
+  }
+
+  // Touch: the last point, where the finger was and as the panel saw it.
+  ui::draw_label(fb_, kSide, kTouchLabelBase, t.touch_label);
+  const Rect box{kSide, kTouchTop, w - 2 * kSide, kTouchHeight};
+  fb_.draw_rect(box, Color::Black);
+  if (!check_.touched) {
+    ui::draw_wrapped(fb_, fonts::literata_20, box.x + 16, box.y + 50, box.w - 32, 2, t.touch_here, false);
+  } else {
+    char where[64];
+    std::snprintf(where, sizeof(where), "x %d  y %d", check_.x, check_.y);
+    draw_text(fb_, fonts::literata_20, (box.x + 16) * 64, box.y + 34, where);
+    std::snprintf(where, sizeof(where), "(%d, %d)", check_.px, check_.py);
+    draw_text(fb_, fonts::literata_16, (box.x + 16) * 64, box.y + 60, where);
+  }
+  if (check_.touched) {
+    // Crosshair where the finger is (or was), across the whole screen.
+    const int x = check_.x;
+    const int y = check_.y;
+    for (int i = -24; i <= 24; ++i) {
+      if (i > -5 && i < 5) continue;
+      for (int d = 0; d < 2; ++d) {
+        if (x + i >= 0 && x + i < w && y + d >= 0 && y + d < h) fb_.set_pixel(x + i, y + d, Color::Black);
+        if (y + i >= 0 && y + i < h && x + d >= 0 && x + d < w) fb_.set_pixel(x + d, y + i, Color::Black);
+      }
+    }
+    if (check_.finger) fb_.fill_round_rect({x - 4, y - 4, 10, 10}, 5, Color::Black);
+  }
+
+  // What the board says about itself.
+  ui::draw_label(fb_, kSide, kAboutLabelBase, t.about_label);
+  char screen[32], battery[48], clock[32], card[32];
+  std::snprintf(screen, sizeof(screen), "%d \xC3\x97 %d", board_.display.width(), board_.display.height());  // ×
+  const int level = board_.power.battery_percent();
+  if (level >= 0) {
+    std::snprintf(battery, sizeof(battery), "%d%% \xC2\xB7 %s", level,
+                  board_.power.charging() ? t.charging : t.on_battery);
+  } else {
+    std::snprintf(battery, sizeof(battery), "%s", t.missing);
+  }
+  DateTime now;
+  if (board_.clock != nullptr && board_.clock->now(now)) {
+    std::snprintf(clock, sizeof(clock), "%04u-%02u-%02u %02u:%02u", now.year, now.month, now.day, now.hour, now.minute);
+  } else {
+    std::snprintf(clock, sizeof(clock), "%s", board_.clock == nullptr ? t.missing : t.not_set);
+  }
+  if (board_.storage != nullptr) {
+    int books = 0;
+    for (int i = 0; i < library_.count(); ++i) books += library_.entry(i).builtin == nullptr ? 1 : 0;
+    format_book_count(settings_.language, books, card, sizeof(card));
+  } else {
+    std::snprintf(card, sizeof(card), "%s", t.missing);
+  }
+  const char* names[] = {t.device, t.screen, t.battery, t.clock, t.memory_card, t.front_light, t.wifi};
+  const char* values[] = {board_.name,
+                          screen,
+                          battery,
+                          clock,
+                          card,
+                          board_.frontlight != nullptr ? t.present : t.missing,
+                          board_.transfer != nullptr ? t.present : t.missing};
+  for (int i = 0; i < 7; ++i) {
+    const int y = kAboutLabelBase + 10 + i * kAboutRowHeight;
+    if (i > 0) dotted_rule(fb_, y);
+    draw_text(fb_, fonts::literata_16, kSide * 64, y + 25, names[i]);
+    ui::draw_right(fb_, fonts::literata_16, w - kSide, y + 25, values[i]);
+  }
+
+  ui::draw_hint(fb_, t.hint_check);
+}
+
 // ---- Input -------------------------------------------------------------------
 
 bool App::handle(const InputEvent& ev) {
@@ -1191,6 +1378,13 @@ bool App::handle(const InputEvent& ev) {
   if (asleep_) {
     if (ev.type == InputEvent::Type::Quit) return false;
     if (ev.type == InputEvent::Type::KeyDown) wake();  // its release is ignored
+    return true;
+  }
+  if (screen_ == Screen::Check && ev.type != InputEvent::Type::Quit) {
+    if (check_event(ev)) {
+      draw();
+      queue_.submit();
+    }
     return true;
   }
   switch (ev.type) {
@@ -1294,6 +1488,8 @@ bool App::handle_key(Key key) {
       apply_light();
       return true;
     }
+    case Screen::Check:
+      return false;  // check_event() takes its keys
     case Screen::Transfer:
       break;  // only Home leaves it
   }
@@ -1372,6 +1568,7 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Transfer:
     case Screen::Battery:
     case Screen::Light:
+    case Screen::Check:
       break;
   }
   return false;

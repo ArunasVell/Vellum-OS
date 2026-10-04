@@ -244,8 +244,8 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint :
-         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery, t.hint_light}) {
+    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead,
+                             t.hint_battery, t.hint_light, t.hint_check}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -1080,6 +1080,50 @@ void test_covers() {
   CHECK(f.fb.pixel(r.x - 1, r.y + r.h - 2) == Color::White);  // nothing drawn outside
 }
 
+void test_app_device_check() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  Board board{"test", panel, input, power, nullptr, nullptr, nullptr, Rotation::R90, buf.data()};
+  Framebuffer view(buf.data(), kW, kH);
+  view.set_rotation(Rotation::R90);
+  // The touch box's left edge runs down the side margin (28); on Settings a
+  // highlighted row starts further left.
+  auto on_check = [&] { return view.pixel(28, 340) == Color::Black && view.pixel(26, 340) == Color::White; };
+  auto* app = new App(board);
+  app->start();
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
+  press(*app, Key::Power);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Language, Clock, Sleep after, Light, Battery: Device check
+  CHECK(!on_check());
+  press(*app, Key::Power);
+  CHECK(on_check());
+
+  // Buttons and touch only show themselves; so does the first Home press.
+  press(*app, Key::Next);
+  press(*app, Key::Prev);
+  press(*app, Key::Home);
+  CHECK(on_check());
+  CHECK(view.pixel(240 + 12, 700) == Color::White);
+  tap(*app, 240, 700);
+  CHECK(view.pixel(240 + 12, 700) == Color::Black);  // crosshair where the finger was
+  CHECK(view.pixel(240, 700 - 12) == Color::Black);
+  const int full = panel.full;
+  press(*app, Key::Power);  // cleans the screen with a full refresh
+  CHECK(panel.full == full + 1 && on_check());
+
+  press(*app, Key::Home);  // Home a second time: back to Settings
+  CHECK(!on_check());
+  press(*app, Key::Power);  // reopened fresh: one Home press stays
+  CHECK(on_check());
+  press(*app, Key::Home);
+  CHECK(on_check());
+  press(*app, Key::Home);
+  CHECK(!on_check());
+  delete app;
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -1109,6 +1153,7 @@ int main() {
   test_dates_and_battery_log();
   test_app_battery_log();
   test_app_front_light();
+  test_app_device_check();
   test_reader_crosses_chapters();
   test_reading_style_changes_layout();
   if (failures) {
