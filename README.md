@@ -67,6 +67,14 @@ sim/web/build.sh   # writes build/web/vellum-simulator.html
 
 Drop EPUB files on the page to add them to the library. The page keeps its card in the browser (IndexedDB), so books, settings and progress are still there next time.
 
+## Install on your X4 Pro
+
+Every release has a file `vellum-install-<version>.html`. Download it, open it in **Chrome or Edge** on a computer (double-clicking the downloaded file is fine; it needs no internet), connect the reader with its USB cable and follow the three steps on the page: save the original software, install Vellum, and (whenever you like) go back to the original. The page is in English and Lithuanian, explains how to put the reader in download mode if it will not connect, and has a **Show log** panel that shows what the reader prints, ready to copy into a bug report.
+
+Then go through [docs/first-day-tests.md](docs/first-day-tests.md), the checklist for a reader's first day with Vellum.
+
+The page is made by `tools/make_installer.py` from a firmware build (`python3 tools/make_installer.py build`), which puts the firmware images and [esptool-js](https://github.com/espressif/esptool-js) (Apache 2.0, pinned and checksum-checked) inside the one file; CI attaches it to each release. Web Serial needs a secure page, and Chrome counts a file opened from disk as one. Installing over other software also wipes the small settings area (NVS), where the original software keeps its own settings; reinstalling over Vellum keeps it (home Wi-Fi, paired readers).
+
 ## Firmware
 
 Needs [ESP-IDF v6.1](https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32s3/get-started/).
