@@ -86,6 +86,27 @@ Color Framebuffer::pixel(int x, int y) const {
   return (byte & (0x80 >> (px & 7))) ? Color::White : Color::Black;
 }
 
+void Framebuffer::draw_mask(int x, int y, int w, int h, const uint8_t* mask, uint8_t threshold, Color c) {
+  const Rect clip = Rect{x, y, w, h}.intersected({0, 0, width(), height()});
+  if (clip.empty()) return;
+  const bool white = c == Color::White;
+  bool drawn = false;
+  for (int row = clip.y - y; row < clip.y - y + clip.h; ++row) {
+    for (int col = clip.x - x; col < clip.x - x + clip.w; ++col) {
+      const size_t i = static_cast<size_t>(row) * w + col;
+      const uint8_t level = (mask[i >> 2] >> (6 - 2 * (i & 3))) & 3;
+      if (level < threshold) continue;
+      int px, py;
+      to_physical(x + col, y + row, px, py);
+      uint8_t& byte = buf_[static_cast<size_t>(py) * stride_ + (px >> 3)];
+      const uint8_t bit = 0x80 >> (px & 7);
+      byte = white ? (byte | bit) : (byte & ~bit);
+      drawn = true;
+    }
+  }
+  if (drawn) dirty_ = dirty_.united(to_physical(clip));
+}
+
 void Framebuffer::fill_rect(Rect r, Color c) {
   r = r.intersected({0, 0, width(), height()});
   if (r.empty()) return;

@@ -2,8 +2,10 @@
 #include <cstdio>
 #include <vector>
 
+#include "vellum/book.h"
 #include "vellum/display_queue.h"
 #include "vellum/framebuffer.h"
+#include "vellum/text.h"
 
 using namespace vellum;
 
@@ -106,6 +108,60 @@ void test_display_queue_cadence() {
   CHECK(f.fb.dirty().empty());
 }
 
+void test_utf8() {
+  const std::string_view s = "a\xC4\x85\xE2\x80\x94\xF0\x9F\x93\x96\xFF\xE2\x80";
+  size_t i = 0;
+  CHECK(decode_utf8(s, i) == 'a');
+  CHECK(decode_utf8(s, i) == 0x0105);  // ą
+  CHECK(decode_utf8(s, i) == 0x2014);  // em dash
+  CHECK(decode_utf8(s, i) == 0x1F4D6);
+  CHECK(decode_utf8(s, i) == 0xFFFD);  // stray byte
+  CHECK(decode_utf8(s, i) == 0xFFFD);  // truncated sequence
+  CHECK(i < s.size());
+  while (i < s.size()) decode_utf8(s, i);
+  CHECK(i == s.size());
+}
+
+void test_font_lookup_and_kerning() {
+  const Font& f = fonts::literata_26;
+  CHECK(f.glyphs[f.find('A')].codepoint == 'A');
+  CHECK(f.glyphs[f.find(0x0117)].codepoint == 0x0117);  // ė, for Lithuanian
+  CHECK(f.find(0x4E00) == f.fallback);
+  CHECK(f.kern(f.find('A'), f.find('V')) < 0);
+  CHECK(text_width(f, "AV") < text_width(f, "A") + text_width(f, "V"));
+  CHECK(text_width(f, "") == 0);
+}
+
+void test_pagination_covers_text_once() {
+  const Book& book = sample_book();
+  const PageStyle style{&fonts::literata_26, {28, 70, 424, 660}, 26};
+  TextPos pos{};
+  int pages = 0;
+  while (pos.paragraph < book.paragraph_count && pages < 1000) {
+    const TextPos next = typeset_page(style, book.paragraphs, book.paragraph_count, pos, nullptr);
+    CHECK(next.paragraph > pos.paragraph || (next.paragraph == pos.paragraph && next.offset > pos.offset));
+    pos = next;
+    ++pages;
+  }
+  CHECK(pos == (TextPos{book.paragraph_count, 0}));
+  CHECK(pages > 5 && pages < 100);
+
+  // Drawing a page stops at the same place as measuring it, and stays inside its area.
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  f.fb.clear(Color::White);
+  f.fb.clear_dirty();
+  const TextPos measured = typeset_page(style, book.paragraphs, book.paragraph_count, {}, nullptr);
+  CHECK(typeset_page(style, book.paragraphs, book.paragraph_count, {}, &f.fb) == measured);
+  for (int y = 0; y < f.fb.height(); ++y) {
+    for (int x = 0; x < f.fb.width(); ++x) {
+      const bool inside = x >= style.area.x - 2 && x < style.area.x + style.area.w + 2 && y >= style.area.y &&
+                          y < style.area.y + style.area.h;
+      if (!inside) CHECK(f.fb.pixel(x, y) == Color::White);
+    }
+  }
+}
+
 }  // namespace
 
 int main() {
@@ -113,6 +169,9 @@ int main() {
   test_fill_rect_matches_set_pixel();
   test_fill_rect_clips();
   test_display_queue_cadence();
+  test_utf8();
+  test_font_lookup_and_kerning();
+  test_pagination_covers_text_once();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;

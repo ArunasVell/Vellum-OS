@@ -5,6 +5,12 @@ set(VELLUM_CORE_SRCS
   src/app.cpp
   src/display_queue.cpp
   src/framebuffer.cpp
+  src/sample_book.cpp
+  src/text.cpp
+  src/fonts/literata_20.cpp
+  src/fonts/literata_26.cpp
+  src/fonts/literata_italic_20.cpp
+  src/fonts/literata_italic_26.cpp
 )
 
 if(ESP_PLATFORM)

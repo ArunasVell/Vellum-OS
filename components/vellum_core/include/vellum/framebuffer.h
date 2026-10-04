@@ -58,6 +58,11 @@ class Framebuffer {
   void hline(int x, int y, int w, Color c) { fill_rect({x, y, w, 1}, c); }
   void vline(int x, int y, int h, Color c) { fill_rect({x, y, 1, h}, c); }
 
+  // Draws a 2-bit coverage mask (4 pixels per byte, MSB first, rows packed
+  // back to back) with its top-left corner at (x, y). Pixels whose coverage
+  // is at least `threshold` (1..3) are set to `c`; the rest are left as is.
+  void draw_mask(int x, int y, int w, int h, const uint8_t* mask, uint8_t threshold, Color c);
+
   // Changed area since the last clear_dirty(), in physical coordinates.
   Rect dirty() const { return dirty_; }
   void clear_dirty() { dirty_ = {}; }
