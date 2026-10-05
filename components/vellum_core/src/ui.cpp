@@ -193,7 +193,8 @@ void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_vie
   const Color bg = ink ? Color::Black : Color::White;
   const Color fg = ink ? Color::White : Color::Black;
   const bool large = r.w >= 100;
-  const int inset = large ? 7 : 4;
+  const bool page = r.w >= 400;  // the whole screen (sleep): bigger type, wider margins
+  const int inset = page ? 18 : large ? 7 : 4;
   const Rect inner{r.x + inset, r.y + inset, r.w - 2 * inset, r.h - 2 * inset};
 
   fb.fill_rect(r, bg);
@@ -226,15 +227,16 @@ void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_vie
 
   const int text_x = inner.x + 4;
   const int text_w = inner.w - 8;
-  const Font& cover_title = small_italic_font();
+  const Font& cover_title = page ? screen_title_font() : small_italic_font();
   const int after = draw_wrapped(fb, cover_title, text_x, inner.y + band + inner.h / 8 + cover_title.ascent, text_w, 5,
                                  title, true, fg);
-  fb.hline(r.x + r.w / 2 - 10, after - cover_title.line_height + 18, 20, fg);
-  const Font& author_font = label_font();
+  const int rule = page ? 40 : 20;
+  fb.hline(r.x + (r.w - rule) / 2, after - cover_title.line_height + (page ? 44 : 18), rule, fg);
+  const Font& author_font = page ? text_font() : label_font();
   const int author_w = inner.w - 4;
   const Fit f = fit(author_font, author, author_w);
-  draw_fit(fb, author_font, inner.x + 2 + (author_w - fit_width_px(author_font, author, f)) / 2, inner.y + inner.h - 14,
-           author, f, fg);
+  draw_fit(fb, author_font, inner.x + 2 + (author_w - fit_width_px(author_font, author, f)) / 2,
+           inner.y + inner.h - (page ? 48 : 14), author, f, fg);
 }
 
 void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected,

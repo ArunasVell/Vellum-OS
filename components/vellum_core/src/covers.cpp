@@ -48,37 +48,45 @@ void fit(int w, int h, int max_w, int max_h, int& out_w, int& out_h) {
 }
 
 // Area-averages source pixels into a thumbnail as they arrive, in any order.
+// Every source pixel arrives once, so how many fall on a thumbnail pixel is
+// its column's count times its row's: no count per pixel is kept.
 struct Shrinker {
   int src_w = 0, src_h = 0;  // the (possibly descaled) decoded size
   int w = 0, h = 0;          // the thumbnail
   uint32_t* sum = nullptr;   // per thumbnail pixel
-  uint16_t* count = nullptr;
 
-  void add(int x, int y, uint8_t v) {
+  void start() const { std::fill_n(sum, w * h, 0u); }
+  void add(int x, int y, uint8_t v) const {
     const int tx = static_cast<int>(int64_t{x} * w / src_w);
     const int ty = static_cast<int>(int64_t{y} * h / src_h);
-    const int i = ty * w + tx;
-    sum[i] += v;
-    ++count[i];
+    sum[ty * w + tx] += v;
   }
   void finish(uint8_t* out) const {
-    for (int i = 0; i < w * h; ++i) out[i] = count[i] ? static_cast<uint8_t>(sum[i] / count[i]) : 255;
+    static uint32_t cols[kLargeW], rows[kLargeH];
+    std::fill_n(cols, w, 0u);
+    std::fill_n(rows, h, 0u);
+    for (int x = 0; x < src_w; ++x) ++cols[static_cast<int>(int64_t{x} * w / src_w)];
+    for (int y = 0; y < src_h; ++y) ++rows[static_cast<int>(int64_t{y} * h / src_h)];
+    for (int ty = 0; ty < h; ++ty) {
+      for (int tx = 0; tx < w; ++tx) {
+        const uint32_t n = cols[tx] * rows[ty];
+        out[ty * w + tx] = n ? static_cast<uint8_t>(sum[ty * w + tx] / n) : 255;
+      }
+    }
   }
 };
 
 struct Work {
   uint8_t* pool;
   uint32_t* sum;
-  uint16_t* count;
   uint8_t* large;
   uint8_t* small;
-  bool ok() const { return pool && sum && count && large && small; }
+  bool ok() const { return pool && sum && large && small; }
 };
 
 Work& work() {
   static Work w{new (std::nothrow) uint8_t[kPoolBytes], new (std::nothrow) uint32_t[kLargeW * kLargeH],
-                new (std::nothrow) uint16_t[kLargeW * kLargeH], new (std::nothrow) uint8_t[kLargeW * kLargeH],
-                new (std::nothrow) uint8_t[kSmallW * kSmallH]};
+                new (std::nothrow) uint8_t[kLargeW * kLargeH], new (std::nothrow) uint8_t[kSmallW * kSmallH]};
   return w;
 }
 
@@ -113,7 +121,6 @@ int jpeg_out(JDEC* jd, void* bitmap, JRECT* r) {
 bool decode_large(const uint8_t* data, uint32_t len, Work& wk, int& w, int& h) {
   Shrinker s;
   s.sum = wk.sum;
-  s.count = wk.count;
   const bool png = len >= 8 && std::memcmp(data, "\x89PNG", 4) == 0;
   if (!png) {
     JDEC jd;
@@ -127,8 +134,7 @@ bool decode_large(const uint8_t* data, uint32_t len, Work& wk, int& w, int& h) {
     s.src_h = (jd.height + (1 << scale) - 1) >> scale;
     s.w = w;
     s.h = h;
-    std::fill_n(s.sum, w * h, 0u);
-    std::fill_n(s.count, w * h, uint16_t{0});
+    s.start();
     if (jd_decomp(&jd, jpeg_out, scale) != JDR_OK) return false;
   } else {
     int pw, ph, comp;
@@ -141,8 +147,7 @@ bool decode_large(const uint8_t* data, uint32_t len, Work& wk, int& w, int& h) {
     s.src_h = ph;
     s.w = w;
     s.h = h;
-    std::fill_n(s.sum, w * h, 0u);
-    std::fill_n(s.count, w * h, uint16_t{0});
+    s.start();
     for (int y = 0; y < ph; ++y) {
       for (int x = 0; x < pw; ++x) s.add(x, y, grey[y * pw + x]);
     }
@@ -175,9 +180,8 @@ bool make(Storage& storage, const char* cover_path, const uint8_t* data, uint32_
   // The small thumbnail, from the large one.
   int sw, sh;
   fit(lw, lh, kSmallW, kSmallH, sw, sh);
-  Shrinker s{lw, lh, sw, sh, wk.sum, wk.count};
-  std::fill_n(s.sum, sw * sh, 0u);
-  std::fill_n(s.count, sw * sh, uint16_t{0});
+  const Shrinker s{lw, lh, sw, sh, wk.sum};
+  s.start();
   for (int y = 0; y < lh; ++y) {
     for (int x = 0; x < lw; ++x) s.add(x, y, wk.large[y * lw + x]);
   }

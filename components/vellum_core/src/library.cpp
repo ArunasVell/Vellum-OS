@@ -165,7 +165,7 @@ void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub
         n = put(buf, n, kFileBytes, e.title, '\t');
         n = put(buf, n, kFileBytes, e.author, '\t');
         n = put(buf, n, kFileBytes, e.language, '\t');
-        n = put(buf, n, kFileBytes, e.cover > 0 ? "1" : "0", '\n');
+        n = put(buf, n, kFileBytes, e.cover > 0 ? "2" : "0", '\n');
       }
       if (buf != nullptr) storage->write(kCachePath, buf, static_cast<uint32_t>(n));
     }
@@ -194,7 +194,9 @@ void Library::load_cache(Storage& storage) {
     textfile::copy(f[2], e.title, sizeof(e.title));
     textfile::copy(f[3], e.author, sizeof(e.author));
     textfile::copy(f[4], e.language, sizeof(e.language));
-    e.cover = count > 5 ? static_cast<int8_t>(f[5] == "1") : -1;  // older caches: look again
+    // "2": a cover made at the size the full-screen sleep cover wants. Older
+    // caches, and "1" (smaller thumbnails), look again.
+    e.cover = count > 5 && f[5] == "2" ? 1 : count > 5 && f[5] == "0" ? 0 : -1;
   });
 }
 
