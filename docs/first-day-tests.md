@@ -59,6 +59,8 @@ The buttons in this list: the two **page buttons** on the side (one goes back a 
 
 **If not, send:** what it shows plugged and unplugged, and what the stock software showed before, if you remember.
 
+If the reader goes straight to a **Battery empty** screen although the battery is not empty, the gauge is reading 2 % or less. Plug the cable in: the reader works normally while charging. Send what Device check shows for the battery, plugged and unplugged.
+
 ## 7. Clock
 
 **Do:** Look at the time at the top. If it says the clock is not set, do test 10 (Add books), which sets the clock from your phone, then come back.
@@ -103,7 +105,7 @@ The buttons in this list: the two **page buttons** on the side (one goes back a 
 
 **Do:** **Settings → Device check** and look at the "This device" list.
 
-**Good:** Model, Version, Screen (the screen's controller), Battery, Clock, Memory card, Front light and Wi-Fi all show a value, none says "Missing".
+**Good:** Model, Version, Screen (the screen's controller), Battery, Clock, Memory card, Front light and Wi-Fi all show a value, none says "Missing". The last row, **Free memory**, shows two numbers: the reader's own memory (should be 40 KB or more) and the extra memory chip (should be 2 MB or more).
 
 **If not, send:** a photo of that list.
 
@@ -122,6 +124,26 @@ The buttons in this list: the two **page buttons** on the side (one goes back a 
 **Good:** The reader shows "Updating Vellum" with a percentage, restarts, and comes back to Vellum. **Settings → Device check** shows the version you sent.
 
 **If not, send:** the message the reader showed, and the log from the moment you sent the file until it restarted.
+
+## 15. Start-up and memory in the log
+
+**Do:** With the log open (see [Sending a log](#sending-a-log)), press **Restart reader** on the installer page and wait for the home screen. Then hold Power to sleep, wait ten seconds, and press Power to wake. Then open **Add books**, send one book from the phone, and press Home.
+
+**Good:** After each start the log has two lines beginning with `boot:`: the version, the screen's controller, the card, why it started (`power on`, `deep sleep`…), when the first screen appeared ("first screen at … ms"), and the free memory. Waking from sleep should show the first screen within about two seconds. No lines say `internal RAM low` or `app stack nearly full`, before or after Add books.
+
+**If not, send:** the whole log from the restart to the end.
+
+## 16. Battery use (only with a USB power meter)
+
+**Do:** If you have a USB power meter, put it between the charger and the reader, charge to 100 %, and note the current: in a book with the front light off and nothing touched for a minute; then asleep (hold Power).
+
+**Good:** Asleep, almost nothing (well under 1 mA once fully charged). Awake and idle, much less than while turning pages.
+
+**If not, send:** the numbers for each state, and whether the front light was on.
+
+## If the reader restarts by itself
+
+After a crash the reader starts on the home screen in the built-in Literata font (your settings are kept; picking a font in Settings uses it again), and saves a record of the crash inside the reader. Send the log from the restart: it says `the last run crashed`. If you can run the developer tools, `idf.py coredump-info` (or `esptool.py read_flash 0xFF0000 0x10000 coredump.bin`, then send the file) shows exactly where it happened.
 
 ## Sending a log
 
