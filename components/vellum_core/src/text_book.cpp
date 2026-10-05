@@ -57,12 +57,13 @@ void copy_utf8(std::string_view s, char* out, size_t size) {
 }
 
 // Converts raw text in `e` to UTF-8 in out: tags dropped, entities decoded,
-// whitespace collapsed, kTitleBreak turned into " · ".
-void clean_text(std::string_view raw, Encoding e, bool xml_text, char* out, size_t size) {
-  char utf8[1024];
-  raw = raw.substr(0, (sizeof(utf8) - 1) / 3);
+// whitespace collapsed, kTitleBreak turned into " · ". `utf8` is scratch
+// space of kCleanBytes, kept off the stack.
+constexpr uint32_t kCleanBytes = 3 * 512;
+void clean_text(std::string_view raw, Encoding e, bool xml_text, char* out, size_t size, char* utf8) {
+  raw = raw.substr(0, kCleanBytes / 3);
   const uint32_t n = charset::to_utf8(e, reinterpret_cast<const uint8_t*>(raw.data()),
-                                      static_cast<uint32_t>(raw.size()), utf8, sizeof(utf8));
+                                      static_cast<uint32_t>(raw.size()), utf8, kCleanBytes);
   const std::string_view s(utf8, n);
   size_t w = 0;
   bool space = false;
@@ -190,8 +191,8 @@ bool is_number(std::string_view w) {
     return true;
   }
   // Lithuanian ordinals in any ending: pirmas, pirmasis, antroji...
-  for (const char* stem : {"pirm", "antr", "tre\xC4\x8D", "ketvirt", "penkt", "\xC5\xA1\x65\xC5\xA1t", "septint",
-                           "a\xC5\xA1tunt", "devint", "de\xC5\xA1imt", "paskutin"}) {
+  for (const char* stem :
+       {"pirm", "antr", "treč", "ketvirt", "penkt", "šešt", "septint", "aštunt", "devint", "dešimt", "paskutin"}) {
     if (w.starts_with(stem)) return true;
   }
   return false;
@@ -200,13 +201,13 @@ bool is_number(std::string_view w) {
 // Words that head a numbered chapter, before or after its number.
 bool is_chapter_word(std::string_view w) {
   return in_list(w, {"chapter", "part", "book", "section", "volume", "skyrius", "dalis", "knyga", "tomas", "chapitre",
-                     "kapitel", "cap\xC3\xADtulo", "capitolo"});
+                     "kapitel", "capítulo", "capitolo"});
 }
 
 // Headings that stand alone.
 bool is_alone_word(std::string_view w) {
   return in_list(w, {"prologue", "epilogue", "preface", "foreword", "introduction", "afterword", "prologas", "epilogas",
-                     "\xC4\xAF\xC5\xBE\x61nga", "pratarm\xC4\x97", "\xC4\xAFvadas", "pratarm\xC4\x97s"});
+                     "įžanga", "pratarmė", "įvadas", "pratarmės"});
 }
 
 // Whether a word ends in punctuation that separates a number from a title.
@@ -631,7 +632,7 @@ bool TextBook::scan_text() {
 
   // How lines are used: a sample decides, as UTF-8.
   {
-    const uint32_t n = std::min(first, 65536u);
+    const uint32_t n = std::min<uint32_t>(first, 65536);
     if (file_->read_at(0, raw_, n) != static_cast<int32_t>(n)) return false;
     const uint32_t len = charset::to_utf8(encoding_, raw_ + bom, n - bom, text_, kTextBytes);
     guess_language(text_, len);
@@ -928,7 +929,7 @@ uint32_t TextBook::fb2_paragraphs(char* s, uint32_t len, const char** paragraphs
 
 bool TextBook::scan_fb2() {
   const uint32_t size = file_->size();
-  const uint32_t head = std::min(size, 1024u);
+  const uint32_t head = std::min<uint32_t>(size, 1024);
   if (head == 0 || file_->read_at(0, raw_, head) != static_cast<int32_t>(head)) return false;
   uint32_t bom = 0;
   encoding_ = charset::detect(raw_, head, bom);
@@ -983,7 +984,7 @@ bool TextBook::scan_fb2() {
         if (tag.closing) {
           auto take = [&](Capture c, char* out, size_t size) {
             if (capture != c) return false;
-            clean_text({cap, cap_len}, encoding_, true, out, size);
+            clean_text({cap, cap_len}, encoding_, true, out, size, text_);
             capture = Capture::None;
             return true;
           };
@@ -1012,7 +1013,7 @@ bool TextBook::scan_fb2() {
           } else if (xml::name_is(name, "title") &&
                      (capture == Capture::SectionTitle || capture == Capture::NotesTitle)) {
             char title[96];
-            clean_text({cap, cap_len}, encoding_, true, title, sizeof(title));
+            clean_text({cap, cap_len}, encoding_, true, title, sizeof(title), text_);
             if (capture == Capture::NotesTitle) {
               add_toc(title, 0, 0);
             } else {
@@ -1132,13 +1133,13 @@ bool TextBook::scan_fb2() {
 
 bool TextBook::scan_html() {
   const uint32_t size = file_->size();
-  const uint32_t head = std::min(size, 4096u);
+  const uint32_t head = std::min<uint32_t>(size, 4096);
   if (head == 0 || file_->read_at(0, raw_, head) != static_cast<int32_t>(head)) return false;
   uint32_t bom = 0;
   encoding_ = charset::detect(raw_, head, bom);
   if (charset::unit(encoding_) != 1) return false;
   // <meta charset="..."> or <meta http-equiv... content="text/html; charset=...">
-  char lower[4096];
+  char* lower = text_;  // free while scanning
   for (uint32_t i = 0; i < head; ++i) lower[i] = ascii_lower(static_cast<char>(raw_[i]));
   const std::string_view low(lower, head);
   if (const size_t at = low.find("charset="); at != std::string_view::npos) {
@@ -1182,11 +1183,11 @@ bool TextBook::scan_html() {
         if (skip > 0) return true;
         if (tag.closing) {
           if (capturing && xml::name_is(name, "title") && level == 0) {
-            clean_text({cap, cap_len}, encoding_, true, info_.title, sizeof(info_.title));
+            clean_text({cap, cap_len}, encoding_, true, info_.title, sizeof(info_.title), text_);
             capturing = false;
           } else if (capturing && heading && name[1] - '0' == level) {
             char title[96];
-            clean_text({cap, cap_len}, encoding_, true, title, sizeof(title));
+            clean_text({cap, cap_len}, encoding_, true, title, sizeof(title), text_);
             add_toc(title, level - 1, 0);
             if (title[0] != '\0') min_depth = std::min(min_depth, level - 1);
             capturing = false;
@@ -1204,7 +1205,7 @@ bool TextBook::scan_html() {
           level = 0;
           cap_len = 0;
         } else if (xml::name_is(name, "meta") && xml::attr(tag.attrs, "name") == "author") {
-          clean_text(xml::attr(tag.attrs, "content"), encoding_, true, info_.author, sizeof(info_.author));
+          clean_text(xml::attr(tag.attrs, "content"), encoding_, true, info_.author, sizeof(info_.author), text_);
         } else if (xml::name_is(name, "body")) {
           in_body = true;
         } else if (heading && !tag.self_closing) {
@@ -1227,7 +1228,7 @@ bool TextBook::scan_html() {
   }
   if (info_.language[0] == '\0') {
     // No lang attribute: guess from the start of the text.
-    const uint32_t n = std::min(parts_[0].length, 65536u);
+    const uint32_t n = std::min<uint32_t>(parts_[0].length, 65536);
     if (file_->read_at(parts_[0].offset, raw_, n) == static_cast<int32_t>(n)) {
       const uint32_t len = charset::to_utf8(encoding_, raw_, n, text_, kTextBytes);
       guess_language(text_, len);
