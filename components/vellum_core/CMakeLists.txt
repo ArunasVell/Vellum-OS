@@ -19,6 +19,7 @@ set(VELLUM_CORE_SRCS
   src/font_raster.cpp
   src/framebuffer.cpp
   src/highlights.cpp
+  src/keyboard.cpp
   src/hyphenation.cpp
   src/hyphenation/en_us.cpp
   src/hyphenation/lt.cpp
@@ -27,6 +28,7 @@ set(VELLUM_CORE_SRCS
   src/reader.cpp
   src/reading_stats.cpp
   src/settings.cpp
+  src/shelves.cpp
   src/stdio_storage.cpp
   src/strings.cpp
   src/text.cpp
