@@ -3,6 +3,7 @@
 # the host (simulator and tests).
 set(VELLUM_CORE_SRCS
   src/app.cpp
+  src/app_store.cpp
   src/app_words.cpp
   src/covers.cpp
   src/dictionary.cpp
@@ -24,12 +25,14 @@ set(VELLUM_CORE_SRCS
   src/hyphenation/en_us.cpp
   src/hyphenation/lt.cpp
   src/library.cpp
+  src/opds.cpp
   src/peer_transfer.cpp
   src/reader.cpp
   src/reading_stats.cpp
   src/settings.cpp
   src/shelves.cpp
   src/stdio_storage.cpp
+  src/store.cpp
   src/strings.cpp
   src/text.cpp
   src/text_book.cpp
