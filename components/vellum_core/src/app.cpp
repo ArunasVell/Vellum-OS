@@ -1963,6 +1963,17 @@ void App::jump_to(BookPos pos) {
   show(Screen::Reader);
 }
 
+BookPos App::chapter_start(int index) const {
+  Document& doc = *reader_.document();
+  if (doc.toc_count() == 0) return {static_cast<uint16_t>(index), {}};
+  const TocEntry& e = doc.toc(index);
+  if (e.paragraph == TocEntry::kUnknown) {
+    Chapter ch;
+    doc.load_chapter(e.chapter, ch);  // finds where the entry points
+  }
+  return {e.chapter, {e.paragraph == TocEntry::kUnknown ? 0 : e.paragraph, 0}};
+}
+
 void App::contents_activate() {
   int index;
   switch (contents_row(contents_sel_, index)) {
@@ -1987,16 +1998,8 @@ void App::contents_activate() {
     case ContentsRow::Highlight:
     case ContentsRow::Note:
       return jump_to(highlights_.at(index).begin);
-    case ContentsRow::Chapter: {
-      Document& doc = *reader_.document();
-      if (doc.toc_count() == 0) return jump_to({static_cast<uint16_t>(index), {}});
-      const TocEntry& e = doc.toc(index);
-      if (e.paragraph == TocEntry::kUnknown) {
-        Chapter ch;
-        doc.load_chapter(e.chapter, ch);  // finds where the entry points
-      }
-      return jump_to({e.chapter, {e.paragraph == TocEntry::kUnknown ? 0 : e.paragraph, 0}});
-    }
+    case ContentsRow::Chapter:
+      return jump_to(chapter_start(index));
     case ContentsRow::BookmarksLabel:
     case ContentsRow::HighlightsLabel:
     case ContentsRow::ChaptersLabel:

@@ -270,10 +270,15 @@ bool App::buttons_activate() {
 
 // ---- Reader actions ----------------------------------------------------------------
 
+// By the contents entries, as listed in Contents (the book's chapters when it has none).
 void App::chapter_jump(int step) {
-  const int chapter = reader_.chapter() + (step > 0 ? 1 : reader_.page() == 0 ? -1 : 0);
-  if (chapter < 0 || chapter >= reader_.document()->chapter_count()) return;
-  jump_to({static_cast<uint16_t>(chapter), {}});
+  const Document& doc = *reader_.document();
+  const int count = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
+  const int current = current_chapter_row();  // -1 before the first entry
+  int target = current + (step > 0 ? 1 : 0);
+  if (step < 0 && current >= 0 && reader_.compare_to_page(chapter_start(current)) == 0) target = current - 1;
+  if (target < 0 || target >= count) return;
+  jump_to(chapter_start(target));
 }
 
 void App::toggle_bookmark() {

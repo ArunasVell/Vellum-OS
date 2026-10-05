@@ -240,6 +240,8 @@ class App {
   int current_chapter_row() const;
   // The bookmark on the current page, or -1.
   int page_bookmark() const;
+  // Where contents entry (or chapter, without one) `index` starts.
+  BookPos chapter_start(int index) const;
   // Moves the reader to `pos` in the open book and shows it.
   void jump_to(BookPos pos);
   // Rows that do nothing themselves: labels, and notes (their highlight opens).
