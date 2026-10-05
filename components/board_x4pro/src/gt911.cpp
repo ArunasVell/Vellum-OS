@@ -12,6 +12,7 @@ namespace {
 constexpr const char* kTag = "gt911";
 constexpr int kTimeoutMs = 20;
 
+constexpr uint16_t kRegCommand = 0x8040;    // 0x05: sleep
 constexpr uint16_t kRegConfig = 0x8047;     // config version, then X max, Y max (little endian)
 constexpr uint16_t kRegProductId = 0x8140;  // "911" in ASCII
 constexpr uint16_t kRegStatus = 0x814E;     // bit 7: report ready, bit 4: key, bits 0-3: fingers
@@ -36,6 +37,7 @@ bool Gt911::write_reg(uint16_t reg, uint8_t value) {
 bool Gt911::attach(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio) {
   const auto rst = static_cast<gpio_num_t>(rst_gpio);
   const auto irq = static_cast<gpio_num_t>(int_gpio);
+  int_gpio_ = int_gpio;
 
   // Reset: INT low while RST rises selects address 0x5D. Too short a reset
   // and the controller never loads its configuration, so keep these timings.
@@ -96,4 +98,15 @@ bool Gt911::read(Report& out) {
   }
   write_reg(kRegStatus, 0);  // hand the buffer back to the controller
   return true;
+}
+
+void Gt911::sleep() {
+  if (dev_ == nullptr) return;
+  // The controller takes the command only while its interrupt line is low.
+  const auto irq = static_cast<gpio_num_t>(int_gpio_);
+  gpio_intr_disable(irq);
+  gpio_set_direction(irq, GPIO_MODE_OUTPUT);
+  gpio_set_level(irq, 0);
+  delay_ms(1);
+  if (!write_reg(kRegCommand, 0x05)) ESP_LOGW(kTag, "sleep command not taken");
 }

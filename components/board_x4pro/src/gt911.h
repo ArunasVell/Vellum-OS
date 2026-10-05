@@ -30,6 +30,11 @@ class Gt911 {
   // controller has nothing new, or the bus failed).
   bool read(Report& out);
 
+  // Sends the controller to sleep, its lowest-power state short of losing
+  // power: before deep sleep, in case its power switch leaks. Only a reset
+  // (attach) wakes it. Its interrupt pin becomes an output, held low.
+  void sleep();
+
   // The touch area the controller is configured for.
   int max_x() const { return max_x_; }
   int max_y() const { return max_y_; }
@@ -39,6 +44,7 @@ class Gt911 {
   bool write_reg(uint16_t reg, uint8_t value);
 
   i2c_master_dev_handle_t dev_ = nullptr;
+  int int_gpio_ = -1;
   int max_x_ = 0;
   int max_y_ = 0;
 };

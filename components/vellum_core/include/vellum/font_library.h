@@ -41,6 +41,9 @@ struct BookFonts {
   const Font* body;
   const Font* heading_small;  // 20 px italic
   const Font* heading;        // 26 px italic
+  // Rendered fonts are rendered again in place (another family or size
+  // behind the same pointers): this changes each time. 0 for Literata.
+  uint32_t generation = 0;
 };
 
 // Literata's built-in sets.
@@ -112,6 +115,7 @@ class FontLibrary {
   int menu_family_ = -1;
   int book_family_ = -1;
   int book_px_ = 0;
+  uint32_t book_generation_ = 0;
 };
 
 }  // namespace vellum

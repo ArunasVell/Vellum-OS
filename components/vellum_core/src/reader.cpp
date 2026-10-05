@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "vellum/ui.h"
 
@@ -41,7 +42,8 @@ ReadingStyle reading_style(const Settings& s, const BookFonts* fonts) {
           kWordSpace[static_cast<int>(s.word_spacing)],
           kMargins[static_cast<int>(s.margins)],
           s.justify,
-          s.hyphenate};
+          s.hyphenate,
+          f.generation};
 }
 
 PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const char* language, bool opening) {
@@ -57,15 +59,21 @@ PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const cha
   return p;
 }
 
+Reader::Reader() : page_starts_(new(std::nothrow) TextPos[kMaxPages]) {}
+
+Reader::~Reader() { delete[] page_starts_; }
+
 bool Reader::open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos pos, const Framebuffer& fb) {
-  const bool same = doc_ == &doc && id_ == id && style_ == style && chapter_ == pos.chapter && fb_ == &fb;
+  if (page_starts_ == nullptr) return false;
+  const bool same_book = doc_ == &doc && id_ == id && style_ == style && fb_ == &fb;
+  const bool same = same_book && chapter_ == pos.chapter;
   doc_ = &doc;
   id_ = id;
   style_ = style;
   fb_ = &fb;
   words_page_ = -1;  // the style or book may differ
   if (!same) {
-    if (doc_ != &doc || id_ != id || !(style_ == style) || fb_ != &fb) sample_pages_ = 0;
+    if (!same_book) sample_pages_ = 0;  // another book's pages say nothing about this one
     chapter_ = -1;
     if (!load(pos.chapter < doc.chapter_count() ? pos.chapter : 0)) return false;
   }

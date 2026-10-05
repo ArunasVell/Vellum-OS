@@ -260,13 +260,13 @@ void test_interface_text_fits() {
     const Strings& t = strings(lang);
     for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead,
                              t.hint_battery, t.hint_light, t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead,
-                             t.hint_pick_line, t.hint_pick_word, t.store_lead, t.hint_store_busy}) {
+                             t.hint_pick_line, t.hint_pick_word, t.store_lead, t.hint_store_busy, t.charge_hint}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
     }
     // Software update lines on the Add books screen.
-    for (const char* line : {t.updating, t.update_done, t.update_not_vellum, t.update_broken}) {
+    for (const char* line : {t.updating, t.update_done, t.update_not_vellum, t.update_broken, t.battery_empty}) {
       const int w = text_width_px(fonts::literata_20, line);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, line);
       CHECK(w <= kH - 2 * 28);
@@ -453,6 +453,83 @@ void test_hyphenation() {
   CHECK(hyphenator_for("en-GB") == &hyphenation::en_us);
   CHECK(hyphenator_for("lt") == &hyphenation::lt);
   CHECK(hyphenator_for("de") == nullptr);
+}
+
+// Liang's method the plain way: every piece of ".word." looked up whole.
+// hyphenate() skips pieces no pattern starts with; the breaks must not change.
+std::vector<uint16_t> reference_breaks(const Hyphenator& h, std::string_view word) {
+  std::string key = ".";
+  std::vector<size_t> unit{0};   // where each unit (dot or letter) starts in key
+  std::vector<uint16_t> starts;  // where each letter starts in word
+  for (size_t i = 0; i < word.size();) {
+    starts.push_back(static_cast<uint16_t>(i));
+    const size_t at = i;
+    decode_utf8(word, i);
+    unit.push_back(key.size());
+    key.append(word.substr(at, i - at));
+  }
+  unit.push_back(key.size());
+  key += '.';
+  unit.push_back(key.size());
+  const int n = static_cast<int>(starts.size());
+  std::vector<uint8_t> values(n + 3, 0);
+  for (int a = 0; a < n + 2; ++a) {
+    for (int b = a + 1; b <= n + 2; ++b) {
+      const std::string_view part(key.data() + unit[a], unit[b] - unit[a]);
+      const HyphenPattern* end = h.patterns + h.pattern_count;
+      const HyphenPattern* p = std::lower_bound(h.patterns, end, part, [](const HyphenPattern& x, std::string_view k) {
+        return std::string_view(x.letters) < k;
+      });
+      if (p == end || std::string_view(p->letters) != part) continue;
+      for (int g = 0; g <= b - a; ++g) values[a + g] = std::max<uint8_t>(values[a + g], p->digits[g] - '0');
+    }
+  }
+  std::vector<uint16_t> out;
+  for (int g = 1 + h.left_min; g <= 1 + n - h.right_min; ++g) {
+    if (values[g] & 1) out.push_back(starts[g - 1]);
+  }
+  return out;
+}
+
+void test_hyphenation_matches_reference() {
+  // Every lowercase word of the built-in books, plus some Lithuanian.
+  std::vector<std::string> words;
+  for (const Book* b : builtin_books()) {
+    for (uint32_t i = 0; i < b->paragraph_count; ++i) {
+      std::string w;
+      for (const char* c = b->paragraphs[i];; ++c) {
+        if (*c >= 'a' && *c <= 'z') {
+          w += *c;
+          continue;
+        }
+        if (w.size() >= 4) words.push_back(w);
+        w.clear();
+        if (*c == '\0') break;
+      }
+    }
+  }
+  CHECK(words.size() > 5000);
+  int compared = 0;
+  for (const std::string& w : words) {
+    bool exception = false;  // the exception list wins over patterns
+    for (uint32_t e = 0; e < hyphenation::en_us.exception_count; ++e) {
+      std::string bare = hyphenation::en_us.exceptions[e];
+      std::erase(bare, '-');
+      exception = exception || bare == w;
+    }
+    if (exception) continue;
+    uint16_t breaks[24];
+    const int n = hyphenate(hyphenation::en_us, w, breaks, 24);
+    CHECK(std::vector<uint16_t>(breaks, breaks + n) == reference_breaks(hyphenation::en_us, w));
+    ++compared;
+  }
+  CHECK(compared > 5000);
+  for (const char* w : {"lietuva", "\xc5\xa1viesa", "knygos", "skaitykl\xc4\x97", "vakarien\xc4\x97", "\xc5\xbeodynas",
+                        "pasaulis", "u\xc5\xbeuolaida", "nepriklausomyb\xc4\x97"}) {
+    uint16_t breaks[24];
+    const int n = hyphenate(hyphenation::lt, w, breaks, 24);
+    CHECK(std::vector<uint16_t>(breaks, breaks + n) == reference_breaks(hyphenation::lt, w));
+  }
 }
 
 void test_rotation_round_trip() {
@@ -1921,6 +1998,161 @@ void test_app_device_check() {
   delete app;
 }
 
+void test_app_device_check_memory() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  Board board{"test", panel, input, power, nullptr, nullptr, nullptr, Rotation::R90, buf.data()};
+  Framebuffer view(buf.data(), kW, kH);
+  view.set_rotation(Rotation::R90);
+  // Ink in the row under Wi-Fi, where free memory goes.
+  auto memory_row_inked = [&] {
+    for (int y = 708; y < 732; ++y)
+      for (int x = 28; x < kH - 28; ++x)
+        if (view.pixel(x, y) == Color::Black) return true;
+    return false;
+  };
+  auto open_check = [&](App& app) {
+    app.start();
+    for (int i = 0; i < 5; ++i) press(app, Key::Next);  // Settings
+    press(app, Key::Power);
+    for (int i = 0; i < 8; ++i) press(app, Key::Next);  // Device check
+    press(app, Key::Power);
+  };
+  auto* app = new App(board);
+  open_check(*app);
+  CHECK(!memory_row_inked());  // the board does not tell: no row
+  delete app;
+
+  static int asked = 0;
+  board.memory = [](MemoryInfo& m) {
+    ++asked;
+    m.internal_free = 150 * 1024;
+    m.external_free = 7 * 1024 * 1024 + 300 * 1024;  // 7.3 MB
+  };
+  app = new App(board);
+  open_check(*app);
+  CHECK(asked > 0 && memory_row_inked());
+  delete app;
+}
+
+// A battery the test sets, and a last run that may have ended in a crash.
+class TestPower : public Power {
+ public:
+  int battery_percent() override { return level; }
+  bool charging() override { return plugged; }
+  void sleep() override { ++sleeps; }
+  void set_wake_timer(uint32_t seconds) override { wake_after = seconds; }
+  bool woke_by_timer() override { return timer; }
+  bool after_crash() override { return crashed; }
+  int level = 50;
+  bool plugged = false;
+  int sleeps = 0;
+  uint32_t wake_after = 7;
+  bool timer = false;
+  bool crashed = false;
+};
+
+void test_app_empty_battery() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  TestPower power;
+  TestClock clock;
+  FakeUpdater updater;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/update.txt");
+  StdioStorage card("test-card");
+  card.write("vellum/state.txt", "reader\n", 7);
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data()};
+  board.updater = &updater;
+
+  // Woken with an empty battery: straight back to sleep, asking for a charge.
+  power.level = 2;
+  auto* app = new App(board);
+  app->start();
+  CHECK(power.sleeps == 1);
+  CHECK(power.wake_after == 0);                                 // no radio at night on an empty battery
+  CHECK(panel.full == 1);                                       // the sleep screen
+  CHECK(read_all("test-card/vellum/state.txt") == "reader\n");  // once charged, back into the book
+  press(*app, Key::Power);                                      // still empty: sleeps again
+  CHECK(power.sleeps == 2);
+  power.plugged = true;  // charging: it wakes
+  press(*app, Key::Power);
+  CHECK(power.sleeps == 2);
+  delete app;
+
+  // Running down while in use: the next press sleeps.
+  power.plugged = false;
+  power.level = 5;
+  app = new App(board);
+  app->start();
+  press(*app, Key::Next);
+  CHECK(power.sleeps == 2);
+  power.level = 1;
+  press(*app, Key::Next);
+  CHECK(power.sleeps == 3 && power.wake_after == 0);
+  delete app;
+
+  // Woken at night with little charge: no update check, back to sleep.
+  power.level = 15;
+  power.timer = true;
+  app = new App(board);
+  app->start();
+  CHECK(updater.checks == 0 && power.sleeps == 4);
+  delete app;
+  power.level = 60;
+  app = new App(board);
+  app->start();
+  CHECK(updater.checks == 1 && updater.installs == 1);  // enough charge: it looks, and installs
+  delete app;
+  std::remove("test-card/vellum/update.txt");
+  std::remove("test-card/vellum/state.txt");
+}
+
+void test_app_after_crash() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  TestPower power;
+  StdioStorage card("test-card");
+  const char* saved = "menu_font=Atkinson Hyperlegible Next\n";
+  card.write("vellum/settings.txt", saved, static_cast<uint32_t>(std::strlen(saved)));
+  card.write("vellum/state.txt", "reader\n", 7);
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+
+  // A normal start: the chosen font, and back into the book.
+  auto* app = new App(board);
+  app->start();
+  CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
+  app->handle(key_event(InputEvent::Type::KeyDown, Key::Power));
+  app->timeout();  // held: sleep, from the book
+  CHECK(read_all("test-card/vellum/state.txt") == "reader\n");
+  delete app;
+
+  // After a crash: home, with Literata; the settings stay as they were.
+  power.crashed = true;
+  app = new App(board);
+  app->start();
+  CHECK(ui::menu_fonts().label == &fonts::literata_16);
+  CHECK(read_all("test-card/vellum/settings.txt") == saved);
+  app->handle(key_event(InputEvent::Type::KeyDown, Key::Power));
+  app->timeout();
+  CHECK(read_all("test-card/vellum/state.txt") == "home\n");  // slept from home, not the book
+  press(*app, Key::Power);                                    // wake
+  // Choosing a menu font again uses it at once.
+  press(*app, Key::Prev);  // Settings, the last link
+  press(*app, Key::Power);
+  press(*app, Key::Next);  // Menu font: the next after Atkinson
+  press(*app, Key::Power);
+  CHECK(std::string(ui::menu_fonts().label->family) == "EB Garamond");
+  delete app;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/state.txt");
+  ui::set_menu_fonts(literata_menu());
+}
+
 // Two readers on one desk: packets go into the other's queue, and every
 // `drop_every`-th one is lost on the way.
 struct DeskRadio {
@@ -2756,6 +2988,83 @@ void test_reader_pages_left() {
   CHECK(reader.pages_left_in_chapter() == 1 && reader.pages_left_in_book() == 1);
 }
 
+// One chapter of `count` paragraphs, numbered so a page tells where it is.
+class LongDocument : public Document {
+ public:
+  explicit LongDocument(int count) {
+    for (int i = 0; i < count; ++i) {
+      text_.push_back("Paragraph " + std::to_string(i) +
+                      " of a chapter much longer than most, set over many pages to see that its end is reached.");
+    }
+    for (const std::string& t : text_) paragraphs_.push_back(t.c_str());
+  }
+  const char* language() const override { return "en"; }
+  int chapter_count() const override { return 1; }
+  uint32_t chapter_weight(int) const override { return static_cast<uint32_t>(paragraphs_.size()) * 100; }
+  bool load_chapter(int, Chapter& out) override {
+    out = {paragraphs_.data(), static_cast<uint32_t>(paragraphs_.size()), "", ""};
+    return true;
+  }
+  const TocEntry& toc(int) const override { return toc_; }
+
+ private:
+  std::vector<std::string> text_;
+  std::vector<const char*> paragraphs_;
+  TocEntry toc_;
+};
+
+void test_reader_long_chapter() {
+  // Over 1024 pages in one chapter (the old limit): every page is reached.
+  LongDocument doc(9000);
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  Settings large;
+  large.text_size = TextSize::ExtraLarge;
+  Reader reader;
+  CHECK(reader.open(doc, 1, reading_style(large), {}, f.fb));
+  CHECK(reader.page_count() > 1024);
+  int pages = 1;
+  while (reader.next()) ++pages;
+  CHECK(pages == reader.page_count());
+  CHECK(reader.position().text.paragraph > 8990);
+
+  // Opening another book forgets the first one's pages per length: the
+  // guess of pages left matches a fresh reader's.
+  SamplerDocument other;
+  CHECK(reader.open(other, 2, reading_style(large), {}, f.fb));
+  Reader fresh;
+  CHECK(fresh.open(other, 2, reading_style(large), {}, f.fb));
+  CHECK(reader.pages_left_in_book() == fresh.pages_left_in_book());
+}
+
+void test_reader_relayout_rendered_fonts() {
+  // A rendered book font changes size or family behind the same pointers:
+  // the reader must lay the chapter out again, as a fresh one would.
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  FontLibrary lib;
+  lib.scan(nullptr);
+  BuiltinDocument doc;
+  doc.set(*builtin_books()[0]);
+  Settings s;
+  BookFonts fonts;
+  CHECK(lib.book(lib.find("EB Garamond"), 23, fonts));
+  Reader reader;
+  CHECK(reader.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  const int small_pages = reader.page_count();
+  s.text_size = TextSize::ExtraLarge;
+  CHECK(lib.book(lib.find("EB Garamond"), 34, fonts));
+  CHECK(reader.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  Reader fresh;
+  CHECK(fresh.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  CHECK(reader.page_count() == fresh.page_count() && reader.page_count() > small_pages);
+  CHECK(lib.book(lib.find("Atkinson Hyperlegible Next"), 34, fonts));  // same size, another family
+  CHECK(reader.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  Reader fresh2;
+  CHECK(fresh2.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  CHECK(reader.page_count() == fresh2.page_count());
+}
+
 // Input with a steady count the test moves forward.
 class TimedInput : public InputSource {
  public:
@@ -3536,6 +3845,7 @@ int main() {
   test_font_lookup_and_kerning();
   test_pagination_covers_text_once();
   test_hyphenation();
+  test_hyphenation_matches_reference();
   test_library_order();
   test_time_format();
   test_book_count_plurals();
@@ -3562,6 +3872,9 @@ int main() {
   test_app_fonts();
   test_app_updates_screen();
   test_app_night_update();
+  test_app_device_check_memory();
+  test_app_empty_battery();
+  test_app_after_crash();
   test_peer_transfer();
   test_app_send_book();
   test_reader_crosses_chapters();
@@ -3575,6 +3888,8 @@ int main() {
   test_dictionary_upload_names();
   test_reading_stats();
   test_reader_pages_left();
+  test_reader_long_chapter();
+  test_reader_relayout_rendered_fonts();
   test_app_reading_stats();
   test_charset_detection();
   test_text_headings();
