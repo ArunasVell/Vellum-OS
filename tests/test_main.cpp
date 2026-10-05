@@ -1634,7 +1634,7 @@ void test_app_fonts() {
   press(*app, Key::Power);
   CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
   CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);  // down to Reading
+  for (int i = 0; i < 10; ++i) press(*app, Key::Next);  // down to Reading
   press(*app, Key::Power);
   press(*app, Key::Power);  // Book font: the next after Literata
   CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
@@ -3142,6 +3142,8 @@ void test_app_reading_stats() {
 
   // Settings › Reading › Footer: time left in the chapter, then the percent.
   press(*app, Key::Next);  // Device check
+  press(*app, Key::Next);  // Home and library view
+  press(*app, Key::Next);  // Move finished books
   press(*app, Key::Next);  // Reading
   press(*app, Key::Power);
   for (int i = 0; i < 7; ++i) press(*app, Key::Next);
@@ -3155,7 +3157,7 @@ void test_app_reading_stats() {
   press(*app, Key::Home);
   press(*app, Key::Prev);
   press(*app, Key::Power);
-  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 11; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
