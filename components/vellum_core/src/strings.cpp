@@ -188,6 +188,10 @@ constexpr Strings kEnglish = {
     .stats_clock =
         "The clock is not set, so reading is not counted by day. Open Add books and load the page on your "
         "phone once: it sets the clock.",
+    .preview_text =
+        "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
+        "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
+    .preview_language = "en",
     .sort_by = "Sort: %s",
     .sort_names = {"Recent", "Title", "Author"},
     .search = "Search",
@@ -208,10 +212,6 @@ constexpr Strings kEnglish = {
     .shelves = "Shelves",
     .shelves_label = "SHELVES",
     .finished_reading = "Finished reading",
-    .preview_text =
-        "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
-        "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
-    .preview_language = "en",
 };
 
 constexpr Strings kLithuanian = {
@@ -397,6 +397,10 @@ constexpr Strings kLithuanian = {
     .stats_clock =
         "Laikrodis nenustatytas, todėl skaitymas neskaičiuojamas pagal dienas. Atverkite „Įkelti knygas“ "
         "ir vieną kartą įkelkite puslapį telefone: jis nustatys laikrodį.",
+    .preview_text =
+        "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
+        "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",
+    .preview_language = "lt",
     .sort_by = "Tvarka: %s",
     .sort_names = {"Naujausios", "Pavadinimas", "Autorius"},
     .search = "Ieškoti",
@@ -418,10 +422,6 @@ constexpr Strings kLithuanian = {
     .shelves = "Lentynos",
     .shelves_label = "LENTYNOS",
     .finished_reading = "Perskaityta",
-    .preview_text =
-        "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
-        "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",
-    .preview_language = "lt",
 };
 
 }  // namespace

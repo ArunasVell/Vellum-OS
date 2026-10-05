@@ -37,7 +37,7 @@ class Keyboard {
   };
 
   struct Options {
-    std::string_view prompt = {};       // shown in the empty text line
+    std::string_view prompt = {};  // shown in the empty text line
     std::string_view ok = "OK";    // the key that finishes
     std::string_view cancel = "";  // the button in the text line; "" leaves it out
     Page page = Page::English;     // the letters to start with

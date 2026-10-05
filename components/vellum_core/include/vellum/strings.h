@@ -191,9 +191,11 @@ struct Strings {
   const char* reading_speed;
   const char* pages_an_hour;  // printf: number
   const char* all_time;
-  const char* books_label;   // uppercase label
-  const char* nothing_read;  // no reading recorded yet
-  const char* stats_clock;   // without the clock there are no days
+  const char* books_label;       // uppercase label
+  const char* nothing_read;      // no reading recorded yet
+  const char* stats_clock;       // without the clock there are no days
+  const char* preview_text;      // sample paragraph for the settings preview
+  const char* preview_language;  // its BCP 47 tag, for hyphenation
   // Library: order, search, shelves
   const char* sort_by;        // printf: an order name ("Sort: Title")
   const char* sort_names[3];  // recent, title, author
@@ -215,8 +217,6 @@ struct Strings {
   const char* shelves;           // screen title: a book's shelves
   const char* shelves_label;     // uppercase label
   const char* finished_reading;  // the toggle on that screen
-  const char* preview_text;      // sample paragraph for the settings preview
-  const char* preview_language;  // its BCP 47 tag, for hyphenation
 };
 
 const Strings& strings(Language lang);
