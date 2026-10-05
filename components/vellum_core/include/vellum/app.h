@@ -72,6 +72,13 @@ namespace vellum {
 // Settings › Device check shows every button press and touch, and what the
 // board reports (battery, clock, card), for trying out new hardware.
 //
+// Settings › Buttons gives each press (and each held press) of Prev, Next,
+// Power and Home an action, one set while reading and one in menus
+// (app_controls.cpp, vellum/controls.h); the defaults are the controls
+// above. Settings › Screen turns the screen upside down, or the reader on
+// its side. The reader can turn pages by itself (Contents, or a button),
+// and a button can save the screen to the card as a picture.
+//
 // A book's Contents can send it to another Vellum nearby (Board::peers);
 // the other one receives while its "Add books" screen is open.
 //
@@ -119,7 +126,8 @@ class App {
     Send,
     Stats,
     Store,
-    Shelve  // a book's shelves, and whether it is finished
+    Shelve,  // a book's shelves, and whether it is finished
+    Buttons  // what each button does
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -127,6 +135,7 @@ class App {
     Mark,
     Light,
     LookUp,
+    AutoTurn,  // starts or stops turning pages by itself
     Send,
     Shelves,  // opens the book's shelves screen
     BookmarksLabel,
@@ -290,6 +299,34 @@ class App {
   // Rereads the card's books, staying on the screen shown.
   void rescan_library();
 
+  // Buttons (app_controls.cpp). A key's press goes through Settings::buttons
+  // to an action; while reading means the page shows with no words chosen
+  // and no keyboard, the rest uses the menu set. Those returning bool say
+  // whether the screen needs a redraw.
+  bool reading_controls() const;
+  bool key_down(Key key);
+  bool key_up(Key key);
+  bool press(int input);  // a ButtonInput
+  bool act(ButtonAction a);
+  // The screen's way up for `s`, and whether Prev and Next trade places.
+  Rotation rotation_for(Screen s) const;
+  bool keys_swapped() const;
+  void open_buttons();
+  void draw_buttons();
+  bool buttons_activate();
+  // To the start of this chapter (the previous one from its first page), or the next.
+  void chapter_jump(int step);
+  void toggle_bookmark();
+  void toggle_light();
+  void start_auto_turn();
+  void stop_auto_turn();
+  // The auto page turn is due: turns, stopping at the end of the book.
+  void auto_turn_step();
+  void take_screenshot();
+  // A short notice at the bottom of the screen, gone after kToastMs.
+  void show_toast(const char* text);
+  void draw_toast();
+
   // Remembers where a tappable item was drawn; `item` is its selection index.
   void add_hit(Rect r, int item);
   int hit_at(int x, int y) const;
@@ -432,7 +469,24 @@ class App {
   UpdateResult update_result_ = UpdateResult::UpToDate;
   int install_percent_ = 0;
   int updates_sel_ = 0;
-  bool power_held_ = false;  // Power is down and has not acted yet
+  bool power_held_ = false;   // Power is down and has not acted yet
+  bool power_quiet_ = false;  // and its press only stopped the pages turning
+  // A side or Home button is down and its held press does something: the
+  // press acts on release, or the held one after kHoldKeyMs.
+  bool key_waiting_ = false;
+  Key key_down_ = Key::Next;  // as pressed, before any swap
+  int key_short_ = 0;         // the ButtonInputs it stands for
+  int key_held_ = 0;
+  uint32_t key_down_at_ = 0;  // steady_ms() when pressed
+  int buttons_sel_ = 0;
+  bool buttons_menus_ = false;    // the buttons screen shows the menu set
+  bool buttons_refused_ = false;  // the last change found nothing safe
+  bool auto_turn_ = false;        // pages turn by themselves
+  uint32_t auto_turn_at_ = 0;     // steady_ms() of the next turn
+  bool swallow_touch_ = false;    // a touch stopped the page turning: let it go unused
+  uint8_t light_before_ = 0;      // brightness the light toggle turns back on
+  char toast_[96] = {};
+  uint32_t toast_at_ = 0;
   bool asleep_ = false;
   bool resume_reader_ = false;  // reopen the current book on start
   Screen before_sleep_ = Screen::Home;

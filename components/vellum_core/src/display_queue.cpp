@@ -9,7 +9,7 @@ RefreshMode DisplayQueue::submit() {
   const Rect dirty = fb_.dirty();
   if (dirty.empty()) return RefreshMode::Fast;
 
-  if (policy_.full_every != 0 && fast_since_full_ >= policy_.full_every) {
+  if (full_requested_ || policy_.always_full || (policy_.full_every != 0 && fast_since_full_ >= policy_.full_every)) {
     submit_full();
     return RefreshMode::Full;
   }
@@ -24,6 +24,7 @@ void DisplayQueue::submit_full() {
   panel_.present(fb_, RefreshMode::Full, fb_.dirty());
   fb_.clear_dirty();
   fast_since_full_ = 0;
+  full_requested_ = false;
 }
 
 }  // namespace vellum

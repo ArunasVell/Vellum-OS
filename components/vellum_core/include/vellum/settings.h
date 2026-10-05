@@ -4,6 +4,8 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "vellum/controls.h"
+#include "vellum/display_queue.h"
 #include "vellum/hal.h"
 #include "vellum/strings.h"
 
@@ -23,6 +25,15 @@ enum class AutoUpdate : uint8_t { AtNight, AskFirst, Off };
 enum class FooterInfo : uint8_t { PageNumber, ChapterTime, Percent };
 // The order of the library's books.
 enum class LibrarySort : uint8_t { Recent, Title, Author };
+// Which way up the screen is. Upside down turns every screen; landscape
+// turns the reader only (menus stay upright, as they are laid out for it).
+enum class Orientation : uint8_t { Portrait, UpsideDown, LandscapeLeft, LandscapeRight };
+// How often a full refresh clears the reader's ghosting: after every page,
+// after 5, 12 (as always) or 20 fast ones, or only at a new chapter.
+enum class FullRefresh : uint8_t { EveryPage, Every5, Every12, Every20, NewChapter };
+// Seconds between pages for automatic page turning, by Settings::auto_turn.
+constexpr uint8_t kAutoTurnSeconds[] = {5, 10, 15, 20, 30, 45, 60, 90, 120};
+constexpr int kAutoTurnSteps = sizeof(kAutoTurnSeconds);
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 
 struct Settings {
@@ -41,6 +52,11 @@ struct Settings {
   bool justify = true;
   bool hyphenate = true;
   FooterInfo footer = FooterInfo::PageNumber;
+  uint8_t auto_turn = 4;  // index into kAutoTurnSeconds: 30 s
+  FullRefresh full_refresh = FullRefresh::Every12;
+  // Controls
+  Orientation orientation = Orientation::Portrait;
+  ButtonMap buttons = kDefaultButtons;
   // Typefaces by family name (vellum/font_library.h); a missing one falls back to Literata.
   char book_font[48] = "Literata";
   char menu_font[48] = "Literata";
@@ -56,6 +72,10 @@ bool save_settings(Storage& storage, const Settings& s);
 
 // Idle time before sleeping, in milliseconds; 0 for never.
 uint32_t sleep_after_ms(SleepAfter s);
+
+// The reader's refresh cadence for Settings::full_refresh. NewChapter
+// never asks for one itself: the app does at each new chapter.
+RefreshPolicy refresh_policy(FullRefresh f);
 
 // Writes the time of day in `format` into out (at least 9 bytes).
 void format_time(const DateTime& t, TimeFormat format, char* out, size_t size);

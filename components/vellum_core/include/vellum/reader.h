@@ -76,8 +76,8 @@ class Reader {
 
   // Opens `doc` (`id` tells books apart when one Document object is reused)
   // at the page containing `pos`. Lays the chapter out again only when the
-  // book, chapter or style changed. Returns false when the chapter cannot
-  // be loaded.
+  // book, chapter, style or screen size (the screen turned) changed.
+  // Returns false when the chapter cannot be loaded.
   bool open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos pos, const Framebuffer& fb);
 
   // Draws the current page. The footer shows `time` (may be empty) on the
@@ -127,6 +127,8 @@ class Reader {
   Document* doc_ = nullptr;
   uint32_t id_ = 0;
   const Framebuffer* fb_ = nullptr;
+  int width_ = 0;  // fb_'s logical size when the chapter was laid out
+  int height_ = 0;
   ReadingStyle style_{};
   int chapter_ = -1;
   Chapter chapter_info_{};
@@ -137,6 +139,7 @@ class Reader {
   mutable PageWords words_;
   mutable int words_chapter_ = -1;
   mutable int words_page_ = -1;
+  mutable int words_width_ = 0;
   mutable const Document* words_doc_ = nullptr;
   // Pages per length, from the longest chapter laid out in this book and style.
   int sample_pages_ = 0;

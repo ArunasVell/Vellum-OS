@@ -175,6 +175,7 @@ int App::page_marks(TextMark* out, int max) const {
 }
 
 void App::open_word_pick() {
+  fb_.set_rotation(rotation_for(Screen::Reader));  // the page's words as the reader lays them out
   word_mode_ = reader_.words().count > 0 ? WordMode::PickLine : WordMode::Off;
   word_line_ = 0;
   show(Screen::Reader);

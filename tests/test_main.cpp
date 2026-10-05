@@ -884,9 +884,10 @@ void test_app_contents_and_bookmarks() {
   CHECK(count_lines(marks) == 1 && marks.starts_with("books/sample.epub\t0\t0\t0\t"));
   CHECK(marks.find("\tLabas, pasauli") != std::string::npos);  // the page's first words, after the heading
 
-  // Rows now: back, remove, light, look up, add to shelf, BOOKMARKS, the bookmark, CHAPTERS, three entries.
+  // Rows now: back, remove, light, look up, turn pages, add to shelf, BOOKMARKS, the bookmark, CHAPTERS,
+  // three entries.
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);  // labels are skipped
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);  // labels are skipped
   press(*app, Key::Power);                             // "Second"
   CHECK(progress_has("books/sample.epub\t1\t0\t0\t"));
 
@@ -897,7 +898,7 @@ void test_app_contents_and_bookmarks() {
 
   // Back to the first bookmark (the bookmarks come in reading order), then remove it.
   press(*app, Key::Power);
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(progress_has("books/sample.epub\t0\t0\t0\t"));
   press(*app, Key::Power);
@@ -1153,9 +1154,9 @@ void test_app_opens_fb2() {
     return read_all("test-card-app-fb2/vellum/progress.txt").find(fields) != std::string::npos;
   };
   CHECK(progress_has("books/sample.fb2\t0\t0\t0\t"));
-  // Contents: back, bookmark, light, look up, add to shelf, CHAPTERS, then the book's five entries.
+  // Contents: back, bookmark, light, look up, turn pages, add to shelf, CHAPTERS, then the book's five entries.
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
   press(*app, Key::Power);  // "Antras skyrius", the fifth chapter
   CHECK(progress_has("books/sample.fb2\t4\t0\t0\t"));
   delete app;
@@ -2345,11 +2346,8 @@ void test_app_send_book() {
   CHECK(transfer.starts == 1);
 
   press(*a, Key::Power);  // open the book
-  press(*a, Key::Power);  // contents: back, bookmark, light, look up, send
-  press(*a, Key::Next);
-  press(*a, Key::Next);
-  press(*a, Key::Next);
-  press(*a, Key::Next);
+  press(*a, Key::Power);  // contents: back, bookmark, light, look up, turn pages, send
+  for (int i = 0; i < 5; ++i) press(*a, Key::Next);
   const int full = panel_a.full;
   press(*a, Key::Power);
   CHECK(panel_a.full == full + 1);  // the send screen
@@ -2795,8 +2793,8 @@ void test_app_words() {
 
   // Contents lists it; its row opens the page.
   const int full = panel.full;
-  press(*app, Key::Power);  // rows: back, bookmark, light, look up, add to shelf, HIGHLIGHTS, the highlight, ...
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // rows: back, bookmark, light, look up, turn pages, add to shelf, HIGHLIGHTS, ...
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);  // contents, then the page
 
@@ -2811,10 +2809,10 @@ void test_app_words() {
   press(*app, Key::Home);
   press(*app, Key::Power);  // back to Alice
   press(*app, Key::Power);  // contents: the note follows its highlight and is skipped
-  // Rows from y = 186, 50 px each: the note (row 7) wears a bar at its left.
-  CHECK(screen.pixel(38, 546) == Color::Black && screen.pixel(38, 571) == Color::Black);
-  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
-  CHECK(screen.pixel(20, 661) == Color::Black);  // row 9, the chapter, is selected
+  // Rows from y = 186, 50 px each: the note (row 8) wears a bar at its left.
+  CHECK(screen.pixel(38, 596) == Color::Black && screen.pixel(38, 621) == Color::Black);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  CHECK(screen.pixel(20, 711) == Color::Black);  // row 10, the chapter, is selected
   press(*app, Key::Power);                       // the chapter, not the note
   CHECK(read_all("test-card-words/vellum/highlights.txt").find("\tBored, like me.\n") != std::string::npos);
 

@@ -3,12 +3,14 @@
 # the host (simulator and tests).
 set(VELLUM_CORE_SRCS
   src/app.cpp
+  src/app_controls.cpp
   src/app_store.cpp
   src/app_words.cpp
   src/covers.cpp
   src/dictionary.cpp
   src/battery_log.cpp
   src/charset.cpp
+  src/controls.cpp
   src/books/alice.cpp
   src/books/catalog.cpp
   src/books/father_brown.cpp
@@ -29,6 +31,7 @@ set(VELLUM_CORE_SRCS
   src/peer_transfer.cpp
   src/reader.cpp
   src/reading_stats.cpp
+  src/screenshot.cpp
   src/settings.cpp
   src/shelves.cpp
   src/stdio_storage.cpp

@@ -14,6 +14,10 @@ namespace vellum {
 struct RefreshPolicy {
   // A full refresh runs after this many fast ones. 0 = never automatically.
   uint16_t full_every = 12;
+  // Every refresh is a full one.
+  bool always_full = false;
+
+  bool operator==(const RefreshPolicy&) const = default;
 };
 
 class DisplayQueue {
@@ -26,7 +30,11 @@ class DisplayQueue {
   // Presents the whole screen with a full refresh and restarts the cadence.
   void submit_full();
 
+  // The next submit() is a full refresh, whatever the cadence says.
+  void request_full() { full_requested_ = true; }
+
   void set_policy(RefreshPolicy p) { policy_ = p; }
+  RefreshPolicy policy() const { return policy_; }
   uint16_t fast_since_full() const { return fast_since_full_; }
 
  private:
@@ -34,6 +42,7 @@ class DisplayQueue {
   Framebuffer& fb_;
   RefreshPolicy policy_;
   uint16_t fast_since_full_ = 0;
+  bool full_requested_ = false;
 };
 
 }  // namespace vellum
