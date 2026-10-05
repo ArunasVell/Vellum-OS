@@ -81,6 +81,20 @@ int Shelves::add(std::string_view name) {
   return count_++;
 }
 
+int Shelves::find(std::string_view name) const {
+  // Compared as the library's search compares: without case or accents.
+  char cleaned[kNameBytes];
+  char wanted[kNameBytes];
+  char other[kNameBytes];
+  clean_name(name, cleaned, sizeof(cleaned));
+  fold_for_search(cleaned, wanted, sizeof(wanted));
+  for (int s = 0; s < count_; ++s) {
+    fold_for_search(names_[s], other, sizeof(other));
+    if (std::strcmp(wanted, other) == 0) return s;
+  }
+  return -1;
+}
+
 bool Shelves::rename(int shelf, std::string_view name) {
   if (shelf < 0 || shelf >= count_) return false;
   char cleaned[kNameBytes];

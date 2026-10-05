@@ -2579,7 +2579,7 @@ void test_search_folding() {
   fold_for_search("ĄČĘĖĮŠŲŪŽ ąčęėįšųūž", out, sizeof(out));
   CHECK(std::string(out) == "aceeisuuz aceeisuuz");
   fold_for_search("Crème Brûlée, Ærø ÷", out, sizeof(out));
-  CHECK(std::string(out) == "creme brulee, aro ÷");  // signs keep their own
+  CHECK(std::string(out) == "creme brulee, aro ÷");                          // signs keep their own
   CHECK(fold_for_search("Žžžž", out, 4) == 3 && std::string(out) == "zzz");  // cut to fit
   CHECK(matches_search("Žemaitė", "zemaite"));
   CHECK(matches_search("Žemaitė", "ŽEM"));
@@ -2635,6 +2635,7 @@ void test_shelves_store() {
   CHECK(shelves.set(1, "books/maironis.epub", false) && !shelves.contains(1, "books/maironis.epub"));
   CHECK(shelves.rename(1, "Vasarai") && !shelves.rename(1, "") && std::string(shelves.name(1)) == "Vasarai");
   CHECK(!shelves.set(7, "x", true));
+  CHECK(shelves.find(" klasika ") == 2 && shelves.find("Klasikos") == -1);
   CHECK(shelves.save(card));
   CHECK(read_all("test-card-shelves/vellum/shelves.txt") ==
         "Poezija\n\tbooks/maironis.epub\nVasarai\n\tbuiltin:Persuasion\nKlasika\n\tbuiltin:Moby-Dick\n");

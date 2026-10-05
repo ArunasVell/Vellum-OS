@@ -42,6 +42,8 @@ class Shelves {
   // kMax already or the name is empty once trimmed. Names are trimmed and
   // cut to fit.
   int add(std::string_view name);
+  // The shelf with this name (trimmed, any case or accents), or -1.
+  int find(std::string_view name) const;
   bool rename(int shelf, std::string_view name);
   void remove(int shelf);
 

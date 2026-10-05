@@ -1044,7 +1044,9 @@ bool App::finish_typing(bool ok) {
       break;
     }
     case Typing::NewShelf: {
-      const int shelf = ok ? shelves_.add(s) : -1;
+      // A name already on a shelf shows that shelf rather than another.
+      int shelf = ok ? shelves_.find(s) : -1;
+      if (ok && shelf < 0) shelf = shelves_.add(s);
       if (shelf < 0) break;
       save_shelves();
       library_tab_ = 3 + shelf;
@@ -1058,7 +1060,8 @@ bool App::finish_typing(bool ok) {
       if (ok && shelves_.rename(library_tab_ - 3, s)) save_shelves();
       break;
     case Typing::NewShelfForBook: {
-      const int shelf = ok ? shelves_.add(s) : -1;
+      int shelf = ok ? shelves_.find(s) : -1;
+      if (ok && shelf < 0) shelf = shelves_.add(s);
       if (shelf < 0) break;
       shelves_.set(shelf, library_.entry(shelve_book_).path, true);
       save_shelves();
