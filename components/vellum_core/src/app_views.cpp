@@ -184,12 +184,11 @@ void App::draw_library_grid(int top, int bottom) {
 int App::folder_rows() const { return std::max(1, (fb_.height() - kListTop - kHintRoom) / ui::kRowHeight); }
 
 void App::folder_item_path(int item, char* out, size_t size) const {
+  // list_folder() keeps only items whose path fits.
   const char* name = folder_items_[item].name;
-  if (folder_path_[0] == '\0') {
-    std::snprintf(out, size, "%s", name);
-  } else {
-    std::snprintf(out, size, "%s/%s", folder_path_, name);
-  }
+  const int n = folder_path_[0] == '\0' ? std::snprintf(out, size, "%s", name)
+                                        : std::snprintf(out, size, "%s/%s", folder_path_, name);
+  if (n < 0 || static_cast<size_t>(n) >= size) out[0] = '\0';
 }
 
 void App::open_folder(const char* path, const char* select) {
