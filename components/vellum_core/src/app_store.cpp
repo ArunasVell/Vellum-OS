@@ -62,8 +62,6 @@ void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
 
 // ---- Opening and leaving --------------------------------------------------------
 
-int App::library_item_count() const { return library_.count() + (board_.network != nullptr ? 1 : 0); }
-
 void App::open_store() {
   if (board_.network == nullptr) return;
   if (store_ == nullptr) {

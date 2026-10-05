@@ -21,6 +21,8 @@ enum class SleepAfter : uint8_t { Min5, Min10, Min30, Never };
 enum class AutoUpdate : uint8_t { AtNight, AskFirst, Off };
 // What the middle of the reader's footer shows.
 enum class FooterInfo : uint8_t { PageNumber, ChapterTime, Percent };
+// The order of the library's books.
+enum class LibrarySort : uint8_t { Recent, Title, Author };
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 
 struct Settings {
@@ -30,6 +32,7 @@ struct Settings {
   uint8_t light = 0;                           // front light, 0 (off) to kLightSteps
   uint8_t warmth = 3;                          // 0 (coolest) to kLightSteps (warmest)
   AutoUpdate auto_update = AutoUpdate::AtNight;
+  LibrarySort library_sort = LibrarySort::Recent;
   // Reading
   TextSize text_size = TextSize::Medium;
   Spacing line_spacing = Spacing::Normal;

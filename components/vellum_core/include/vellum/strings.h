@@ -219,6 +219,27 @@ struct Strings {
   const char* stats_clock;       // without the clock there are no days
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation
+  // Library: order, search, shelves
+  const char* sort_by;        // printf: an order name ("Sort: Title")
+  const char* sort_names[3];  // recent, title, author
+  const char* search;         // button on the library screen
+  const char* search_prompt;  // in the keyboard's empty text line
+  const char* ok;             // the keyboard's finishing key
+  const char* tab_all;        // library tabs: every book,
+  const char* tab_reading;    // started and not finished,
+  const char* tab_finished;   // and finished
+  const char* new_shelf;      // the last tab, and a row on the shelves screen
+  const char* shelf_name;     // in the keyboard's empty text line
+  const char* rename;         // a shelf
+  const char* delete_shelf;
+  const char* delete_again;      // the same button, asking to be pressed again
+  const char* shelf_empty;       // a shelf with no books
+  const char* nothing_found;     // printf: the search
+  const char* no_books_here;     // Reading now or Finished, empty
+  const char* add_to_shelf;      // contents row
+  const char* shelves;           // screen title: a book's shelves
+  const char* shelves_label;     // uppercase label
+  const char* finished_reading;  // the toggle on that screen
 };
 
 const Strings& strings(Language lang);

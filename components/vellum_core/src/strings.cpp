@@ -215,6 +215,26 @@ constexpr Strings kEnglish = {
         "The evening was quiet, and the river carried the last reflections of the sun slowly past the old "
         "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
     .preview_language = "en",
+    .sort_by = "Sort: %s",
+    .sort_names = {"Recent", "Title", "Author"},
+    .search = "Search",
+    .search_prompt = "Title or author",
+    .ok = "OK",
+    .tab_all = "All",
+    .tab_reading = "Reading now",
+    .tab_finished = "Finished",
+    .new_shelf = "New shelf",
+    .shelf_name = "Shelf name",
+    .rename = "Rename",
+    .delete_shelf = "Delete shelf",
+    .delete_again = "Press again to delete",
+    .shelf_empty = "No books on this shelf yet. Hold a book in All, or use Add to shelf in a book's contents.",
+    .nothing_found = "No books match \xE2\x80\x9C%s\xE2\x80\x9D.",
+    .no_books_here = "No books here yet.",
+    .add_to_shelf = "Add to shelf",
+    .shelves = "Shelves",
+    .shelves_label = "SHELVES",
+    .finished_reading = "Finished reading",
 };
 
 constexpr Strings kLithuanian = {
@@ -427,6 +447,27 @@ constexpr Strings kLithuanian = {
         "Vakaras buvo tylus, o upė lėtai nešė paskutinius saulės atspindžius "
         "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",
     .preview_language = "lt",
+    .sort_by = "Tvarka: %s",
+    .sort_names = {"Naujausios", "Pavadinimas", "Autorius"},
+    .search = "Ieškoti",
+    .search_prompt = "Pavadinimas ar autorius",
+    .ok = "Gerai",
+    .tab_all = "Visos",
+    .tab_reading = "Skaitomos",
+    .tab_finished = "Perskaitytos",
+    .new_shelf = "Nauja lentyna",
+    .shelf_name = "Lentynos pavadinimas",
+    .rename = "Pervadinti",
+    .delete_shelf = "Ištrinti lentyną",
+    .delete_again = "Paspauskite dar kartą",
+    .shelf_empty =
+        "Šioje lentynoje knygų dar nėra. Palaikykite knygą sąraše Visos arba knygos turinyje rinkitės Įdėti į lentyną.",
+    .nothing_found = "Knygų pagal \xE2\x80\x9E%s\xE2\x80\x9C nerasta.",
+    .no_books_here = "Čia knygų dar nėra.",
+    .add_to_shelf = "Įdėti į lentyną",
+    .shelves = "Lentynos",
+    .shelves_label = "LENTYNOS",
+    .finished_reading = "Perskaityta",
 };
 
 }  // namespace
