@@ -14,7 +14,7 @@
 // point (X,Y), [X,Y~] holds a finger there (a long press) and [X,Y>X2,Y2]
 // swipes from one point to the other.
 // --time fixes the clock.
-// --card DIR uses a folder as the SD card: EPUBs go in DIR/books.
+// --card DIR uses a folder as the SD card: books go in DIR/books.
 // --demo-store serves the free book store's canned demo catalogue even when
 // the simulator was built with libcurl (which reaches the real catalogues).
 #include <SDL.h>
