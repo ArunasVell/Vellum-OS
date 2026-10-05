@@ -10,6 +10,7 @@
 #include "vellum/app.h"
 #include "vellum/battery_log.h"
 #include "vellum/book.h"
+#include "vellum/charset.h"
 #include "vellum/covers.h"
 #include "vellum/dictionary.h"
 #include "vellum/display_queue.h"
@@ -30,6 +31,7 @@
 #include "vellum/store.h"
 #include "vellum/strings.h"
 #include "vellum/text.h"
+#include "vellum/text_book.h"
 #include "vellum/touch.h"
 #include "vellum/ui.h"
 #include "vellum/updates.h"
@@ -574,7 +576,7 @@ void test_upload_helpers() {
   CHECK(safe("../../vellum/settings.epub") == "settings.epub");
   CHECK(safe("..hidden.epub") == "hidden.epub");
   CHECK(safe("What? Why: \"Now\".epub") == "What_ Why_ _Now_.epub");
-  CHECK(safe("notes.txt") == "<rejected>");
+  CHECK(safe("notes.pdf") == "<rejected>");
   CHECK(safe(".epub") == "<rejected>");
   CHECK(safe("") == "<rejected>");
   // Long names keep their extension and stay whole UTF-8.
@@ -1051,6 +1053,387 @@ void test_app_front_light() {
   }
   std::remove("test-card/vellum/settings.txt");
   std::remove("test-card/vellum/state.txt");
+}
+
+// ---- Plain text, FictionBook and web-page books ------------------------------
+
+void test_app_opens_fb2() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  StdioStorage card("test-card-app-fb2");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.fb2");
+  CHECK(card.write("books/sample.fb2", book.data(), static_cast<uint32_t>(book.size())));
+  const char* progress = "books/sample.fb2\t0\t0\t0\t0\t1\n";  // the book read last
+  CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
+  std::remove("test-card-app-fb2/vellum/library.txt");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the book
+  auto progress_has = [](const char* fields) {
+    return read_all("test-card-app-fb2/vellum/progress.txt").find(fields) != std::string::npos;
+  };
+  CHECK(progress_has("books/sample.fb2\t0\t0\t0\t"));
+  // Contents: back, bookmark, light, look up, add to shelf, CHAPTERS, then the book's five entries.
+  press(*app, Key::Power);
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // "Antras skyrius", the fifth chapter
+  CHECK(progress_has("books/sample.fb2\t4\t0\t0\t"));
+  delete app;
+}
+
+void test_charset_detection() {
+  using charset::Encoding;
+  uint32_t bom = 0;
+  auto detect = [&](const std::string& s) {
+    return charset::detect(reinterpret_cast<const uint8_t*>(s.data()), static_cast<uint32_t>(s.size()), bom);
+  };
+  CHECK(detect("plain ASCII text") == Encoding::Utf8 && bom == 0);
+  CHECK(detect("\xEF\xBB\xBFLabas") == Encoding::Utf8 && bom == 3);
+  CHECK(detect("\xFF\xFEH\0i\0") == Encoding::Utf16LE && bom == 2);
+  CHECK(detect(std::string("\xFE\xFF\0H\0i", 6)) == Encoding::Utf16BE && bom == 2);
+  CHECK(detect("Žmonės ėjo į turgų") == Encoding::Utf8);
+  // UTF-16 without a mark: zeros in every other byte.
+  CHECK(detect(std::string("H\0e\0l\0l\0o\0 \0w\0o\0r\0l\0d\0!\0", 24)) == Encoding::Utf16LE);
+  // Lithuanian in Windows-1257: š ž ė are bytes F0 FE EB.
+  const std::string lt1257 = "\xDEmon\xEBs \xEBjo \xE1 turg\xF8 pirkti \xF0vie\xFEios duonos, \xE8ia \xE0\xFEuolas.";
+  CHECK(detect(lt1257) == Encoding::Windows1257);
+  char out[256];
+  uint32_t n = charset::to_utf8(Encoding::Windows1257, reinterpret_cast<const uint8_t*>(lt1257.data()),
+                                static_cast<uint32_t>(lt1257.size()), out, sizeof(out));
+  CHECK(std::string(out, n) == "Žmonės ėjo į turgų pirkti šviežios duonos, čia ąžuolas.");
+  // The same letters with ISO-8859-13 quotes („ is A5, ” is A1) and no C1 bytes.
+  CHECK(detect("\xA5\xD0\xE1 \xF0\xE1\xE0 \xFEod\xEB\xA1 \xEBjo \xF0ok\xF8") == Encoding::Iso8859_13);
+  // French in Windows-1252.
+  const std::string fr = "Caf\xE9 cr\xE8me, na\xEFve \x93quote\x94 \xE0 la fen\xEAtre.";
+  CHECK(detect(fr) == Encoding::Windows1252);
+  n = charset::to_utf8(Encoding::Windows1252, reinterpret_cast<const uint8_t*>(fr.data()),
+                       static_cast<uint32_t>(fr.size()), out, sizeof(out));
+  CHECK(std::string(out, n) == "Café crème, naïve “quote” à la fenêtre.");
+  // UTF-16: a surrogate pair, and malformed UTF-8 as U+FFFD.
+  const uint8_t u16[] = {'A', 0, 0x3D, 0xD8, 0x00, 0xDE};  // A, U+1F600
+  n = charset::to_utf8(Encoding::Utf16LE, u16, sizeof(u16), out, sizeof(out));
+  CHECK(std::string(out, n) == "A\xF0\x9F\x98\x80");
+  n = charset::to_utf8(Encoding::Utf8, reinterpret_cast<const uint8_t*>("a\xFFz"), 3, out, sizeof(out));
+  CHECK(std::string(out, n) == "a\xEF\xBF\xBDz");
+  Encoding e;
+  CHECK(charset::from_name("Windows-1257", e) && e == Encoding::Windows1257);
+  CHECK(charset::from_name("utf-8", e) && e == Encoding::Utf8);
+  CHECK(charset::from_name("CP1251", e) && e == Encoding::Windows1251);
+  CHECK(!charset::from_name("koi8-r", e));
+}
+
+void test_text_headings() {
+  for (const char* yes : {"Chapter 1",
+                          "CHAPTER IV.",
+                          "Chapter 12. The Return",
+                          "CHAPTER I. Down the Rabbit-Hole",
+                          "Part Two",
+                          "BOOK III",
+                          "Skyrius 3",
+                          "1 skyrius",
+                          "I SKYRIUS",
+                          "Pirmas skyrius",
+                          "Antroji dalis",
+                          "I",
+                          "XII",
+                          "IV.",
+                          "12",
+                          "Prologue",
+                          "EPILOGAS",
+                          "Įžanga",
+                          "IV. The Return",
+                          "  Chapter 7  "}) {
+    if (!TextBook::is_heading(yes)) std::printf("not a heading: [%s]\n", yes);
+    CHECK(TextBook::is_heading(yes));
+  }
+  for (const char* no : {"", "It was a dark and stormy night.", "Chapter one was the hardest to write.", "Mix",
+                         "1234567", "Part of the plan was simple.", "I. went home", "The Prologue",
+                         "Prologue to the story of how it all began, told by the one who saw it"}) {
+    if (TextBook::is_heading(no)) std::printf("a heading: [%s]\n", no);
+    CHECK(!TextBook::is_heading(no));
+  }
+}
+
+std::vector<std::string> split(const std::string& text, bool wrapped) {
+  std::string buf = text + '\0';
+  const char* paragraphs[64];
+  const uint32_t n =
+      TextBook::split_text(buf.data(), static_cast<uint32_t>(text.size()), buf.data(), paragraphs, 64, wrapped, 0);
+  return std::vector<std::string>(paragraphs, paragraphs + n);
+}
+
+void test_text_paragraphs() {
+  // Wrapped text: lines join up to a blank or indented line.
+  const std::string wrapped =
+      "It was a bright cold day in April, and the\r\nclocks were striking thirteen.\r\n\r\n"
+      "Winston Smith,  his chin\r\nnuzzled into his breast.\r\n  An indented line\r\nstarts one too.\r\n";
+  std::vector<std::string> want = {"It was a bright cold day in April, and the clocks were striking thirteen.",
+                                   "Winston Smith, his chin nuzzled into his breast.",
+                                   "An indented line starts one too."};
+  CHECK(split(wrapped, true) == want);
+  // Otherwise every line is a paragraph.
+  want = {"It was a bright cold day in April, and the",
+          "clocks were striking thirteen.",
+          "Winston Smith, his chin",
+          "nuzzled into his breast.",
+          "An indented line",
+          "starts one too."};
+  CHECK(split(wrapped, false) == want);
+  // A heading and the short title after it are headings; the text is not.
+  const std::string chapters = "CHAPTER I.\nDown the Rabbit-Hole\n\nAlice was beginning\nto get very tired.\n\nXII\n";
+  std::string buf = chapters + std::string(8, '\0');
+  const char* paragraphs[16];
+  // Converted with room in front, as TextBook does: marks add a byte each.
+  std::memmove(buf.data() + 4, buf.data(), chapters.size());
+  const uint32_t n =
+      TextBook::split_text(buf.data() + 4, static_cast<uint32_t>(chapters.size()), buf.data(), paragraphs, 16, true, 4);
+  want = {
+      "\x01"
+      "CHAPTER I.",
+      "\x01"
+      "Down the Rabbit-Hole",
+      "Alice was beginning to get very tired.",
+      "\x01"
+      "XII"};
+  CHECK(std::vector<std::string>(paragraphs, paragraphs + n) == want);
+}
+
+void test_text_book_1257() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  TextBook book;
+  CHECK(book.open(data, "sample-1257.txt"));
+  CHECK(book.format() == TextBook::Format::Text);
+  CHECK(book.encoding() == charset::Encoding::Windows1257);
+  CHECK(std::string(book.info().title) == "sample-1257");
+  CHECK(std::string(book.info().language) == "lt");
+  CHECK(book.chapter_count() == 3);
+  CHECK(book.toc_count() == 3);
+  if (book.toc_count() == 3) {
+    CHECK(std::string(book.toc(0).title) == "Vellum bandymas");
+    CHECK(std::string(book.toc(1).title) == "1 skyrius \xC2\xB7 Kelionė");
+    CHECK(std::string(book.toc(2).title) == "2 skyrius");
+    CHECK(book.toc(1).chapter == 1 && book.toc(2).chapter == 2 && book.toc(2).paragraph == 0);
+  }
+  Chapter ch{};
+  CHECK(book.load_chapter(1, ch));
+  const std::vector<std::string> want = {
+      "\x01"
+      "1 skyrius",
+      "\x01"
+      "Kelionė",
+      "Tai buvo graži diena, ir žmonės ėjo į turgų pirkti šviežios duonos.",
+      "Antra pastraipa prasideda įtrauka ir tęsiasi čia."};
+  CHECK(std::vector<std::string>(ch.paragraphs, ch.paragraphs + ch.paragraph_count) == want);
+  CHECK(book.load_chapter(2, ch) && ch.paragraph_count == 2);
+  CHECK(!book.load_chapter(3, ch));
+  // Weights follow the parts' lengths.
+  CHECK(book.chapter_weight(0) < book.chapter_weight(1));
+}
+
+void test_text_book_long_and_named() {
+  // No headings, a name with the author, UTF-8: parts named by their first
+  // words, so contents and percent still work.
+  StdioStorage card("test-card-text");
+  std::string text;
+  for (int i = 0; text.size() < 3 * TextBook::kSplitBytes; ++i) {
+    text += "Paragraph " + std::to_string(i) + " is here, with words enough to read as a real line of text.\n";
+  }
+  CHECK(card.write("books/Jane Doe - Long_Book.txt", text.data(), static_cast<uint32_t>(text.size())));
+  TextBook book;
+  CHECK(book.open(card, "books/Jane Doe - Long_Book.txt"));
+  CHECK(std::string(book.info().title) == "Long Book");
+  CHECK(std::string(book.info().author) == "Jane Doe");
+  CHECK(book.chapter_count() >= 3);
+  CHECK(book.toc_count() == book.chapter_count());
+  CHECK(std::string(book.toc(0).title).starts_with("Paragraph 0 is here"));
+  CHECK(std::string(book.toc(1).title).ends_with("\xE2\x80\xA6"));
+  // Every paragraph is in exactly one part.
+  uint32_t total = 0;
+  for (int i = 0; i < book.chapter_count(); ++i) {
+    Chapter ch{};
+    CHECK(book.load_chapter(i, ch));
+    total += ch.paragraph_count;
+    if (i > 0) CHECK(std::string(ch.paragraphs[0]).starts_with("Paragraph "));
+  }
+  CHECK(total == static_cast<uint32_t>(std::count(text.begin(), text.end(), '\n')));
+
+  // UTF-16 with a byte order mark, and Mac line breaks.
+  std::string u16 = "\xFF\xFE";
+  for (char c : std::string("Chapter 1\rHello there.\rChapter 2\rGoodbye.\r")) u16 += std::string{c, '\0'};
+  CHECK(card.write("books/wide.txt", u16.data(), static_cast<uint32_t>(u16.size())));
+  CHECK(book.open(card, "books/wide.txt"));
+  CHECK(book.encoding() == charset::Encoding::Utf16LE);
+  CHECK(book.chapter_count() == 2 && book.toc_count() == 2);
+  Chapter ch{};
+  CHECK(book.load_chapter(1, ch) && ch.paragraph_count == 2);
+  CHECK(std::string(ch.paragraphs[0]) ==
+            "\x01"
+            "Chapter 2" &&
+        std::string(ch.paragraphs[1]) == "Goodbye.");
+}
+
+void check_sample_fb2(TextBook& book) {
+  CHECK(std::string(book.info().title) == "Vellum & FB2");
+  CHECK(std::string(book.info().author) == "Arūnas T. Testeris");
+  CHECK(std::string(book.info().language) == "lt");
+  // The annotation, the body's title, three sections and the notes.
+  CHECK(book.chapter_count() == 6);
+  CHECK(book.toc_count() == 5);
+  if (book.chapter_count() != 6 || book.toc_count() != 5) return;
+  CHECK(std::string(book.toc(0).title) == "Vellum & FB2" && book.toc(0).chapter == 0);
+  CHECK(std::string(book.toc(1).title) == "Pirmas skyrius \xC2\xB7 Kelionė");
+  CHECK(book.toc(1).chapter == 2 && book.toc(1).depth == 0 && book.toc(1).paragraph == 0);
+  CHECK(std::string(book.toc(2).title) == "Eilėraštis" && book.toc(2).depth == 1 && book.toc(2).chapter == 2);
+  CHECK(std::string(book.toc(3).title) == "Antras skyrius" && book.toc(3).chapter == 4);
+  CHECK(std::string(book.toc(4).title) == "Pastabos" && book.toc(4).chapter == 5);
+
+  Chapter ch{};
+  CHECK(book.load_chapter(0, ch));
+  std::vector<std::string> want = {
+      "\x01"
+      "Vellum & FB2",
+      "\x01"
+      "Arūnas T. Testeris",
+      "Trumpas aprašymas.", "Antra pastraipa."};
+  CHECK(std::vector<std::string>(ch.paragraphs, ch.paragraphs + ch.paragraph_count) == want);
+  CHECK(book.toc(2).paragraph == TocEntry::kUnknown);
+  CHECK(book.load_chapter(2, ch));
+  want = {
+      "\x01"
+      "Pirmas skyrius",
+      "\x01"
+      "Kelionė",
+      "Labas, pasauli![1]",
+      "",
+      "\x01"
+      "Eilėraštis",
+      "pirma eilė",
+      "antra eilė"};
+  const std::vector<std::string> got(ch.paragraphs, ch.paragraphs + ch.paragraph_count);
+  CHECK(got == want);
+  CHECK(book.toc(2).paragraph == 4);  // the nested section's place, found by reading its chapter
+  CHECK(book.load_chapter(4, ch) && ch.paragraph_count == 3 && std::string(ch.paragraphs[1]) == "\x01* * *");
+  CHECK(book.load_chapter(5, ch) && ch.paragraph_count == 3 && std::string(ch.paragraphs[2]) == "Pastaba.");
+
+  const uint8_t* picture = nullptr;
+  const int32_t len = book.read_cover(&picture);
+  CHECK(len > 8 && std::memcmp(picture, "\x89PNG", 4) == 0);
+  CHECK(book.load_chapter(2, ch) && ch.paragraph_count == 7);  // read again after the cover used the buffer
+}
+
+void test_fb2_book() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  TextBook book;
+  CHECK(book.open(data, "sample.fb2"));
+  CHECK(book.format() == TextBook::Format::Fb2);
+  check_sample_fb2(book);
+
+  std::string text =
+      "<section><title><p>A</p></title><p>One <emphasis>two</emphasis></p>"
+      "<section><p>x</p></section><cite><p>Quote</p><text-author>Me</text-author></cite></section>";
+  const char* paragraphs[16];
+  std::vector<uint32_t> sections;
+  const uint32_t n = TextBook::fb2_paragraphs(
+      text.data(), static_cast<uint32_t>(text.size()), paragraphs, 16,
+      [](void* ctx, uint32_t s, uint32_t p) { static_cast<std::vector<uint32_t>*>(ctx)->push_back(s * 100 + p); },
+      &sections);
+  const std::vector<std::string> want = {
+      "\x01"
+      "A",
+      "One two", "x", "Quote", "Me"};
+  CHECK(std::vector<std::string>(paragraphs, paragraphs + n) == want);
+  CHECK((sections == std::vector<uint32_t>{100, 202}));
+}
+
+void test_fb2_zip_book() {
+  StdioStorage card("test-card-fb2");
+  const std::string zipped = read_all(VELLUM_TEST_DATA "/sample.fb2.zip");
+  CHECK(card.write("books/sample.fb2.zip", zipped.data(), static_cast<uint32_t>(zipped.size())));
+  for (int pass = 0; pass < 2; ++pass) {  // unpacked once, then the copy is used
+    TextBook book;
+    CHECK(book.open(card, "books/sample.fb2.zip"));
+    CHECK(book.format() == TextBook::Format::Fb2Zip);
+    check_sample_fb2(book);
+  }
+  const std::string unpacked = read_all(VELLUM_TEST_DATA "/sample.fb2");
+  bool found = false;
+  for (const auto& f : std::filesystem::directory_iterator("test-card-fb2/vellum/unzipped")) {
+    found |= f.path().extension() == ".fb2" && read_all(f.path().c_str()) == unpacked;
+  }
+  CHECK(found);
+}
+
+void test_html_book() {
+  StdioStorage card("test-card-html");
+  const std::string page =
+      "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"windows-1252\"><title>A Caf\xE9 Page</title>"
+      "<meta name=\"author\" content=\"Ann Writer\"><style>p{}</style></head><body>"
+      "<h1>Part One</h1><h2>Morning</h2><p>Coffee at the caf\xE9.</p><h2>Evening</h2><p>Tea.</p></body></html>";
+  CHECK(card.write("books/page.html", page.data(), static_cast<uint32_t>(page.size())));
+  TextBook book;
+  CHECK(book.open(card, "books/page.html"));
+  CHECK(std::string(book.info().title) == "A Café Page");
+  CHECK(std::string(book.info().author) == "Ann Writer");
+  CHECK(std::string(book.info().language) == "en");
+  CHECK(book.chapter_count() == 3);
+  CHECK(book.toc_count() == 3);
+  if (book.toc_count() == 3) {
+    CHECK(std::string(book.toc(0).title) == "Part One" && book.toc(0).depth == 0);
+    CHECK(std::string(book.toc(1).title) == "Morning" && book.toc(1).depth == 1 && book.toc(1).chapter == 1);
+  }
+  Chapter ch{};
+  CHECK(book.load_chapter(1, ch) && ch.paragraph_count == 2);
+  CHECK(std::string(ch.paragraphs[0]) == "\x01Morning" && std::string(ch.paragraphs[1]) == "Coffee at the café.");
+}
+
+void test_library_finds_other_formats() {
+  StdioStorage card("test-card-formats");
+  std::remove("test-card-formats/vellum/library.txt");
+  for (const char* name : {"sample.fb2", "sample.fb2.zip", "sample-1257.txt"}) {
+    const std::string data = read_all((std::string(VELLUM_TEST_DATA "/") + name).c_str());
+    CHECK(card.write((std::string("books/") + name).c_str(), data.data(), static_cast<uint32_t>(data.size())));
+  }
+  CHECK(card.write("books/notes.pdf", "%PDF", 4));
+  Epub epub;
+  TextBook text;
+  Library lib;
+  lib.load(builtin_books(), &card, epub, &text);
+  CHECK(lib.count() == 4 + 3);
+  int fb2 = 0, txt = 0;
+  for (int i = 0; i < lib.count(); ++i) {
+    const LibraryEntry& e = lib.entry(i);
+    if (std::string(e.title) == "Vellum & FB2") {
+      ++fb2;
+      CHECK(e.cover == 1);
+      CHECK(std::string(e.author) == "Arūnas T. Testeris");
+    }
+    if (std::string(e.path) == "books/sample-1257.txt") {
+      ++txt;
+      CHECK(e.cover == 0 && std::string(e.language) == "lt");
+    }
+  }
+  CHECK(fb2 == 2 && txt == 1);
+  // Without a TextBook they are left out, as before.
+  Library epubs_only;
+  epubs_only.load(builtin_books(), &card, epub);
+  CHECK(epubs_only.count() >= 4);
+  CHECK(is_book_file("a.FB2.ZIP") && is_book_file("b.htm") && is_book_file("c.Txt") && !is_book_file("d.zip"));
+}
+
+void test_book_upload_names() {
+  CHECK(safe("Knyga.txt") == "Knyga.txt");
+  CHECK(safe("Knyga.FB2") == "Knyga.FB2");
+  CHECK(safe("Knyga.fb2.zip") == "Knyga.fb2.zip");
+  CHECK(safe("page.html") == "page.html");
+  CHECK(safe("page.htm") == "page.htm");
+  for (const char* no : {"x.zip", "x.pdf", "x.mobi", "x.azw3", "x.docx", ".txt"}) CHECK(safe(no) == "<rejected>");
+  // A long name is cut, keeping the whole of a two-part extension.
+  const std::string longer = std::string(200, 'a') + ".fb2.zip";
+  const std::string cut = safe(longer.c_str());
+  CHECK(cut.size() == 120 && cut.ends_with("a.fb2.zip"));
 }
 
 }  // namespace
@@ -1670,8 +2053,8 @@ void test_peer_transfer() {
     PeerSender tx;
     PeerReceiver rx;
     rx.begin(desk.ends[1], card_b);
-    CHECK(card_a.write("books/notes.txt", "hi", 2));
-    CHECK(tx.begin(desk.ends[0], card_a, "books/notes.txt"));
+    CHECK(card_a.write("books/notes.pdf", "hi", 2));
+    CHECK(tx.begin(desk.ends[0], card_a, "books/notes.pdf"));
     run_desk(desk, tx, rx, 50);
     CHECK(tx.state() == PeerSender::State::Failed && tx.error() == PeerSender::Error::Refused);
   }
@@ -3193,6 +3576,17 @@ int main() {
   test_reading_stats();
   test_reader_pages_left();
   test_app_reading_stats();
+  test_charset_detection();
+  test_text_headings();
+  test_text_paragraphs();
+  test_text_book_1257();
+  test_text_book_long_and_named();
+  test_fb2_book();
+  test_fb2_zip_book();
+  test_html_book();
+  test_library_finds_other_formats();
+  test_book_upload_names();
+  test_app_opens_fb2();
   test_opds_gutenberg();
   test_opds_standard_ebooks();
   test_opds_details();

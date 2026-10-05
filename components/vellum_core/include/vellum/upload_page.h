@@ -46,8 +46,9 @@ bool form_field(const char* body, size_t len, const char* key, char* out, size_t
 
 // Turns a file name sent by a browser into one that is safe to save in the
 // books folder: no folders, no characters FAT rejects, no leading dots, at
-// most 120 bytes, and ending in ".epub". Returns false for names that are
-// not EPUB books or are empty once cleaned.
+// most 120 bytes, and ending in a book's extension (.epub, .txt, .fb2,
+// .fb2.zip, .html, .htm). Returns false for other names or ones that are
+// empty once cleaned.
 bool safe_book_name(const char* in, char* out, size_t size);
 // The same for fonts (.ttf or .otf), which go in the fonts folder.
 bool safe_font_name(const char* in, char* out, size_t size);

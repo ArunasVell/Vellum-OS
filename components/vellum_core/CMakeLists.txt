@@ -8,6 +8,7 @@ set(VELLUM_CORE_SRCS
   src/covers.cpp
   src/dictionary.cpp
   src/battery_log.cpp
+  src/charset.cpp
   src/books/alice.cpp
   src/books/catalog.cpp
   src/books/father_brown.cpp
@@ -34,6 +35,7 @@ set(VELLUM_CORE_SRCS
   src/store.cpp
   src/strings.cpp
   src/text.cpp
+  src/text_book.cpp
   src/textfile.cpp
   src/touch.cpp
   src/ui.cpp
