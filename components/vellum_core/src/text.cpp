@@ -5,6 +5,10 @@
 namespace vellum {
 
 uint16_t Font::find(uint32_t cp) const {
+  // Printable ASCII usually starts the table in order: look there first.
+  if (cp >= 0x20 && cp < 0x7F && cp - 0x20 < glyph_count && glyphs[cp - 0x20].codepoint == cp) {
+    return static_cast<uint16_t>(cp - 0x20);
+  }
   const Glyph* end = glyphs + glyph_count;
   const Glyph* g = std::lower_bound(glyphs, end, cp, [](const Glyph& a, uint32_t c) { return a.codepoint < c; });
   return (g != end && g->codepoint == cp) ? static_cast<uint16_t>(g - glyphs) : fallback;
@@ -176,8 +180,14 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
   int baseline = style.area.y + font.ascent;
   const int bottom = style.area.y + style.area.h;
 
+  // The paragraph being set; measured once, not once a line.
+  uint32_t text_of = count;
+  std::string_view text;
   while (pos.paragraph < count && baseline + font.descent <= bottom) {
-    const std::string_view text(paragraphs[pos.paragraph]);
+    if (text_of != pos.paragraph) {
+      text_of = pos.paragraph;
+      text = paragraphs[pos.paragraph];
+    }
     const bool heading = !text.empty() && text[0] == kHeadingMark;
     const bool first_line = pos.offset == 0;
     // Indent every paragraph but the first and those after a heading.

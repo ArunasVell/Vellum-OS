@@ -43,11 +43,10 @@ size_t put_utf8(uint32_t c, char* out) {
   return 3;
 }
 
-const HyphenPattern* find_pattern(const Hyphenator& h, std::string_view key) {
-  const HyphenPattern* end = h.patterns + h.pattern_count;
-  const HyphenPattern* p = std::lower_bound(
-      h.patterns, end, key, [](const HyphenPattern& a, std::string_view k) { return std::string_view(a.letters) < k; });
-  return (p != end && std::string_view(p->letters) == key) ? p : nullptr;
+// The first pattern in [lo, hi) not before `key` in the table's (bytewise) order.
+const HyphenPattern* first_not_before(const HyphenPattern* lo, const HyphenPattern* hi, std::string_view key) {
+  return std::lower_bound(lo, hi, key,
+                          [](const HyphenPattern& a, std::string_view k) { return std::string_view(a.letters) < k; });
 }
 
 // Compares an exception entry, ignoring its hyphens, with a lowercase word.
@@ -130,11 +129,18 @@ int hyphenate(const Hyphenator& h, std::string_view word, uint16_t* breaks, int 
     }
   } else {
     for (int a = 0; a < units; ++a) {
+      // The patterns starting with the piece from a to b, narrowed as b grows.
+      const HyphenPattern* lo = h.patterns;
+      const HyphenPattern* hi = h.patterns + h.pattern_count;
       for (int b = a + 1; b <= units; ++b) {
-        const HyphenPattern* p = find_pattern(h, std::string_view(key + pos[a], pos[b] - pos[a]));
-        if (p == nullptr) continue;
+        const std::string_view part(key + pos[a], pos[b] - pos[a]);
+        const auto starts = [&](const HyphenPattern& x) { return std::string_view(x.letters).starts_with(part); };
+        lo = first_not_before(lo, hi, part);  // the first starting with `part`, if any does
+        if (lo == hi || !starts(*lo)) break;  // none: no longer piece matches either
+        hi = std::partition_point(lo, hi, starts);
+        if (lo->letters[part.size()] != '\0') continue;  // only longer ones: not `part` itself
         for (int g = 0; g <= b - a; ++g) {
-          values[a + g] = std::max<uint8_t>(values[a + g], static_cast<uint8_t>(p->digits[g] - '0'));
+          values[a + g] = std::max<uint8_t>(values[a + g], static_cast<uint8_t>(lo->digits[g] - '0'));
         }
       }
     }

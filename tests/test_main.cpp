@@ -449,6 +449,83 @@ void test_hyphenation() {
   CHECK(hyphenator_for("de") == nullptr);
 }
 
+// Liang's method the plain way: every piece of ".word." looked up whole.
+// hyphenate() skips pieces no pattern starts with; the breaks must not change.
+std::vector<uint16_t> reference_breaks(const Hyphenator& h, std::string_view word) {
+  std::string key = ".";
+  std::vector<size_t> unit{0};   // where each unit (dot or letter) starts in key
+  std::vector<uint16_t> starts;  // where each letter starts in word
+  for (size_t i = 0; i < word.size();) {
+    starts.push_back(static_cast<uint16_t>(i));
+    const size_t at = i;
+    decode_utf8(word, i);
+    unit.push_back(key.size());
+    key.append(word.substr(at, i - at));
+  }
+  unit.push_back(key.size());
+  key += '.';
+  unit.push_back(key.size());
+  const int n = static_cast<int>(starts.size());
+  std::vector<uint8_t> values(n + 3, 0);
+  for (int a = 0; a < n + 2; ++a) {
+    for (int b = a + 1; b <= n + 2; ++b) {
+      const std::string_view part(key.data() + unit[a], unit[b] - unit[a]);
+      const HyphenPattern* end = h.patterns + h.pattern_count;
+      const HyphenPattern* p = std::lower_bound(h.patterns, end, part, [](const HyphenPattern& x, std::string_view k) {
+        return std::string_view(x.letters) < k;
+      });
+      if (p == end || std::string_view(p->letters) != part) continue;
+      for (int g = 0; g <= b - a; ++g) values[a + g] = std::max<uint8_t>(values[a + g], p->digits[g] - '0');
+    }
+  }
+  std::vector<uint16_t> out;
+  for (int g = 1 + h.left_min; g <= 1 + n - h.right_min; ++g) {
+    if (values[g] & 1) out.push_back(starts[g - 1]);
+  }
+  return out;
+}
+
+void test_hyphenation_matches_reference() {
+  // Every lowercase word of the built-in books, plus some Lithuanian.
+  std::vector<std::string> words;
+  for (const Book* b : builtin_books()) {
+    for (uint32_t i = 0; i < b->paragraph_count; ++i) {
+      std::string w;
+      for (const char* c = b->paragraphs[i];; ++c) {
+        if (*c >= 'a' && *c <= 'z') {
+          w += *c;
+          continue;
+        }
+        if (w.size() >= 4) words.push_back(w);
+        w.clear();
+        if (*c == '\0') break;
+      }
+    }
+  }
+  CHECK(words.size() > 5000);
+  int compared = 0;
+  for (const std::string& w : words) {
+    bool exception = false;  // the exception list wins over patterns
+    for (uint32_t e = 0; e < hyphenation::en_us.exception_count; ++e) {
+      std::string bare = hyphenation::en_us.exceptions[e];
+      std::erase(bare, '-');
+      exception = exception || bare == w;
+    }
+    if (exception) continue;
+    uint16_t breaks[24];
+    const int n = hyphenate(hyphenation::en_us, w, breaks, 24);
+    CHECK(std::vector<uint16_t>(breaks, breaks + n) == reference_breaks(hyphenation::en_us, w));
+    ++compared;
+  }
+  CHECK(compared > 5000);
+  for (const char* w : {"lietuva", "\xc5\xa1viesa", "knygos", "skaitykl\xc4\x97", "vakarien\xc4\x97", "\xc5\xbeodynas",
+                        "pasaulis", "u\xc5\xbeuolaida", "nepriklausomyb\xc4\x97"}) {
+    uint16_t breaks[24];
+    const int n = hyphenate(hyphenation::lt, w, breaks, 24);
+    CHECK(std::vector<uint16_t>(breaks, breaks + n) == reference_breaks(hyphenation::lt, w));
+  }
+}
+
 void test_rotation_round_trip() {
   for (Rotation r : {Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270}) {
     Fixture f;
@@ -2474,6 +2551,7 @@ int main() {
   test_font_lookup_and_kerning();
   test_pagination_covers_text_once();
   test_hyphenation();
+  test_hyphenation_matches_reference();
   test_library_order();
   test_time_format();
   test_book_count_plurals();
