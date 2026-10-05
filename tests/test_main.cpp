@@ -2727,6 +2727,79 @@ void test_store_download() {
   std::filesystem::remove_all("test-store");
 }
 
+void test_app_store() {
+  std::filesystem::remove_all("test-card-store");
+  std::filesystem::create_directories("test-card-store/books");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-store");
+  FakeNetwork net;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  board.network = &net;
+  auto* app = new App(board);
+  app->start();
+
+  // Home › All books; the store is the library's last row, one Prev away.
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  press(*app, Key::Prev);
+  const int full = panel.full;
+  press(*app, Key::Power);  // the store: its catalogues
+  CHECK(panel.full == full + 1 && net.gets == 0);
+  press(*app, Key::Power);  // Project Gutenberg: its lists
+  press(*app, Key::Power);  // Most popular
+  CHECK(net.gets == 1 && net.last_url.find("sort_order=downloads") != std::string::npos);
+
+  // The last row of the page's books is "More books"; Prev wraps to it.
+  press(*app, Key::Prev);
+  press(*app, Key::Power);
+  CHECK(net.gets == 2 && net.last_url.find("start_index=26") != std::string::npos);
+  press(*app, Key::Power);  // "Earlier books" is first, the first book is selected: open it
+  CHECK(net.gets == 3 && net.last_url == "https://www.gutenberg.org/ebooks/64317.opds");
+  press(*app, Key::Home);  // back to the list, on that book
+  press(*app, Key::Prev);  // "Earlier books"
+  press(*app, Key::Power);
+  CHECK(net.gets == 4 && net.last_url.find("start_index") == std::string::npos);
+
+  // A book: its own feed, then the download.
+  press(*app, Key::Power);  // Pride and Prejudice
+  CHECK(net.gets == 5 && net.last_url == "https://www.gutenberg.org/ebooks/1342.opds");
+  press(*app, Key::Power);  // Download
+  CHECK(net.gets == 6 && net.last_url == "https://www.gutenberg.org/ebooks/1342.epub3.images");
+  CHECK(std::filesystem::exists("test-card-store/books/Jane Austen - Pride and Prejudice.epub"));
+  CHECK(net.joined);
+  const int full_before_reading = panel.full;
+  press(*app, Key::Power);  // Read now: the radio goes off and the book opens
+  CHECK(!net.joined && net.disconnects == 1);
+  CHECK(panel.full == full_before_reading + 1);
+  const int fast = panel.fast;
+  press(*app, Key::Next);  // a page turns: it is the reader
+  CHECK(panel.fast == fast + 1);
+
+  // No home Wi-Fi: it says so; Try again asks once more; Home climbs out.
+  press(*app, Key::Home);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // All books
+  tap(*app, 240, 575);      // "Get free books", after the five books
+
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // Standard Ebooks
+  net.fail = NetResult::NoNetwork;
+  const int gets = net.gets;
+  press(*app, Key::Power);  // New releases
+  press(*app, Key::Power);  // Try again
+  CHECK(net.gets == gets + 2);
+  net.fail = NetResult::Ok;
+  tap(*app, 240, 290);  // Try again, by touch: the list arrives
+  CHECK(net.gets == gets + 3 && net.last_url.find("standardebooks.org") != std::string::npos);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Home);  // list, catalogues, out of the store
+  CHECK(net.disconnects == 2);
+  delete app;
+  std::filesystem::remove_all("test-card-store");
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -2783,6 +2856,7 @@ int main() {
   test_opds_standard_ebooks();
   test_opds_details();
   test_store_download();
+  test_app_store();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;

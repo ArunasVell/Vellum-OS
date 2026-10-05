@@ -375,6 +375,7 @@ App::~App() {
   delete[] large_cover_.px;
   delete[] small_cover_.px;
   delete[] definition_;
+  delete store_;
 }
 
 const CoverImage* App::cover_of(int book, bool large) {
@@ -387,6 +388,11 @@ const CoverImage* App::cover_of(int book, bool large) {
 }
 
 void App::reload_library() {
+  rescan_library();
+  show(Screen::Home);
+}
+
+void App::rescan_library() {
   epub_.close();
   epub_path_[0] = '\0';
   reading_ = -1;
@@ -394,7 +400,6 @@ void App::reload_library() {
   fonts_.scan(board_.storage);  // fonts may have arrived with the books
   apply_fonts();
   dictionaries_scanned_ = false;  // and dictionaries
-  show(Screen::Home);
 }
 
 void App::save_progress() {
@@ -529,7 +534,7 @@ void App::draw_library() {
   format_book_count(settings_.language, library_.count(), count, sizeof(count));
   draw_text(fb_, ui::label_font(), kSide * 64, kSubtitleBase, count);
 
-  const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
+  const int pages = (library_item_count() + kLibraryRows - 1) / kLibraryRows;
   const int page = library_sel_ / kLibraryRows;
   if (pages > 1) {
     char label[48];
@@ -546,10 +551,19 @@ void App::draw_library() {
     ui::draw_book_row(fb_, row_rect(fb_, y, ui::kRowHeight), library_.entry(i), t, selected, cover_of(i, false));
     add_hit(row_rect(fb_, y, ui::kRowHeight), i);
   }
+  if (library_item_count() > library_.count() && library_.count() < first + kLibraryRows) {
+    // The free book store, after the last book.
+    const Rect r = row_rect(fb_, kListTop + (library_.count() - first) * ui::kRowHeight + 15, kLinkHeight);
+    draw_link(fb_, r, t.store_link, library_sel_ == library_.count());
+    add_hit(r, library_.count());
+  }
   ui::draw_hint(fb_, t.hint_list);
 }
 
-void App::library_activate() { open_book(library_sel_); }
+void App::library_activate() {
+  if (library_sel_ == library_.count()) return open_store();
+  open_book(library_sel_);
+}
 
 // ---- Settings --------------------------------------------------------------
 
@@ -1921,6 +1935,9 @@ void App::draw() {
     case Screen::Stats:
       draw_stats();
       break;
+    case Screen::Store:
+      draw_store();
+      break;
     case Screen::Reader:
       break;
   }
@@ -1981,6 +1998,7 @@ void App::timeout() {
 
 void App::sleep() {
   if (screen_ == Screen::Transfer) close_transfer();  // radio off first
+  if (screen_ == Screen::Store) close_store();
   word_mode_ = WordMode::Off;
   if (screen_ == Screen::Send) {
     close_send();
@@ -2286,6 +2304,7 @@ bool App::handle_key(Key key) {
       }
       if (screen_ == Screen::Updates && update_busy_ != UpdateBusy::No) return false;
       if (screen_ == Screen::Send) close_send();
+      if (screen_ == Screen::Store) return store_back(), false;  // up a level
       show(Screen::Home);
     }
     return false;
@@ -2311,7 +2330,7 @@ bool App::handle_key(Key key) {
       return true;
     case Screen::Library:
       if (key == Key::Power) return library_activate(), false;
-      library_sel_ = wrap_index(library_sel_ + step, library_.count());
+      library_sel_ = wrap_index(library_sel_ + step, library_item_count());
       return true;
     case Screen::Settings:
       if (key == Key::Power) settings_activate();
@@ -2350,6 +2369,8 @@ bool App::handle_key(Key key) {
         return true;
       }
       return false;
+    case Screen::Store:
+      return store_key(key);
     case Screen::Transfer:
       break;  // only Home leaves it
   }
@@ -2402,12 +2423,15 @@ bool App::handle_gesture(const Gesture& g) {
   }
   if (screen_ == Screen::Library && g.kind != K::Tap) {
     // Swipes page through the list, keeping the highlight on the same row.
-    const int pages = (library_.count() + kLibraryRows - 1) / kLibraryRows;
+    const int pages = (library_item_count() + kLibraryRows - 1) / kLibraryRows;
     if (pages <= 1) return false;
     const int forward = g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1;
     const int page = wrap_index(library_sel_ / kLibraryRows + forward, pages);
-    library_sel_ = std::min(page * kLibraryRows + library_sel_ % kLibraryRows, library_.count() - 1);
+    library_sel_ = std::min(page * kLibraryRows + library_sel_ % kLibraryRows, library_item_count() - 1);
     return true;
+  }
+  if (screen_ == Screen::Store && g.kind != K::Tap) {
+    return store_swipe(g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1);
   }
   if (g.kind != K::Tap) return false;
   if (screen_ == Screen::Battery || screen_ == Screen::Stats)
@@ -2448,6 +2472,11 @@ bool App::handle_gesture(const Gesture& g) {
       updates_sel_ = item;
       updates_activate();
       return true;
+    case Screen::Store:
+      if (store_busy()) return false;
+      store_sel_ = item;
+      store_activate();
+      return false;
     case Screen::Reader:
     case Screen::Transfer:
     case Screen::Battery:

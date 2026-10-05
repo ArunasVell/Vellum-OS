@@ -10,6 +10,7 @@
 #include "vellum/hal.h"
 #include "vellum/highlights.h"
 #include "vellum/library.h"
+#include "vellum/opds.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/reading_stats.h"
@@ -44,6 +45,13 @@ namespace vellum {
 // Reading stats shows it by day and by book, and the speed it gives tells
 // the time left in the chapter and the book (in Contents, and in the
 // footer when Settings › Reading › Footer asks for it).
+//
+// The library's last row, "Get free books", opens the store
+// (app_store.cpp, Board::network): Project Gutenberg's and Standard
+// Ebooks' catalogues, their lists, pages of books, and one book with its
+// summary and a Download button. The book lands in books/ and can be read
+// at once. The reader joins the home Wi-Fi for the first page it fetches
+// and turns the radio off on leaving the store (or sleeping).
 //
 // Settings › Device check shows every button press and touch, and what the
 // board reports (battery, clock, card), for trying out new hardware.
@@ -93,7 +101,8 @@ class App {
     Check,
     Updates,
     Send,
-    Stats
+    Stats,
+    Store
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -183,6 +192,46 @@ class App {
   // Underlines for highlights and marks for the words in hand.
   int page_marks(TextMark* out, int max) const;
   void draw_word_overlay();
+
+  // The free book store (app_store.cpp). Each level of it is a page; Home
+  // goes up one. Calls that fetch draw "Loading…" first and block.
+  enum class StorePage : uint8_t { Sources, Lists, Books, Book };
+  enum class StoreState : uint8_t { Ready, Loading, Downloading, Saved, Failed };
+  enum class StoreError : uint8_t { None, NoNetwork, NoWifi, NoServer, BrokeOff, NotBook, CardFull, NoCard, NoEpub };
+  static constexpr int kStoreEntries = 30;  // books on one page of a list (Gutenberg sends 25)
+  static constexpr int kStoreHistory = 8;   // list pages "Earlier books" can go back to
+  struct StoreMemory {
+    OpdsParser parser;
+    OpdsEntry entries[kStoreEntries];
+    OpdsEntry detail;  // one book's own feed
+    char history[kStoreHistory][256];
+  };
+  void open_store();
+  // Turns the radio off; the screen stays.
+  void close_store();
+  void store_back();
+  bool store_key(Key key);
+  bool store_swipe(int forward);
+  void store_activate();
+  int store_row_count() const;
+  bool store_busy() const;
+  // Fetches a page of a list (or of search results) and shows it.
+  void store_load(const char* url);
+  // Search hook: shows Project Gutenberg's books matching `words`. Waits for
+  // the on-screen keyboard; nothing calls it yet.
+  void store_search(const char* words);
+  // Opens entry i of the list page: its own feed when it has one.
+  void store_open_book(int i);
+  void store_download();
+  void store_fail(StoreError e);
+  static StoreError net_error(NetResult r);
+  const char* store_error_text() const;
+  void draw_store();
+  void draw_store_book();
+  // The library's rows: its books, then the store link when there is a network.
+  int library_item_count() const;
+  // Rereads the card's books, staying on the screen shown.
+  void rescan_library();
 
   // Remembers where a tappable item was drawn; `item` is its selection index.
   void add_hit(Rect r, int item);
@@ -324,6 +373,21 @@ class App {
   PeerReceiver receiver_;
   int send_sel_ = 0;
   bool radio_failed_ = false;  // Peers::start() failed for the send screen
+
+  StoreMemory* store_ = nullptr;  // allocated once
+  OpdsFeed store_feed_;
+  StorePage store_page_ = StorePage::Sources;
+  StoreState store_state_ = StoreState::Ready;
+  StoreError store_error_ = StoreError::None;
+  bool store_failed_download_ = false;  // Try again downloads (else it reloads)
+  int store_sel_ = 0;
+  int store_source_ = 0;
+  int store_book_ = 0;   // the list entry the book page shows
+  int store_depth_ = 0;  // pages in store_->history
+  int store_percent_ = 0;
+  int store_saved_ = -1;       // library index of the book just downloaded
+  char store_url_[256] = {};   // the list page shown
+  char store_title_[64] = {};  // its name
 
   struct Hit {
     Rect r;
