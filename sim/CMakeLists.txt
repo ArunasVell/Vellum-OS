@@ -15,6 +15,14 @@ find_package(SDL2 REQUIRED)
 add_executable(vellum-sim main.cpp png_writer.cpp)
 target_link_libraries(vellum-sim PRIVATE vellum_core SDL2::SDL2)
 target_compile_options(vellum-sim PRIVATE -Wall -Wextra -Werror)
+# The free book store: the test feeds as a demo catalogue, and the real
+# catalogues too when libcurl is installed (--demo-store keeps the demo).
+target_compile_definitions(vellum-sim PRIVATE VELLUM_DEMO_DATA="${CMAKE_CURRENT_SOURCE_DIR}/../tests/data")
+find_package(CURL QUIET)
+if(CURL_FOUND)
+  target_link_libraries(vellum-sim PRIVATE CURL::libcurl)
+  target_compile_definitions(vellum-sim PRIVATE VELLUM_SIM_CURL)
+endif()
 
 enable_testing()
 add_executable(vellum-tests ../tests/test_main.cpp)
@@ -31,3 +39,7 @@ add_test(NAME sim-touch COMMAND vellum-sim --headless --time 14:05
 # Hold a word in the book: the dictionary panel, then Highlight and a tap on the passage's end.
 add_test(NAME sim-words COMMAND vellum-sim --headless --time 14:05 --keys "o[400,240~][60,762][130,315]"
          --screenshot sim-words.png)
+# The free book store's demo catalogue: All books, the store link (Prev from the
+# top), Gutenberg, Most popular, a book, Download.
+add_test(NAME sim-store COMMAND vellum-sim --headless --demo-store --time 14:05 --card sim-store-card
+         --keys nnnopooooo --screenshot sim-store.png)
