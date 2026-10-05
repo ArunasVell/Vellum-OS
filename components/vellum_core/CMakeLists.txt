@@ -8,6 +8,7 @@ set(VELLUM_CORE_SRCS
   src/covers.cpp
   src/dictionary.cpp
   src/battery_log.cpp
+  src/catalogues.cpp
   src/charset.cpp
   src/books/alice.cpp
   src/books/catalog.cpp
@@ -21,12 +22,14 @@ set(VELLUM_CORE_SRCS
   src/framebuffer.cpp
   src/highlights.cpp
   src/keyboard.cpp
+  src/kosync.cpp
   src/hyphenation.cpp
   src/hyphenation/en_us.cpp
   src/hyphenation/lt.cpp
   src/library.cpp
   src/opds.cpp
   src/peer_transfer.cpp
+  src/phone_settings.cpp
   src/reader.cpp
   src/reading_stats.cpp
   src/settings.cpp

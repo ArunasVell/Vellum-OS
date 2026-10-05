@@ -15,6 +15,18 @@
 //   POST /highlights/note   form body id=...&note=...; 200 when saved
 //   POST /highlights/remove form body id=...; 200 when removed
 //
+// Its Settings section changes the reader's settings, the home Wi-Fi, the
+// KOReader sync account and the reader's own catalogues (phone_* below
+// do the work, so every board answers alike):
+//   GET  /settings          JSON: phone_settings_json()
+//   POST /settings          form body of settings keys; the reader applies them at once
+//   POST /sync              form body for kosync::account_from_form()
+//   POST /catalogues        form body for Catalogues::apply_form()
+//   POST /wifi              as below
+// Each 200 when saved, 400 for a bad value, 507 when the catalogues are full.
+// The board then counts TransferStatus::settings_saved up (not for /catalogues:
+// the store reads them when it opens).
+//
 // A second page, opened from Settings › Updates, sets the home Wi-Fi and
 // installs an update file:
 //   GET  /setup             that page
@@ -63,5 +75,16 @@ bool parse_datetime(const char* in, size_t len, DateTime& out);
 // Appends `s` to out as a JSON string body (without quotes). Returns false
 // when it does not fit.
 bool json_escape(const char* s, char* out, size_t size, size_t& len);
+
+// The phone page's Settings section, on the card's files (phone_settings.cpp).
+// GET /settings: {"settings": settings_json(), "home_network": "...",
+// "sync": kosync::account_json(), "catalogues": Catalogues::write_json()}.
+// `fonts` is TransferInfo::fonts. Returns false when it does not fit.
+bool phone_settings_json(Storage& card, const char* fonts, const char* home_network, char* out, size_t size);
+// POST /settings, /sync and /catalogues: the form applied and saved.
+enum class PhoneSaved : uint8_t { Ok, Bad, Full, NotSaved };
+PhoneSaved phone_post_settings(Storage& card, const char* body, size_t len);
+PhoneSaved phone_post_sync(Storage& card, const char* body, size_t len);
+PhoneSaved phone_post_catalogues(Storage& card, const char* body, size_t len);
 
 }  // namespace vellum

@@ -160,13 +160,21 @@ class Storage {
 };
 
 // Receiving books from a phone or computer over Wi-Fi. The device opens its
-// own Wi-Fi network and serves an upload page; books land in "books/" on the
-// storage. While it runs, the board posts InputEvent::Type::Transfer
-// whenever the status changes.
+// own Wi-Fi network (or joins the home Wi-Fi, when asked) and serves an
+// upload page; books land in "books/" on the storage. While it runs, the
+// board posts InputEvent::Type::Transfer whenever the status changes.
 struct TransferInfo {
   char network[33] = {};   // Wi-Fi network name
-  char password[65] = {};  // its password
+  char password[65] = {};  // its password ("" on the home Wi-Fi: the phone knows it)
   char address[64] = {};   // upload page, e.g. "http://192.168.4.1"
+  // Set by the app: serve the page on the home Wi-Fi (the network the
+  // Updater uses) instead of the reader's own. start() returns false when
+  // it cannot be joined; a board that cannot do it at all clears `home`
+  // and opens its own network.
+  bool home = false;
+  // Set by the app, for the page's Settings: the typefaces it can pick, one
+  // name per line. Stays valid until stop().
+  const char* fonts = nullptr;
 };
 
 struct TransferStatus {
@@ -188,6 +196,9 @@ struct TransferStatus {
   int update_percent = 0;
   char update_version[32] = {};  // version of the update being installed
   int home_wifi_saved = 0;       // counts home Wi-Fi settings saved from the page
+  // Counts changes the page saved on the card for the app to take up: its
+  // settings (vellum/settings.txt) and the sync account (vellum/kosync.txt).
+  int settings_saved = 0;
 };
 
 class Transfer {
@@ -240,6 +251,17 @@ enum class NetResult : uint8_t {
   Stopped,    // the body callback asked to stop
 };
 
+// A request with a method, headers or a body: for services that answer more
+// than files (KOReader sync) or ask for a password (catalogues).
+struct HttpRequest {
+  const char* method = "GET";     // "GET", "POST" or "PUT"
+  const char* url = nullptr;
+  const char* headers = nullptr;  // extra header lines, each "Name: value\r\n"; nullptr for none
+  const char* body = nullptr;     // sent as it is; nullptr for none
+  uint32_t body_len = 0;
+  int status = 0;  // set by Network::request(): the answer's status, 0 when none came
+};
+
 class Network {
  public:
   virtual ~Network() = default;
@@ -248,6 +270,16 @@ class Network {
   // when the server says (else 0). Returning false stops the transfer.
   using BodyFn = bool (*)(void* ctx, const uint8_t* data, uint32_t len, uint32_t total);
   virtual NetResult get(const char* url, BodyFn body, void* ctx) = 0;
+  // Sends `req` (a GET follows redirects) and hands the answer's body to
+  // body() like get(), whatever its status, which lands in req.status. Ok
+  // when an answer arrived whole, a 401 or a 404 too. NoServer from boards
+  // that cannot.
+  virtual NetResult request(HttpRequest& req, BodyFn body, void* ctx) {
+    (void)req;
+    (void)body;
+    (void)ctx;
+    return NetResult::NoServer;
+  }
   // Leaves the network and turns the radio off.
   virtual void disconnect() = 0;
   // True for the simulators' canned catalogue, which the store marks as such.

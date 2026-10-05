@@ -34,8 +34,15 @@ const Source& source(int i);
 bool search_url(const char* words, char* out, size_t size);
 
 // Fetches one page of a list into feed (its entries are the caller's).
-// NoServer also covers an answer that was not a catalogue.
-NetResult fetch_feed(Network& net, const char* url, OpdsFeed& feed, OpdsParser& parser);
+// NoServer also covers an answer that was not a catalogue. `headers` (as in
+// HttpRequest, nullptr for none) sign in to a catalogue that asks;
+// `sections` keeps a catalogue's links to other lists (OpdsParser::begin).
+NetResult fetch_feed(Network& net, const char* url, OpdsFeed& feed, OpdsParser& parser,
+                     const char* headers = nullptr, bool sections = false);
+
+// GET of `url` with `headers` when there are any (Network::request; only a
+// 200 answer counts), else a plain Network::get().
+NetResult get(Network& net, const char* url, const char* headers, Network::BodyFn body, void* ctx);
 
 // A free name for the book in books/: "Author - Title.epub", the title
 // without its subtitle, made safe for the card, with " 2", " 3"... when
@@ -55,7 +62,8 @@ enum class Saved : uint8_t {
 // book arrived. progress(ctx, percent) is called as it comes (only when the
 // server gives the length).
 using ProgressFn = void (*)(void* ctx, int percent);
-Saved download(Network& net, Storage& storage, const char* url, const char* path, ProgressFn progress, void* ctx);
+Saved download(Network& net, Storage& storage, const char* url, const char* path, ProgressFn progress, void* ctx,
+               const char* headers = nullptr);
 
 // "1.2 MB" or "640 KB", with the language's decimal mark.
 void format_size(Language lang, uint32_t bytes, char* out, size_t size);
