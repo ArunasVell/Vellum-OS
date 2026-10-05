@@ -1474,7 +1474,8 @@ void App::draw_transfer() {
   const char* address = info.address;
   if (std::strncmp(address, "http://", 7) == 0) address += 7;  // what people type
   ui::draw_fitted(fb_, ui::large_font(), col_x, y + 80, col_w, address);
-  ui::draw_wrapped(fb_, ui::label_font(), col_x, y + 118, col_w, 3, t.scan_hint, false);
+  ui::draw_wrapped(fb_, ui::label_font(), col_x, y + 118, col_w, 3, transfer_home_ ? t.scan_one_hint : t.scan_hint,
+                   false);
 
   // What has arrived so far.
   TransferStatus st;

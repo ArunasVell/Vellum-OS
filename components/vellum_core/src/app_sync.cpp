@@ -30,6 +30,11 @@ bool App::sync_document() {
 
 namespace {
 
+// The share of the book before the page shown, in whole percent, as the server has it.
+int share_percent(const Document& doc, const Reader& reader) {
+  return static_cast<int>(kosync::share_at(doc, reader.chapter(), reader.page(), reader.page_count()) * 100 + 0.5);
+}
+
 // This reader as the server tells devices apart: its name made into an id.
 void device_id(const Board& board, char out[33]) {
   const char* name = board.peers != nullptr ? board.peers->name() : board.name;
@@ -101,7 +106,7 @@ void App::sync_progress(bool pull) {
           state.percent = static_cast<uint8_t>(reader_.percent());
           save_progress();
           sync_state_ = SyncState::Moved;
-          sync_percent_ = reader_.percent();
+          sync_percent_ = share_percent(doc, reader_);
           sync_sent_ = reader_.position();  // the server has it
           sync_sent_book_ = reader_.id();
           net.disconnect();
@@ -119,7 +124,7 @@ void App::sync_progress(bool pull) {
     r = send_position(net, *board_.storage, sync_account_, sync_doc_, doc, reader_, id, epub);
     if (r == kosync::Result::Ok) {
       sync_state_ = SyncState::Sent;
-      sync_percent_ = reader_.percent();
+      sync_percent_ = share_percent(doc, reader_);
       sync_sent_ = reader_.position();
       sync_sent_book_ = reader_.id();
     }
