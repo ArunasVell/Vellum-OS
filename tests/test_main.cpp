@@ -1,8 +1,10 @@
 // Host unit tests for the portable core. Plain asserts, no framework.
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -10,6 +12,7 @@
 #include "vellum/app.h"
 #include "vellum/battery_log.h"
 #include "vellum/book.h"
+#include "vellum/catalogues.h"
 #include "vellum/charset.h"
 #include "vellum/covers.h"
 #include "vellum/dictionary.h"
@@ -20,6 +23,7 @@
 #include "vellum/framebuffer.h"
 #include "vellum/highlights.h"
 #include "vellum/keyboard.h"
+#include "vellum/kosync.h"
 #include "vellum/library.h"
 #include "vellum/opds.h"
 #include "vellum/peer_transfer.h"
@@ -685,6 +689,13 @@ class FakeTransfer : public Transfer {
  public:
   bool start(TransferInfo& info) override {
     ++starts;
+    last_home = info.home;
+    last_fonts = info.fonts != nullptr ? info.fonts : "";
+    if (info.home) {
+      std::snprintf(info.network, sizeof(info.network), "HomeNet");
+      std::snprintf(info.address, sizeof(info.address), "http://192.168.1.5");
+      return !fail_home;
+    }
     std::snprintf(info.network, sizeof(info.network), "Vellum-TEST");
     std::snprintf(info.password, sizeof(info.password), "12345678");
     std::snprintf(info.address, sizeof(info.address), "http://192.168.4.1");
@@ -695,6 +706,9 @@ class FakeTransfer : public Transfer {
   TransferStatus st;
   int starts = 0;
   int stops = 0;
+  bool last_home = false;  // the last start was asked for the home Wi-Fi
+  bool fail_home = false;  // which cannot be joined
+  std::string last_fonts;
 };
 
 void test_app_transfer() {
@@ -3918,6 +3932,591 @@ void test_app_store_search() {
   std::filesystem::remove_all("test-card-store-search");
 }
 
+// ---- Network: KOReader sync, own catalogues, settings from the phone ---------
+
+// A KOReader sync server and catalogue host in memory: records each request
+// and answers with what the test set.
+class FakeSyncNetwork : public Network {
+ public:
+  NetResult get(const char* url, BodyFn body, void* ctx) override {
+    HttpRequest req;
+    req.url = url;
+    const NetResult r = request(req, body, ctx);
+    return r == NetResult::Ok && req.status != 200 ? NetResult::NoServer : r;
+  }
+  NetResult request(HttpRequest& req, BodyFn body, void* ctx) override {
+    joined = true;
+    methods.push_back(req.method);
+    urls.push_back(req.url);
+    headers = req.headers != nullptr ? req.headers : "";
+    sent = req.body != nullptr ? std::string(req.body, req.body_len) : "";
+    if (fail != NetResult::Ok) return fail;
+    const std::string url = req.url;
+    std::string answer;
+    req.status = 200;
+    if (pages.count(url) > 0) {
+      answer = pages[url];
+    } else if (url.find("/users/create") != std::string::npos) {
+      req.status = create_status;
+    } else if (url.find("/syncs/progress/") != std::string::npos) {
+      req.status = login_ok ? 200 : 401;
+      answer = remote;
+    } else if (url.find("/syncs/progress") != std::string::npos && std::string(req.method) == "PUT") {
+      req.status = login_ok ? 200 : 401;
+      answer = "{\"document\":\"x\",\"timestamp\":1760000000}";
+    } else {
+      req.status = 404;
+    }
+    if (!answer.empty() && !body(ctx, reinterpret_cast<const uint8_t*>(answer.data()),
+                                 static_cast<uint32_t>(answer.size()), static_cast<uint32_t>(answer.size()))) {
+      return NetResult::Stopped;
+    }
+    return NetResult::Ok;
+  }
+  void disconnect() override {
+    joined = false;
+    ++disconnects;
+  }
+  int count(const char* method) const { return static_cast<int>(std::count(methods.begin(), methods.end(), method)); }
+
+  std::vector<std::string> methods;
+  std::vector<std::string> urls;
+  std::string headers;  // of the last request
+  std::string sent;     // its body
+  std::map<std::string, std::string> pages;
+  std::string remote = "{}";  // what GET /syncs/progress/... answers
+  int create_status = 201;
+  bool login_ok = true;
+  NetResult fail = NetResult::Ok;
+  bool joined = false;
+  int disconnects = 0;
+};
+
+// Chapters of given lengths, for the share and page mapping.
+class WeightedDocument : public Document {
+ public:
+  explicit WeightedDocument(std::vector<uint32_t> weights) : weights_(std::move(weights)) {}
+  const char* language() const override { return "en"; }
+  int chapter_count() const override { return static_cast<int>(weights_.size()); }
+  uint32_t chapter_weight(int i) const override { return weights_[i]; }
+  bool load_chapter(int, Chapter&) override { return false; }
+  const TocEntry& toc(int) const override { return toc_; }
+
+ private:
+  std::vector<uint32_t> weights_;
+  TocEntry toc_;
+};
+
+void test_kosync_digests() {
+  char out[33];
+  kosync::md5_hex("", 0, out);
+  CHECK(std::string(out) == "d41d8cd98f00b204e9800998ecf8427e");
+  kosync::md5_hex("abc", 3, out);
+  CHECK(std::string(out) == "900150983cd24fb0d6963f7d28e17f72");
+  const std::string long_text(1000, 'a');  // several blocks
+  kosync::md5_hex(long_text.data(), long_text.size(), out);
+  CHECK(std::string(out) == "cabe45dcc9ae5b66ba86600cca6b8ba8");
+
+  // KOReader's partial MD5: 1 KB samples at 0, 1 KB, 4 KB, 16 KB ... up to the end.
+  std::filesystem::remove_all("test-kosync");
+  StdioStorage card("test-kosync");
+  std::string big(300000, '\0');
+  for (size_t i = 0; i < big.size(); ++i) big[i] = static_cast<char>((i * 7 + 3) % 251);
+  CHECK(card.write("books/big.txt", big.data(), static_cast<uint32_t>(big.size())));
+  CHECK(kosync::document_id(card, "books/big.txt", kosync::Method::Binary, out) &&
+        std::string(out) == "3e53b613def422b326c240820288f5ef");
+  const std::string epub = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(card.write("books/sample.epub", epub.data(), static_cast<uint32_t>(epub.size())));
+  CHECK(kosync::document_id(card, "books/sample.epub", kosync::Method::Binary, out) &&
+        std::string(out) == "9f06430a0700212493289d3aa92738b1");
+  // By file name: the name alone, without its folder.
+  CHECK(kosync::document_id(card, "books/sample.epub", kosync::Method::FileName, out) &&
+        std::string(out) == "700df0516d891b636d651d84c3ad80e9");
+  CHECK(!kosync::document_id(card, "books/missing.epub", kosync::Method::Binary, out));
+  std::filesystem::remove_all("test-kosync");
+}
+
+void test_kosync_mapping() {
+  // A share and back lands on the same page, in every chapter.
+  WeightedDocument doc({100, 300, 600});
+  for (int chapter = 0; chapter < 3; ++chapter) {
+    for (int page = 0; page < 12; ++page) {
+      const double share = kosync::share_at(doc, chapter, page, 12);
+      const kosync::Spot spot = kosync::spot_at(doc, share);
+      CHECK(spot.chapter == chapter && kosync::page_at(spot.within, 12) == page);
+    }
+  }
+  CHECK(kosync::share_at(doc, 1, 0, 10) == 0.1);  // the first chapter is a tenth
+  CHECK(std::abs(kosync::share_at(doc, 2, 5, 10) - 0.7) < 1e-9);
+  // Laid out with a different page count, the nearest page.
+  const kosync::Spot spot = kosync::spot_at(doc, 0.7);
+  CHECK(spot.chapter == 2 && kosync::page_at(spot.within, 7) == 4);  // 3.5 rounds up
+  CHECK(kosync::spot_at(doc, 1.0).chapter == 2 && kosync::spot_at(doc, -1).chapter == 0);
+  CHECK(kosync::page_at(1.0, 7) == 6 && kosync::page_at(0.5, 1) == 0);
+  CHECK(kosync::xpointer_chapter("/body/DocFragment[12]/body/div/p[3]/text().42") == 11);
+  CHECK(kosync::xpointer_chapter("/FictionBook/body/section[2]") == -1);
+}
+
+void test_kosync_requests() {
+  kosync::Account a;
+  std::snprintf(a.server, sizeof(a.server), "https://sync.example.org");
+  std::snprintf(a.user, sizeof(a.user), "alice");
+  kosync::md5_hex("secret", 6, a.key);
+  FakeSyncNetwork net;
+
+  // Registering: the user and the password's MD5 as JSON; 402 is a name in use.
+  CHECK(kosync::register_user(net, a) == kosync::Result::Ok);
+  CHECK(net.methods.back() == "POST" && net.urls.back() == "https://sync.example.org/users/create");
+  CHECK(net.sent == "{\"username\":\"alice\",\"password\":\"5ebe2294ecd0e0f08eab7690d2a6ee69\"}");
+  net.create_status = 402;
+  CHECK(kosync::register_user(net, a) == kosync::Result::Taken);
+
+  // Sending: the login in headers, the position as JSON.
+  CHECK(kosync::push(net, a, "9f06430a0700212493289d3aa92738b1", 0.43216, "/body/DocFragment[3]/body", "DEV") ==
+        kosync::Result::Ok);
+  CHECK(net.methods.back() == "PUT" && net.urls.back() == "https://sync.example.org/syncs/progress");
+  CHECK(net.headers.find("x-auth-user: alice\r\n") != std::string::npos);
+  CHECK(net.headers.find("x-auth-key: 5ebe2294ecd0e0f08eab7690d2a6ee69\r\n") != std::string::npos);
+  CHECK(net.headers.find("Accept: application/vnd.koreader.v1+json\r\n") != std::string::npos);
+  CHECK(net.sent ==
+        "{\"document\":\"9f06430a0700212493289d3aa92738b1\",\"percentage\":0.4322,\"progress\":\"/body/"
+        "DocFragment[3]/body\",\"device\":\"Vellum\",\"device_id\":\"DEV\"}");
+
+  // Taking: nothing yet, then a position from KOReader.
+  kosync::Progress p;
+  CHECK(kosync::pull(net, a, "abc", p) == kosync::Result::None);
+  CHECK(net.methods.back() == "GET" && net.urls.back() == "https://sync.example.org/syncs/progress/abc");
+  net.remote =
+      "{\"device\":\"PocketBook\",\"percentage\":0.25,\"progress\":\"/body/DocFragment[2]/body/p[4]/text().0\","
+      "\"device_id\":\"9A1B\",\"timestamp\":1760001234,\"document\":\"abc\"}";
+  CHECK(kosync::pull(net, a, "abc", p) == kosync::Result::Ok);
+  CHECK(p.share == 0.25 && std::string(p.device) == "PocketBook" && std::string(p.device_id) == "9A1B");
+  CHECK(p.timestamp == 1760001234 && kosync::xpointer_chapter(p.where) == 1);
+
+  // Wrong login, no network.
+  net.login_ok = false;
+  CHECK(kosync::pull(net, a, "abc", p) == kosync::Result::BadLogin);
+  CHECK(kosync::push(net, a, "abc", 0.5, "", "DEV") == kosync::Result::BadLogin);
+  net.fail = NetResult::NoNetwork;
+  CHECK(kosync::pull(net, a, "abc", p) == kosync::Result::NoNetwork);
+
+  // Answers in other shapes: a quoted share, a chapter only, nothing usable.
+  CHECK(kosync::parse_progress("{\"percentage\": \"0.5\", \"progress\": \"12\"}", p) && p.share == 0.5);
+  CHECK(kosync::parse_progress("{\"progress\":\"/body/DocFragment[4]/body\"}", p) && p.share < 0);
+  CHECK(!kosync::parse_progress("{\"progress\":\"7\"}", p));
+  CHECK(!kosync::parse_progress("{}", p));
+}
+
+void test_kosync_account() {
+  std::filesystem::remove_all("test-kosync");
+  StdioStorage card("test-kosync");
+  kosync::Account a;
+  kosync::load_account(card, a);
+  CHECK(!a.ready());
+  // A new user needs a password; the server defaults to KOReader's.
+  const char* no_password = "server=&user=alice&password=";
+  CHECK(!kosync::account_from_form(no_password, std::strlen(no_password), a));
+  const char* form = "server=&user=alice&password=secret&auto=1&method=0&create=1";
+  CHECK(kosync::account_from_form(form, std::strlen(form), a));
+  CHECK(std::string(a.server) == kosync::kDefaultServer && std::string(a.key) == "5ebe2294ecd0e0f08eab7690d2a6ee69");
+  CHECK(a.automatic && a.create && a.method == kosync::Method::Binary);
+  // The same user keeps the password; a trailing slash goes; a bad address is refused.
+  const char* change = "server=https%3A%2F%2Fsync.example.org%2F&user=alice&password=&auto=0&method=1";
+  CHECK(kosync::account_from_form(change, std::strlen(change), a));
+  CHECK(std::string(a.server) == "https://sync.example.org" && std::string(a.key) == "5ebe2294ecd0e0f08eab7690d2a6ee69");
+  CHECK(!a.automatic && a.method == kosync::Method::FileName);
+  const char* bad = "server=ftp%3A%2F%2Fx&user=alice&password=x";
+  CHECK(!kosync::account_from_form(bad, std::strlen(bad), a));
+  const char* header = "server=&user=al%0Aice&password=x";  // a line break would end the header
+  CHECK(!kosync::account_from_form(header, std::strlen(header), a));
+
+  CHECK(kosync::save_account(card, a));
+  kosync::Account back;
+  kosync::load_account(card, back);
+  CHECK(std::string(back.server) == a.server && std::string(back.user) == "alice" &&
+        std::string(back.key) == a.key && back.create && back.method == kosync::Method::FileName);
+  char json[256];
+  CHECK(kosync::account_json(back, json, sizeof(json)));
+  CHECK(std::string(json) == "{\"server\":\"https://sync.example.org\",\"user\":\"alice\",\"auto\":0,\"method\":1}");
+  const char* forget = "forget=1";
+  CHECK(kosync::account_from_form(forget, std::strlen(forget), back) && !back.ready());
+  std::filesystem::remove_all("test-kosync");
+}
+
+void test_catalogues() {
+  std::filesystem::remove_all("test-catalogues");
+  StdioStorage card("test-catalogues");
+  Catalogues c;
+  c.load(card);
+  CHECK(c.count() == 0);
+  const char* add = "action=add&name=&url=https%3A%2F%2Fbooks.example.org%3A8080%2Fopds&user=alice&password=secret";
+  CHECK(c.apply_form(add, std::strlen(add)) == Catalogues::FormResult::Ok);
+  CHECK(std::string(c.at(0).name) == "books.example.org" && std::string(c.at(0).url) == "https://books.example.org:8080/opds");
+  const char* named = "action=add&name=Calibre&url=http%3A%2F%2F192.168.1.9%3A8080%2Fopds";
+  CHECK(c.apply_form(named, std::strlen(named)) == Catalogues::FormResult::Ok);
+  const char* bad = "action=add&name=x&url=file%3A%2F%2Fetc";
+  CHECK(c.apply_form(bad, std::strlen(bad)) == Catalogues::FormResult::Bad);
+  const char* tab = "action=add&name=a%09b&url=https%3A%2F%2Fx.org";
+  CHECK(c.apply_form(tab, std::strlen(tab)) == Catalogues::FormResult::Bad);  // would break the file's lines
+  CHECK(c.save(card));
+
+  Catalogues back;
+  back.load(card);
+  CHECK(back.count() == 2 && std::string(back.at(0).password) == "secret" && std::string(back.at(1).name) == "Calibre");
+  char json[1024];
+  CHECK(back.write_json(json, sizeof(json)));
+  CHECK(std::string(json) ==
+        "[{\"name\":\"books.example.org\",\"url\":\"https://books.example.org:8080/opds\",\"user\":\"alice\"},"
+        "{\"name\":\"Calibre\",\"url\":\"http://192.168.1.9:8080/opds\",\"user\":\"\"}]");
+  CHECK(std::string(json).find("secret") == std::string::npos);
+
+  // Signing in: HTTP basic authentication; none without a user.
+  char header[192];
+  CHECK(basic_auth_header(back.at(0), header, sizeof(header)) &&
+        std::string(header) == "Authorization: Basic YWxpY2U6c2VjcmV0\r\n");
+  CHECK(basic_auth_header(back.at(1), header, sizeof(header)) && header[0] == '\0');
+  char b64[64];
+  CHECK(base64("Aladdin:open sesame", 19, b64, sizeof(b64)) && std::string(b64) == "QWxhZGRpbjpvcGVuIHNlc2FtZQ==");
+  CHECK(base64("a", 1, b64, sizeof(b64)) && std::string(b64) == "YQ==");
+
+  // Removing, and at most eight.
+  const char* remove = "action=remove&index=0";
+  CHECK(back.apply_form(remove, std::strlen(remove)) == Catalogues::FormResult::Ok && back.count() == 1);
+  CHECK(back.apply_form("action=remove&index=5", 21) == Catalogues::FormResult::Bad);
+  for (int i = 1; i < Catalogues::kMax; ++i) CHECK(back.apply_form(named, std::strlen(named)) == Catalogues::FormResult::Ok);
+  CHECK(back.apply_form(named, std::strlen(named)) == Catalogues::FormResult::Full);
+  std::filesystem::remove_all("test-catalogues");
+}
+
+// A catalogue's first page: two sections, a book, and its search.
+const char* kCatalogueRoot = R"(<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>My library</title>
+  <link rel="self" href="/opds" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  <link rel="search" href="/opds/search.xml" type="application/opensearchdescription+xml"/>
+  <entry>
+    <title>New books</title>
+    <content type="text">The latest 50 books</content>
+    <link rel="subsection" href="/opds/new" type="application/atom+xml;profile=opds-catalog;kind=acquisition"/>
+  </entry>
+  <entry>
+    <title>Authors</title>
+    <link href="authors" type="application/atom+xml;profile=opds-catalog;kind=navigation"/>
+  </entry>
+  <entry>
+    <title>Moby Dick</title>
+    <author><name>Herman Melville</name></author>
+    <link rel="related" href="/opds/author/3" type="application/atom+xml;profile=opds-catalog"/>
+    <link rel="http://opds-spec.org/acquisition" href="/get/epub/7" type="application/epub+zip"/>
+  </entry>
+  <entry>
+    <title>A PDF only</title>
+    <link rel="related" href="/opds/author/4" type="application/atom+xml;profile=opds-catalog"/>
+    <link rel="http://opds-spec.org/acquisition" href="/get/pdf/8" type="application/pdf"/>
+  </entry>
+</feed>)";
+
+const char* kCatalogueNew = R"(<feed xmlns="http://www.w3.org/2005/Atom"><title>New</title>
+  <entry><title>Persuasion</title><author><name>Jane Austen</name></author>
+    <summary>A novel.</summary>
+    <link rel="http://opds-spec.org/acquisition" href="https://books.example.org/get/epub/9" type="application/epub+zip"/>
+  </entry></feed>)";
+
+const char* kCatalogueSearch = R"(<?xml version="1.0"?>
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
+  <ShortName>My library</ShortName>
+  <Url type="text/html" template="https://books.example.org/search?q={searchTerms}"/>
+  <Url type="application/atom+xml;profile=opds-catalog" template="/opds/search?q={searchTerms}&amp;p={startPage?}"/>
+</OpenSearchDescription>)";
+
+void test_opds_sections_and_search() {
+  OpdsEntry entries[8];
+  OpdsFeed feed;
+  feed.entries = entries;
+  feed.capacity = 8;
+  OpdsParser parser;
+  // A catalogue: its sections are entries too; a related link does not make one.
+  parser.begin(feed, "https://books.example.org/opds", true);
+  parser.feed(kCatalogueRoot, std::strlen(kCatalogueRoot));
+  CHECK(parser.finish() && feed.count == 3);
+  CHECK(entries[0].section && std::string(entries[0].detail) == "https://books.example.org/opds/new" &&
+        std::string(entries[0].summary) == "The latest 50 books" && entries[0].author[0] == '\0');
+  CHECK(entries[1].section && std::string(entries[1].detail) == "https://books.example.org/authors");
+  CHECK(!entries[2].section && std::string(entries[2].epub) == "https://books.example.org/get/epub/7" &&
+        std::string(entries[2].author) == "Herman Melville");
+  CHECK(std::string(parser.search()) == "https://books.example.org/opds/search.xml" && !parser.search_is_template());
+  // Without sections (Gutenberg's lists), only the book.
+  parser.begin(feed, "https://books.example.org/opds");
+  parser.feed(kCatalogueRoot, std::strlen(kCatalogueRoot));
+  CHECK(parser.finish() && feed.count == 1 && !entries[0].section);
+
+  // OpenSearch: the Atom template, filled in.
+  char tmpl[256], url[256];
+  CHECK(opensearch_template(kCatalogueSearch, "https://books.example.org/opds/search.xml", tmpl, sizeof(tmpl)));
+  CHECK(std::string(tmpl) == "https://books.example.org/opds/search?q={searchTerms}&p={startPage?}");
+  CHECK(search_from_template(tmpl, "moby dick", url, sizeof(url)));
+  CHECK(std::string(url) == "https://books.example.org/opds/search?q=moby+dick&p=");
+  CHECK(!search_from_template("https://x.org/search", "a", url, sizeof(url)));
+  CHECK(!opensearch_template("<OpenSearchDescription/>", "https://x.org", tmpl, sizeof(tmpl)));
+
+  // A feed whose search is a template already.
+  const char* templated = R"(<feed><link rel="search" type="application/atom+xml" href="/s?q={searchTerms}"/></feed>)";
+  parser.begin(feed, "https://x.org/opds", true);
+  parser.feed(templated, std::strlen(templated));
+  CHECK(parser.finish() && parser.search_is_template() && std::string(parser.search()) == "https://x.org/s?q={searchTerms}");
+}
+
+void test_phone_settings() {
+  std::filesystem::remove_all("test-phone");
+  StdioStorage card("test-phone");
+  // Settings: as settings.txt names them; a bad value changes nothing.
+  CHECK(phone_post_settings(card, "text_size=3&justify=0&book_font=Atkinson", 40) == PhoneSaved::Ok);
+  Settings s;
+  load_settings(card, s);
+  CHECK(s.text_size == TextSize::ExtraLarge && !s.justify && std::string(s.book_font) == "Atkinson");
+  CHECK(phone_post_settings(card, "text_size=9&justify=1", 21) == PhoneSaved::Bad);
+  CHECK(phone_post_settings(card, "nothing=1", 9) == PhoneSaved::Bad);
+  load_settings(card, s);
+  CHECK(s.text_size == TextSize::ExtraLarge && !s.justify);
+  CHECK(phone_post_settings(card, "language=1&own_network=1", 24) == PhoneSaved::Ok);
+  load_settings(card, s);
+  CHECK(s.language == Language::Lithuanian && s.own_network);
+
+  CHECK(phone_post_sync(card, "server=&user=bob&password=pw", 28) == PhoneSaved::Ok);
+  CHECK(phone_post_sync(card, "server=&user=", 13) == PhoneSaved::Bad);
+  const char* cat = "action=add&name=Calibre&url=http%3A%2F%2F192.168.1.9%3A8080%2Fopds";
+  CHECK(phone_post_catalogues(card, cat, std::strlen(cat)) == PhoneSaved::Ok);
+  CHECK(phone_post_catalogues(card, "action=nope", 11) == PhoneSaved::Bad);
+
+  // Everything for the page, as JSON.
+  char json[4096];
+  CHECK(phone_settings_json(card, "Literata\nAtkinson\n", "HomeNet", json, sizeof(json)));
+  const std::string j = json;
+  CHECK(j.starts_with("{\"settings\":{\"language\":1,\"clock\":0,"));
+  CHECK(j.find("\"text_size\":3,") != std::string::npos && j.find("\"own_network\":1,") != std::string::npos);
+  CHECK(j.find("\"book_font\":\"Atkinson\",\"menu_font\":\"Literata\",\"fonts\":[\"Literata\",\"Atkinson\"]}") !=
+        std::string::npos);
+  CHECK(j.find("\"home_network\":\"HomeNet\"") != std::string::npos);
+  CHECK(j.find("\"sync\":{\"server\":\"https://sync.koreader.rocks\",\"user\":\"bob\",\"auto\":0,\"method\":0}") !=
+        std::string::npos);
+  CHECK(j.ends_with(",\"catalogues\":[{\"name\":\"Calibre\",\"url\":\"http://192.168.1.9:8080/opds\",\"user\":\"\"}]}"));
+  CHECK(!phone_settings_json(card, nullptr, "", json, 100));  // too small: says so
+  std::filesystem::remove_all("test-phone");
+}
+
+void test_app_home_wifi_transfer() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  std::filesystem::remove_all("test-card-home");
+  std::filesystem::create_directories("test-card-home/books");
+  StdioStorage card("test-card-home");
+  FakeTransfer transfer;
+  FakeUpdater updater;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
+  board.updater = &updater;
+  auto* app = new App(board);
+  app->start();
+
+  // A home Wi-Fi is set: the page is served there, with the fonts for its Settings.
+  tap(*app, 240, 640);  // "Add books"
+  CHECK(transfer.starts == 1 && transfer.last_home && transfer.last_fonts.find("Literata\n") != std::string::npos);
+  // Power (or the row) switches to the reader's own network, and Settings keeps that.
+  press(*app, Key::Power);
+  CHECK(transfer.stops == 1 && transfer.starts == 2 && !transfer.last_home);
+  CHECK(read_all("test-card-home/vellum/settings.txt").find("own_network=1") != std::string::npos);
+  tap(*app, 240, 720);  // the row: back to the home Wi-Fi
+  CHECK(transfer.starts == 3 && transfer.last_home);
+  CHECK(read_all("test-card-home/vellum/settings.txt").find("own_network=0") != std::string::npos);
+  press(*app, Key::Home);
+
+  // Out of reach: the reader's own network instead.
+  transfer.fail_home = true;
+  tap(*app, 240, 640);
+  CHECK(transfer.starts == 5 && !transfer.last_home);
+  transfer.fail_home = false;
+
+  // The page saves settings: the reader takes them up at once.
+  CHECK(phone_post_settings(card, "own_network=1&text_size=2", 25) == PhoneSaved::Ok);
+  transfer.st.settings_saved = 1;
+  InputEvent ev;
+  ev.type = InputEvent::Type::Transfer;
+  const int full = panel.full;
+  app->handle(ev);
+  CHECK(panel.full == full + 1);
+  app->handle(ev);  // nothing new: a plain redraw
+  CHECK(panel.full == full + 1);
+  press(*app, Key::Home);
+  tap(*app, 240, 640);  // own network now, as the phone said
+  CHECK(transfer.starts == 6 && !transfer.last_home);
+  press(*app, Key::Home);
+
+  // Without a home Wi-Fi, the reader's own network and no row to switch.
+  updater.network = "";
+  tap(*app, 240, 640);
+  const int starts = transfer.starts;
+  press(*app, Key::Power);
+  CHECK(transfer.starts == starts && !transfer.last_home);
+  delete app;
+  std::filesystem::remove_all("test-card-home");
+}
+
+void test_app_sync() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  std::filesystem::remove_all("test-card-sync");
+  StdioStorage card("test-card-sync");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(card.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
+  const char* progress = "books/sample.epub\t0\t0\t0\t0\t1\n";  // the book read last
+  CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
+  const char* account =
+      "server=https://sync.example.org\nuser=alice\nkey=5ebe2294ecd0e0f08eab7690d2a6ee69\ncreate=1\nauto=0\n";
+  CHECK(card.write("vellum/kosync.txt", account, static_cast<uint32_t>(std::strlen(account))));
+  FakeSyncNetwork net;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  board.network = &net;
+  auto progress_has = [](const char* fields) {
+    return read_all("test-card-sync/vellum/progress.txt").find(fields) != std::string::npos;
+  };
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the book
+  press(*app, Key::Power);  // contents: back, bookmark, light, look up, shelves, sync
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // Sync progress: register first (asked for), then send
+  CHECK(net.methods == (std::vector<std::string>{"POST", "PUT"}));
+  CHECK(net.sent.find("\"document\":\"9f06430a0700212493289d3aa92738b1\",\"percentage\":0.0000,\"progress\":\"/body/"
+                      "DocFragment[1]/body\"") != std::string::npos);
+  CHECK(!net.joined && net.disconnects == 1);
+  CHECK(read_all("test-card-sync/vellum/kosync.txt").find("create=0") != std::string::npos);
+
+  // Again (the row stays selected): the server has nothing newer from elsewhere, so it sends.
+  press(*app, Key::Power);
+  CHECK(net.methods.size() == 4 && net.methods[2] == "GET" && net.methods[3] == "PUT");
+  CHECK(net.urls[2] == "https://sync.example.org/syncs/progress/9f06430a0700212493289d3aa92738b1");
+
+  // Another device read further: the book moves there, nothing is sent.
+  net.remote = "{\"percentage\":0.95,\"progress\":\"/body/DocFragment[3]/body\",\"device\":\"KOReader\","
+               "\"device_id\":\"OTHER\",\"timestamp\":1760000000}";
+  press(*app, Key::Power);
+  CHECK(net.methods.size() == 5 && net.methods.back() == "GET");
+  CHECK(!progress_has("books/sample.epub\t0\t"));
+
+  // Behind this page: this one is sent. A wrong login says so.
+  net.remote = "{\"percentage\":0.0,\"progress\":\"/body/DocFragment[1]/body\",\"device_id\":\"OTHER\"}";
+  press(*app, Key::Power);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(net.methods.size() == 7 && net.methods.back() == "PUT");
+  net.login_ok = false;
+  press(*app, Key::Power);
+  CHECK(net.methods.size() == 8);
+  net.login_ok = true;
+  press(*app, Key::Home);  // automatic is off: nothing more
+  CHECK(net.methods.size() == 8);
+  delete app;
+
+  // Automatic: closing the book sends a page that moved, once.
+  const char* automatic = "server=https://sync.example.org\nuser=alice\nkey=5ebe2294ecd0e0f08eab7690d2a6ee69\nauto=1\n";
+  CHECK(card.write("vellum/kosync.txt", automatic, static_cast<uint32_t>(std::strlen(automatic))));
+  card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress)));
+  std::remove("test-card-sync/vellum/state.txt");
+  net.methods.clear();
+  app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the book
+  press(*app, Key::Next);
+  press(*app, Key::Home);
+  CHECK(net.methods == (std::vector<std::string>{"PUT"}) && !net.joined);
+  press(*app, Key::Power);  // back in, out again without turning a page
+  press(*app, Key::Home);
+  CHECK(net.methods.size() == 1);
+  // And sleeping in the book, a page back (the last one is reached).
+  press(*app, Key::Power);
+  press(*app, Key::Prev);
+  InputEvent down = key_event(InputEvent::Type::KeyDown, Key::Power);
+  app->handle(down);
+  app->timeout();  // held: sleep
+  CHECK(power.sleeps == 1 && net.methods.size() == 2 && net.methods.back() == "PUT");
+  delete app;
+  std::filesystem::remove_all("test-card-sync");
+}
+
+void test_app_own_catalogue() {
+  std::filesystem::remove_all("test-card-cat");
+  std::filesystem::create_directories("test-card-cat/books");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer screen(buf.data(), kW, kH);
+  screen.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-cat");
+  const char* list = "My library\thttps://books.example.org/opds\talice\tsecret\n";
+  CHECK(card.write("vellum/catalogues.txt", list, static_cast<uint32_t>(std::strlen(list))));
+  FakeSyncNetwork net;
+  net.pages["https://books.example.org/opds"] = kCatalogueRoot;
+  net.pages["https://books.example.org/opds/new"] = kCatalogueNew;
+  net.pages["https://books.example.org/opds/search.xml"] = kCatalogueSearch;
+  net.pages["https://books.example.org/opds/search?q=persuasion&p="] = kCatalogueNew;
+  net.pages["https://books.example.org/get/epub/9"] = read_all(VELLUM_TEST_DATA "/sample.epub");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  board.network = &net;
+  auto* app = new App(board);
+  app->start();
+  Keyboard kb;
+  kb.open("", {.cancel = "Cancel"});
+  const auto type = [&](std::string_view letters) {
+    for (char c : letters) {
+      const Rect r = kb.key_rect(screen, kb.find(std::string_view(&c, 1)));
+      tap(*app, r.x + r.w / 2, r.y + r.h / 2);
+    }
+  };
+
+  // Library › Get free books: Gutenberg, Standard Ebooks, then the reader's own.
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  press(*app, Key::Prev);   // wraps to the last catalogue
+  press(*app, Key::Power);  // its first page, signed in
+  CHECK(net.urls.size() == 1 && net.urls[0] == "https://books.example.org/opds");
+  CHECK(net.headers == "Authorization: Basic YWxpY2U6c2VjcmV0\r\n");
+
+  // Search first, then New books (selected), Authors and the book: a section opens its list.
+  press(*app, Key::Power);
+  CHECK(net.urls.back() == "https://books.example.org/opds/new");
+  press(*app, Key::Home);  // back up to the first page
+  CHECK(net.urls.back() == "https://books.example.org/opds" && net.urls.size() == 3);
+
+  // Search: the OpenSearch description, then its Atom address with the words.
+  press(*app, Key::Prev);
+  press(*app, Key::Power);
+  type("persuasion");
+  const Rect ok = kb.key_rect(screen, kb.find("ok"));
+  tap(*app, ok.x + ok.w / 2, ok.y + ok.h / 2);
+  CHECK(net.urls.size() == 5 && net.urls[3] == "https://books.example.org/opds/search.xml");
+  CHECK(net.urls[4] == "https://books.example.org/opds/search?q=persuasion&p=");
+
+  // The book found: its page, and the download, signed in too.
+  press(*app, Key::Power);
+  press(*app, Key::Power);
+  CHECK(net.urls.back() == "https://books.example.org/get/epub/9" && net.headers.find("Basic") != std::string::npos);
+  CHECK(std::filesystem::exists("test-card-cat/books/Jane Austen - Persuasion.epub"));
+  press(*app, Key::Home);  // the book's page: back to the results
+  press(*app, Key::Home);  // the catalogue's first page again
+  CHECK(net.urls.back() == "https://books.example.org/opds");
+  press(*app, Key::Home);  // the catalogues, on this one
+  press(*app, Key::Home);  // out of the store
+  CHECK(!net.joined);
+  delete app;
+  std::filesystem::remove_all("test-card-cat");
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -3998,6 +4597,16 @@ int main() {
   test_library_sorting();
   test_shelves_store();
   test_app_library();
+  test_kosync_digests();
+  test_kosync_mapping();
+  test_kosync_requests();
+  test_kosync_account();
+  test_catalogues();
+  test_opds_sections_and_search();
+  test_phone_settings();
+  test_app_home_wifi_transfer();
+  test_app_sync();
+  test_app_own_catalogue();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;
