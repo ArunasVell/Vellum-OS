@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 
 #include "vellum/app.h"
 #include "vellum/text.h"
@@ -40,7 +41,7 @@ constexpr int kCellHeight = 250;
 // The reading stats sleep screen.
 constexpr int kDashLabelBase = 96;
 constexpr int kTileHeight = 70;
-constexpr int kWeekBarsHeight = 70;
+constexpr int kWeekBarsHeight = 110;
 constexpr int kWeekDays = 7;
 
 Rect row_rect(const Framebuffer& fb, int y, int h) { return {kSide - kPad, y, fb.width() - 2 * (kSide - kPad), h}; }
@@ -153,11 +154,12 @@ bool App::draw_sleep_picture(bool preview) {
 }
 
 void App::draw_sleep_badge() {
-  // A dark pill in the top corner, on a white edge so it stands out on any page.
+  // A dark pill over the middle of the footer (the page number, or a
+  // hint), on a white edge so it stands out on any screen.
   const Strings& t = text();
   const Font& font = ui::label_font();
   const int tw = text_width_px(font, t.sleeping);
-  const Rect r{fb_.width() - kPad - (tw + 46), kPad, tw + 46, 32};
+  const Rect r{(fb_.width() - (tw + 46)) / 2, fb_.height() - 42, tw + 46, 32};
   fb_.fill_round_rect({r.x - 3, r.y - 3, r.w + 6, r.h + 6}, 19, Color::White);
   fb_.fill_round_rect(r, 16, Color::Black);
   // A crescent moon: a white disc with a dark one over most of it.
@@ -238,13 +240,17 @@ void App::draw_sleep_stats() {
   std::snprintf(done_text, sizeof(done_text), "%d", finished);
   const char* labels[] = {t.today_label, t.last_7_days, t.finished_label};
   const char* values[] = {today_text, week_text, done_text};
-  const int tile = (w - 2 * kSide) / 3;
+  const int span = w - 2 * kSide;
+  const int edges[] = {kSide, kSide + span * 33 / 100, kSide + span * 72 / 100, w - kSide};  // the count is short
   dotted_rule(fb_, y);
   for (int i = 0; i < 3; ++i) {
-    const int x = kSide + i * tile + (i > 0 ? 10 : 0);
-    if (i > 0) fb_.vline(kSide + i * tile, y + 12, kTileHeight - 18, Color::Black);
+    const int x = edges[i] + (i > 0 ? 10 : 0);
+    if (i > 0) fb_.vline(edges[i], y + 12, kTileHeight - 18, Color::Black);
     ui::draw_label(fb_, x, y + 30, labels[i]);
-    ui::draw_fitted(fb_, ui::large_font(), x, y + 64, tile - 14, values[i]);
+    // Large figures, or smaller ones when a long duration would not fit.
+    const int room = edges[i + 1] - x - 4;
+    const bool fits = text_width_px(ui::large_font(), values[i]) <= room;
+    ui::draw_fitted(fb_, fits ? ui::large_font() : ui::text_font(), x, y + 64, room, values[i]);
   }
   y += kTileHeight + 8;
   dotted_rule(fb_, y);
@@ -259,7 +265,7 @@ void App::draw_sleep_stats() {
       top = std::max(top, minutes[i]);
     }
     const int slot = (w - 2 * kSide) / kWeekDays;
-    const int bottom = y + 24 + kWeekBarsHeight;
+    const int bottom = y + 40 + kWeekBarsHeight;
     for (int i = 0; i < kWeekDays; ++i) {
       const int cx = kSide + i * slot + slot / 2;
       const int bar = std::max(2, minutes[i] * kWeekBarsHeight / top);
@@ -411,13 +417,15 @@ void App::draw_pictures() {
       ui::draw_wrapped(fb_, ui::label_font(), r.x + 8, r.y + r.h / 2, r.w - 16, 3, t.picture_broken, true);
     }
     if (p.marked) draw_mark(fb_, r.x + r.w - 32, r.y + 6);
-    // Its name, cut short to fit.
-    const int name_w = text_width_px(ui::label_font(), p.name);
+    // Its name without the extension, cut short to fit.
+    std::string_view name = p.name;
+    if (const size_t dot = name.rfind('.'); dot != std::string_view::npos && dot > 0) name = name.substr(0, dot);
+    const int name_w = text_width_px(ui::label_font(), name);
     const int room = cell.w - 12;
     if (name_w <= room) {
-      draw_text(fb_, ui::label_font(), (cell.x + (cell.w - name_w) / 2) * 64, r.y + r.h + 22, p.name, fg);
+      draw_text(fb_, ui::label_font(), (cell.x + (cell.w - name_w) / 2) * 64, r.y + r.h + 22, name, fg);
     } else {
-      ui::draw_fitted(fb_, ui::label_font(), cell.x + 6, r.y + r.h + 22, room, p.name, fg);
+      ui::draw_fitted(fb_, ui::label_font(), cell.x + 6, r.y + r.h + 22, room, name, fg);
     }
   }
   const int pages = (n + kPicturesPerPage - 1) / kPicturesPerPage;

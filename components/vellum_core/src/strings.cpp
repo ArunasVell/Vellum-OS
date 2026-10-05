@@ -254,7 +254,7 @@ constexpr Strings kEnglish = {
         "from the phone page of Add books.",
     .preparing_pictures = "Preparing pictures\xE2\x80\xA6",
     .picture_broken = "Cannot be shown",
-    .pictures_shuffle_lead = "A different one each time, from the marked ones.",
+    .pictures_shuffle_lead = "A new one each time, from the marked ones.",
     .pictures_one_lead = "The marked picture shows every time.",
     .hint_pictures_shuffle = "Side buttons move · Power marks · Home back",
     .hint_pictures_one = "Side buttons move · Power picks · Home back",
@@ -518,11 +518,11 @@ constexpr Strings kLithuanian = {
     .pictures_shuffle_lead = "Kaskart kitas, iš pažymėtųjų.",
     .pictures_one_lead = "Pažymėtas paveikslėlis rodomas kaskart.",
     .hint_pictures_shuffle = "Šoniniai: rinktis · Įjungimo: žymėti · Namų: atgal",
-    .hint_pictures_one = "Šoniniai: rinktis · Įjungimo: pasirinkti · Namų: atgal",
+    .hint_pictures_one = "Šoniniai: rinktis · Įjungimo: rodyti · Namų: atgal",
     .hint_preview = "Paspauskite bet kurį mygtuką grįžti",
     .now_reading = "SKAITOMA",
     .last_7_days = "PER 7 DIENAS",
-    .finished_label = "PERSKAITYTA",
+    .finished_label = "BAIGTA",
     .left_in_book = "Liko %s",
 };
 
