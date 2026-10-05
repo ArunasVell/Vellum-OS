@@ -18,11 +18,13 @@
 #include "vellum/font_raster.h"
 #include "vellum/framebuffer.h"
 #include "vellum/highlights.h"
+#include "vellum/keyboard.h"
 #include "vellum/library.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/reading_stats.h"
 #include "vellum/settings.h"
+#include "vellum/shelves.h"
 #include "vellum/stdio_storage.h"
 #include "vellum/strings.h"
 #include "vellum/text.h"
@@ -801,9 +803,9 @@ void test_app_contents_and_bookmarks() {
   CHECK(count_lines(marks) == 1 && marks.starts_with("books/sample.epub\t0\t0\t0\t"));
   CHECK(marks.find("\tLabas, pasauli") != std::string::npos);  // the page's first words, after the heading
 
-  // Rows now: back, remove, light, look up, BOOKMARKS, the bookmark, CHAPTERS, three entries.
+  // Rows now: back, remove, light, look up, add to shelf, BOOKMARKS, the bookmark, CHAPTERS, three entries.
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);  // labels are skipped
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);  // labels are skipped
   press(*app, Key::Power);                             // "Second"
   CHECK(progress_has("books/sample.epub\t1\t0\t0\t"));
 
@@ -814,7 +816,7 @@ void test_app_contents_and_bookmarks() {
 
   // Back to the first bookmark (the bookmarks come in reading order), then remove it.
   press(*app, Key::Power);
-  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(progress_has("books/sample.epub\t0\t0\t0\t"));
   press(*app, Key::Power);
@@ -2160,8 +2162,8 @@ void test_app_words() {
 
   // Contents lists it; its row opens the page.
   const int full = panel.full;
-  press(*app, Key::Power);  // rows: back, bookmark, light, look up, HIGHLIGHTS, the highlight, CHAPTERS, chapter
-  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // rows: back, bookmark, light, look up, add to shelf, HIGHLIGHTS, the highlight, ...
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);  // contents, then the page
 
@@ -2176,10 +2178,10 @@ void test_app_words() {
   press(*app, Key::Home);
   press(*app, Key::Power);  // back to Alice
   press(*app, Key::Power);  // contents: the note follows its highlight and is skipped
-  // Rows from y = 186, 50 px each: the note (row 6) wears a bar at its left.
-  CHECK(screen.pixel(38, 496) == Color::Black && screen.pixel(38, 521) == Color::Black);
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
-  CHECK(screen.pixel(20, 611) == Color::Black);  // row 8, the chapter, is selected
+  // Rows from y = 186, 50 px each: the note (row 7) wears a bar at its left.
+  CHECK(screen.pixel(38, 546) == Color::Black && screen.pixel(38, 571) == Color::Black);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  CHECK(screen.pixel(20, 661) == Color::Black);  // row 9, the chapter, is selected
   press(*app, Key::Power);                       // the chapter, not the note
   CHECK(read_all("test-card-words/vellum/highlights.txt").find("\tBored, like me.\n") != std::string::npos);
 
@@ -2462,6 +2464,345 @@ void test_app_reading_stats() {
   }
 }
 
+// ---- Library: keyboard, search, sorting, shelves -----------------------------
+
+// Taps the middle of a key of the keyboard.
+Keyboard::Result tap_key(Keyboard& kb, const Framebuffer& fb, std::string_view label) {
+  const int i = kb.find(label);
+  CHECK(i >= 0);
+  const Rect r = kb.key_rect(fb, i);
+  return kb.tap(fb, r.x + r.w / 2, r.y + r.h / 2);
+}
+
+void test_keyboard() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer fb(buf.data(), kW, kH);
+  fb.set_rotation(Rotation::R90);
+  using R = Keyboard::Result;
+  Keyboard kb;
+  kb.open("", {.prompt = "Search", .ok = "OK", .cancel = "Cancel"});
+  CHECK(kb.is_open() && kb.page() == Keyboard::Page::English && kb.text().empty());
+
+  // Every key is finger-sized, inside the keyboard, and apart from the others.
+  const Rect area = kb.area(fb);
+  CHECK(area.y == fb.height() - Keyboard::kHeight && area.w == fb.width());
+  for (Keyboard::Page page : {Keyboard::Page::English, Keyboard::Page::Lithuanian, Keyboard::Page::Symbols}) {
+    kb.set_page(page);
+    for (int i = 0; i < kb.key_count(); ++i) {
+      const Rect r = kb.key_rect(fb, i);
+      CHECK(r.w >= 40 && r.h >= 40);
+      CHECK(r.x >= 0 && r.x + r.w <= fb.width() && r.y >= area.y && r.y + r.h <= fb.height());
+      for (int j = 0; j < i; ++j) {
+        const Rect o = kb.key_rect(fb, j);
+        const bool apart = r.x >= o.x + o.w || o.x >= r.x + r.w || r.y >= o.y + o.h || o.y >= r.y + r.h;
+        CHECK(apart);
+      }
+    }
+  }
+  kb.set_page(Keyboard::Page::English);
+
+  // Letters, shift for one capital, and space.
+  CHECK(tap_key(kb, fb, "q") == R::Typed);
+  CHECK(tap_key(kb, fb, "shift") == R::Redraw && kb.shifted());
+  CHECK(tap_key(kb, fb, "w") == R::Typed && !kb.shifted());
+  CHECK(tap_key(kb, fb, "e") == R::Typed);
+  CHECK(tap_key(kb, fb, "space") == R::Typed);
+  CHECK(kb.text() == "qWe ");
+
+  // Lithuanian letters: all nine, on the top row of their page; backspace
+  // takes a whole letter.
+  CHECK(tap_key(kb, fb, "language") == R::Redraw && kb.page() == Keyboard::Page::Lithuanian);
+  for (const char* letter : {"ą", "č", "ę", "ė", "į", "š", "ų", "ū", "ž"}) CHECK(kb.find(letter) >= 0);
+  tap_key(kb, fb, "ž");
+  tap_key(kb, fb, "shift");
+  tap_key(kb, fb, "ū");
+  CHECK(kb.text() == "qWe žŪ");
+  CHECK(tap_key(kb, fb, "back") == R::Typed && kb.text() == "qWe ž");
+  kb.backspace();
+  CHECK(kb.text() == "qWe ");
+
+  // Digits and symbols on the third page.
+  CHECK(tap_key(kb, fb, "symbols") == R::Redraw && kb.page() == Keyboard::Page::Symbols);
+  tap_key(kb, fb, "4");
+  tap_key(kb, fb, "€");
+  tap_key(kb, fb, "?");
+  CHECK(kb.text() == "qWe 4€?");
+  CHECK(kb.find("q") < 0);
+  tap_key(kb, fb, "symbols");  // ABC: back to the letters
+  CHECK(kb.page() == Keyboard::Page::English && kb.find("q") >= 0);
+
+  // OK and Cancel; a tap above the keys is not the keyboard's.
+  CHECK(tap_key(kb, fb, "ok") == R::Done);
+  CHECK(tap_key(kb, fb, "cancel") == R::Cancel);
+  CHECK(kb.tap(fb, 200, area.y - 10) == R::None);
+
+  // Without touch: the first press shows the cursor (on q), Power types.
+  kb.open("ab", {});
+  CHECK(kb.key(Key::Next) == R::Redraw);
+  CHECK(kb.key(Key::Power) == R::Typed && kb.text() == "abq");
+  CHECK(kb.key(Key::Next) == R::Redraw);
+  CHECK(kb.key(Key::Power) == R::Typed && kb.text() == "abqw");
+  CHECK(kb.key(Key::Prev) == R::Redraw && kb.key(Key::Prev) == R::Redraw);
+  kb.key(Key::Power);
+  CHECK(kb.text() == "abqw0");  // left of q: the last digit above it
+  // Prev from q passes the digits to Cancel, then wraps to the last key.
+  kb.open("", {.cancel = "Cancel"});
+  kb.key(Key::Next);
+  for (int i = 0; i < 11; ++i) kb.key(Key::Prev);
+  CHECK(kb.cursor() == 0);
+  kb.key(Key::Prev);
+  CHECK(kb.cursor() == kb.key_count() - 1 && kb.key(Key::Power) == R::Done);  // OK, the last key
+  kb.key(Key::Next);
+  CHECK(kb.cursor() == 0 && kb.key(Key::Power) == R::Cancel);
+
+  // Names start with a capital; the text keeps to its length.
+  kb.open("", {.capitalize = true, .max_bytes = 4});
+  CHECK(kb.shifted());
+  tap_key(kb, fb, "v");
+  CHECK(kb.text() == "V" && !kb.shifted());
+  tap_key(kb, fb, "back");
+  CHECK(kb.text().empty() && kb.shifted());
+  CHECK(kb.type("abcd") && !kb.type("e") && kb.text() == "abcd");
+  CHECK(tap_key(kb, fb, "x") == R::None);
+
+  // It draws only in its own part of the screen.
+  fb.clear(Color::White);
+  fb.clear_dirty();
+  kb.draw(fb);
+  const Rect dirty = fb.dirty();  // physical: the panel's left part holds the bottom of the portrait
+  CHECK(dirty.w == Keyboard::kHeight && dirty.h == kH);
+}
+
+void test_search_folding() {
+  char out[64];
+  CHECK(fold_for_search("Žemaitė", out, sizeof(out)) == 7 && std::string(out) == "zemaite");
+  fold_for_search("ĄČĘĖĮŠŲŪŽ ąčęėįšųūž", out, sizeof(out));
+  CHECK(std::string(out) == "aceeisuuz aceeisuuz");
+  fold_for_search("Crème Brûlée, Ærø ÷", out, sizeof(out));
+  CHECK(std::string(out) == "creme brulee, aro ÷");                          // signs keep their own
+  CHECK(fold_for_search("Žžžž", out, 4) == 3 && std::string(out) == "zzz");  // cut to fit
+  CHECK(matches_search("Žemaitė", "zemaite"));
+  CHECK(matches_search("Žemaitė", "ŽEM"));
+  CHECK(matches_search("Antanas Baranauskas", "  BARAN "));
+  CHECK(matches_search("Anykščių šilelis", "anyksciu"));
+  CHECK(matches_search("anything", ""));
+  CHECK(!matches_search("Žemaitė", "zemaites"));
+  CHECK(!matches_search("Marti", "zem"));
+}
+
+void test_library_sorting() {
+  Library lib;
+  Epub epub;
+  lib.load(builtin_books(), nullptr, epub);
+  // Library order: Alice, Moby-Dick, Persuasion, The Wisdom of Father Brown.
+  int order[Library::kMaxBooks];
+  CHECK(lib.sorted(LibrarySort::Title, order, Library::kMaxBooks) == 4);
+  CHECK(order[0] == 0 && order[1] == 1 && order[2] == 2 && order[3] == 3);
+  // By surname: Austen, Carroll, Chesterton, Melville.
+  CHECK(lib.sorted(LibrarySort::Author, order, Library::kMaxBooks) == 4);
+  CHECK(order[0] == 2 && order[1] == 0 && order[2] == 3 && order[3] == 1);
+  lib.touch(3);
+  lib.touch(1);
+  CHECK(lib.sorted(LibrarySort::Recent, order, Library::kMaxBooks) == 4);
+  CHECK(order[0] == 1 && order[1] == 3 && order[2] == 0 && order[3] == 2);
+  CHECK(lib.sorted(LibrarySort::Author, order, 2) == 2 && order[0] == 2 && order[1] == 0);
+
+  // Finished, and Reading now (started, not finished).
+  BookState s;
+  CHECK(!s.started() && !s.reading());
+  s.last_opened = 5;
+  CHECK(s.reading());
+  s.finished = true;
+  CHECK(!s.reading());
+}
+
+void test_shelves_store() {
+  StdioStorage card("test-card-shelves");
+  std::remove("test-card-shelves/vellum/shelves.txt");
+  Shelves shelves;
+  shelves.load(card);
+  CHECK(shelves.count() == 0);
+  CHECK(shelves.add("  Poezija \t") == 0 && std::string(shelves.name(0)) == "Poezija");
+  CHECK(shelves.add("   ") == -1);  // a name is needed
+  CHECK(shelves.add("Vasara") == 1);
+  CHECK(shelves.add("Klasika") == 2);
+  CHECK(shelves.set(0, "books/maironis.epub", true));
+  CHECK(shelves.set(1, "books/maironis.epub", true));
+  CHECK(shelves.set(1, "builtin:Persuasion", true));
+  CHECK(shelves.set(1, "builtin:Persuasion", true));  // once only
+  CHECK(shelves.set(2, "builtin:Moby-Dick", true));
+  CHECK(shelves.contains(0, "books/maironis.epub") && !shelves.contains(0, "builtin:Persuasion"));
+  CHECK(shelves.set(1, "books/maironis.epub", false) && !shelves.contains(1, "books/maironis.epub"));
+  CHECK(shelves.rename(1, "Vasarai") && !shelves.rename(1, "") && std::string(shelves.name(1)) == "Vasarai");
+  CHECK(!shelves.set(7, "x", true));
+  CHECK(shelves.find(" klasika ") == 2 && shelves.find("Klasikos") == -1);
+  CHECK(shelves.save(card));
+  CHECK(read_all("test-card-shelves/vellum/shelves.txt") ==
+        "Poezija\n\tbooks/maironis.epub\nVasarai\n\tbuiltin:Persuasion\nKlasika\n\tbuiltin:Moby-Dick\n");
+
+  Shelves again;
+  again.load(card);
+  CHECK(again.count() == 3 && std::string(again.name(2)) == "Klasika");
+  CHECK(again.contains(0, "books/maironis.epub") && again.contains(1, "builtin:Persuasion") &&
+        again.contains(2, "builtin:Moby-Dick"));
+  // Deleting a shelf takes its books off it; later shelves move up.
+  again.remove(1);
+  CHECK(again.count() == 2 && std::string(again.name(1)) == "Klasika" && again.contains(1, "builtin:Moby-Dick"));
+  CHECK(!again.contains(0, "builtin:Persuasion") && again.contains(0, "books/maironis.epub"));
+  Library lib;
+  Epub epub;
+  lib.load(builtin_books(), nullptr, epub);
+  CHECK(again.books_on(1, lib) == 1 && again.books_on(0, lib) == 0);  // Maironis is not on this card
+  for (int i = again.count(); i < Shelves::kMax; ++i) CHECK(again.add("More") >= 0);
+  CHECK(again.add("One too many") == -1);
+  std::remove("test-card-shelves/vellum/shelves.txt");
+}
+
+void test_app_library() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer screen(buf.data(), kW, kH);
+  screen.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  StdioStorage card("test-card-shelves");
+  for (const char* name : {"state.txt", "progress.txt", "settings.txt", "shelves.txt", "library.txt"}) {
+    std::remove(("test-card-shelves/vellum/" + std::string(name)).c_str());
+  }
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(card.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  const auto file = [](const char* name) {
+    return read_all(("test-card-shelves/vellum/" + std::string(name)).c_str());
+  };
+  // The keyboard as the app draws it, for finding keys.
+  Keyboard kb;
+  kb.open("", {.cancel = "Cancel"});
+  const auto type = [&](std::string_view letters) {
+    size_t i = 0;
+    while (i < letters.size()) {
+      const size_t begin = i;
+      decode_utf8(letters, i);
+      const Rect r = kb.key_rect(screen, kb.find(letters.substr(begin, i - begin)));
+      tap(*app, r.x + r.w / 2, r.y + r.h / 2);
+    }
+  };
+  const auto tap_named = [&](const char* name) {
+    const Rect r = kb.key_rect(screen, kb.find(name));
+    tap(*app, r.x + r.w / 2, r.y + r.h / 2);
+  };
+  // Home: the current book, two others, then All books.
+  const auto open_library = [&]() {
+    press(*app, Key::Home);
+    for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+    press(*app, Key::Power);
+  };
+
+  // Items: Sort, Search, the tabs All, Reading now, Finished, New shelf;
+  // then the books, the first one selected.
+  open_library();
+  for (int i = 0; i < 6; ++i) press(*app, Key::Prev);
+  press(*app, Key::Power);  // Sort: Title, kept in Settings
+  CHECK(file("settings.txt").find("library_sort=1") != std::string::npos);
+  press(*app, Key::Power);  // Author
+  CHECK(file("settings.txt").find("library_sort=2") != std::string::npos);
+
+  // Search with the keyboard: "arunas" finds the book by Arūnas Tester.
+  press(*app, Key::Next);
+  press(*app, Key::Power);
+  const int refreshes = panel.fast + panel.full;
+  type("arunas");
+  CHECK(panel.fast + panel.full == refreshes + 6);  // the list follows each letter
+  tap_named("ok");
+  press(*app, Key::Power);  // the one book found, selected
+  CHECK(file("progress.txt").find("books/sample.epub\t") != std::string::npos);
+
+  // A new shelf from the last tab; its name starts with a capital.
+  open_library();
+  press(*app, Key::Prev);  // the New shelf tab
+  press(*app, Key::Power);
+  type("poezija");
+  tap_named("ok");
+  CHECK(file("shelves.txt") == "Poezija\n");
+
+  // Holding a book in All opens its shelves: put it on Poezija, mark it finished.
+  for (int i = 0; i < 3; ++i) press(*app, Key::Prev);  // the shelf's tab was selected: back to All
+  press(*app, Key::Power);
+  hold(*app, 240, 268);  // the first book by author: Austen's Persuasion
+  press(*app, Key::Next);
+  press(*app, Key::Next);  // the label is skipped: Poezija
+  press(*app, Key::Power);
+  CHECK(file("shelves.txt") == "Poezija\n\tbuiltin:Persuasion\n");
+  press(*app, Key::Prev);
+  press(*app, Key::Power);  // Finished reading
+  CHECK(file("progress.txt").find("builtin:Persuasion\t0\t0\t0\t0\t0\t1\n") != std::string::npos);
+  // A new shelf from here takes the book too.
+  tap(*app, 240, 160 + 4 * 50 + 25);
+  type("vasara");
+  tap_named("ok");
+  CHECK(file("shelves.txt") == "Poezija\n\tbuiltin:Persuasion\nVasara\n\tbuiltin:Persuasion\n");
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);
+  press(*app, Key::Power);  // Done: back to the library
+
+  // Rename Poezija with Lithuanian letters, then delete it. Items: Sort,
+  // Search, All, Reading now, Finished, Poezija, Vasara, New shelf, the books.
+  open_library();
+  for (int i = 0; i < 3; ++i) press(*app, Key::Prev);  // from the first book to Poezija
+  press(*app, Key::Power);                             // Rename and Delete come after the tabs
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // Rename: the keyboard holds the name
+  for (int i = 0; i < 7; ++i) tap_named("back");
+  type("e");
+  type("il");
+  tap_named("language");
+  kb.set_page(Keyboard::Page::Lithuanian);
+  type("ė");
+  type("s");
+  tap_named("ok");
+  kb.set_page(Keyboard::Page::English);
+  CHECK(file("shelves.txt").starts_with("Eilės\n\tbuiltin:Persuasion\nVasara\n"));
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // Delete asks again
+  CHECK(file("shelves.txt").starts_with("Eilės\n"));
+  press(*app, Key::Power);
+  CHECK(file("shelves.txt") == "Vasara\n\tbuiltin:Persuasion\n");
+
+  // Cancel puts the search back as it was: nothing.
+  open_library();
+  for (int i = 0; i < 6; ++i) press(*app, Key::Prev);  // Search
+  press(*app, Key::Power);
+  type("zz");
+  tap_named("cancel");
+  hold(*app, 240, 268);  // a book again, so its shelves open: take it off Vasara
+  press(*app, Key::Next);
+  press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(file("shelves.txt") == "Vasara\n");
+
+  // Reading to the last page marks a book finished.
+  open_library();
+  for (int i = 0; i < 7; ++i) press(*app, Key::Prev);
+  press(*app, Key::Power);  // Sort: back to Recent; the sample book first
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  const auto sample_line = [&]() {
+    const std::string all = file("progress.txt");
+    const size_t at = all.find("books/sample.epub\t");
+    return at == std::string::npos ? std::string() : all.substr(at, all.find('\n', at) - at);
+  };
+  CHECK(sample_line().ends_with("\t0"));
+  for (int i = 0; i < 40; ++i) press(*app, Key::Next);
+  CHECK(sample_line().starts_with("books/sample.epub\t1\t") && sample_line().ends_with("\t1"));
+  delete app;
+  for (const char* name : {"state.txt", "progress.txt", "settings.txt", "shelves.txt", "library.txt"}) {
+    std::remove(("test-card-shelves/vellum/" + std::string(name)).c_str());
+  }
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -2514,6 +2855,11 @@ int main() {
   test_reading_stats();
   test_reader_pages_left();
   test_app_reading_stats();
+  test_keyboard();
+  test_search_folding();
+  test_library_sorting();
+  test_shelves_store();
+  test_app_library();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;
