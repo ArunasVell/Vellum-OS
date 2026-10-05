@@ -53,6 +53,13 @@ constexpr SettingKey kKeys[] = {
      [](Settings& s, int v) { s.hyphenate = v != 0; }},
     {"footer", 3, [](const Settings& s) { return static_cast<int>(s.footer); },
      [](Settings& s, int v) { s.footer = static_cast<FooterInfo>(v); }},
+    {"night", 2, [](const Settings& s) { return s.night ? 1 : 0; }, [](Settings& s, int v) { s.night = v != 0; }},
+    {"focus", 2, [](const Settings& s) { return s.focus_reading ? 1 : 0; },
+     [](Settings& s, int v) { s.focus_reading = v != 0; }},
+    {"book_styles", 2, [](const Settings& s) { return s.publisher_styles ? 1 : 0; },
+     [](Settings& s, int v) { s.publisher_styles = v != 0; }},
+    {"indent", 3, [](const Settings& s) { return int{s.paragraph_indent}; },
+     [](Settings& s, int v) { s.paragraph_indent = static_cast<uint8_t>(v); }},
 };
 
 }  // namespace

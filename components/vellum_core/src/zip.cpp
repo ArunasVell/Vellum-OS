@@ -97,15 +97,20 @@ uint32_t Zip::data_offset(int i) {
   return e.local_offset + kLocalSize + le16(h + 26) + le16(h + 28);
 }
 
-int32_t Zip::extract(int i, uint8_t* out, uint32_t cap) {
+int32_t Zip::extract(int i, uint8_t* out, uint32_t cap) { return unpack(i, out, cap, false); }
+
+int32_t Zip::extract_head(int i, uint8_t* out, uint32_t cap) { return unpack(i, out, cap, true); }
+
+int32_t Zip::unpack(int i, uint8_t* out, uint32_t cap, bool head) {
   if (file_ == nullptr || i < 0 || i >= count_) return -1;
   const Entry& e = entries_[i];
-  if (e.size > cap) return -1;
+  if (e.size > cap && !head) return -1;
   uint32_t pos = data_offset(i);
   if (pos == 0) return -1;
 
   if (e.method == kStored) {
-    return file_->read_at(pos, out, e.size) == static_cast<int32_t>(e.size) ? static_cast<int32_t>(e.size) : -1;
+    const uint32_t n = std::min(e.size, cap);
+    return file_->read_at(pos, out, n) == static_cast<int32_t>(n) ? static_cast<int32_t>(n) : -1;
   }
   if (e.method != kDeflated) return -1;
 
@@ -129,7 +134,7 @@ int32_t Zip::extract(int i, uint8_t* out, uint32_t cap) {
           tinfl_decompress(inflater, chunk_ + in_used, &in_size, out, out + written, &out_size, flags);
       in_used += in_size;
       written += out_size;
-      if (status == TINFL_STATUS_DONE) return static_cast<int32_t>(written);
+      if (status == TINFL_STATUS_DONE || (head && written == cap)) return static_cast<int32_t>(written);
       if (status == TINFL_STATUS_NEEDS_MORE_INPUT) {
         if (remaining == 0) return -1;  // truncated
         break;

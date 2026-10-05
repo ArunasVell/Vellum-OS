@@ -36,6 +36,9 @@ class Zip {
   // Extracts entry i into out. Returns the bytes written, or -1 on a damaged
   // entry, an unsupported method, or when it does not fit in cap.
   int32_t extract(int i, uint8_t* out, uint32_t cap);
+  // Extracts at most the first `cap` bytes of entry i (a file's header).
+  // Returns the bytes written, or -1 on a damaged entry.
+  int32_t extract_head(int i, uint8_t* out, uint32_t cap);
 
   // Extracts entry i piece by piece into `out`, for entries too large to
   // hold in memory. `window` holds kWindowBytes: the inflater's history.
@@ -44,6 +47,8 @@ class Zip {
   bool extract_to(int i, Writer& out, uint8_t* window);
 
  private:
+  // extract() and extract_head(): with `head`, stops when out is full.
+  int32_t unpack(int i, uint8_t* out, uint32_t cap, bool head);
   // Where entry i's data starts in the file, after its local header; 0 on error.
   uint32_t data_offset(int i);
 

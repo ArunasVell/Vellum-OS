@@ -117,6 +117,27 @@ void Framebuffer::fill_physical(Rect r, Color c) {
   dirty_ = dirty_.united(r);
 }
 
+void Framebuffer::invert(Rect r) {
+  r = r.intersected({0, 0, width(), height()});
+  if (r.empty()) return;
+  r = to_physical(r);
+  const int b0 = r.x >> 3;
+  const int b1 = (r.x + r.w - 1) >> 3;
+  const uint8_t m0 = 0xFF >> (r.x & 7);
+  const uint8_t m1 = static_cast<uint8_t>(0xFF << (7 - ((r.x + r.w - 1) & 7)));
+  for (int y = r.y; y < r.y + r.h; ++y) {
+    uint8_t* row = buf_ + static_cast<size_t>(y) * stride_;
+    if (b0 == b1) {
+      row[b0] ^= m0 & m1;
+      continue;
+    }
+    row[b0] ^= m0;
+    for (int b = b0 + 1; b < b1; ++b) row[b] = static_cast<uint8_t>(~row[b]);
+    row[b1] ^= m1;
+  }
+  dirty_ = dirty_.united(r);
+}
+
 void Framebuffer::draw_rect(Rect r, Color c, int thickness) {
   thickness = std::min({thickness, r.w / 2 + 1, r.h / 2 + 1});
   fill_rect({r.x, r.y, r.w, thickness}, c);

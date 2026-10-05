@@ -315,9 +315,10 @@ void test_epub() {
       "Labas, pasauli & draugai—sveiki!",
       "Nelaužti tarpai\xC2\xA0čia. Antra eilutė.",
       "Eilėraštis:",
-      "pirma eilė",
+      "\x06pirma eilė",  // lines after a break are not indented
+      "\x06"
       "antra eilė",
-      "",
+      "\x03",  // <hr>: a rule
       "Paskutinis „sakinys“.",
   };
   CHECK(ch.paragraph_count == want.size());

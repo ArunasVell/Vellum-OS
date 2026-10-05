@@ -41,6 +41,10 @@ struct Settings {
   bool justify = true;
   bool hyphenate = true;
   FooterInfo footer = FooterInfo::PageNumber;
+  bool night = false;            // the reader's page white on black
+  bool focus_reading = false;    // the first part of each word in bold
+  bool publisher_styles = true;  // the book's own alignment, indents and emphasis
+  uint8_t paragraph_indent = 0;  // IndentRule: 0 as the book has it, 1 always, 2 never
   // Typefaces by family name (vellum/font_library.h); a missing one falls back to Literata.
   char book_font[48] = "Literata";
   char menu_font[48] = "Literata";
