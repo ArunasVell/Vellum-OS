@@ -15,6 +15,8 @@
 // swipes from one point to the other.
 // --time fixes the clock.
 // --card DIR uses a folder as the SD card: EPUBs go in DIR/books.
+// --demo-store serves the free book store's canned demo catalogue even when
+// the simulator was built with libcurl (which reaches the real catalogues).
 #include <SDL.h>
 
 #include <algorithm>
@@ -28,10 +30,14 @@
 #include <string>
 #include <vector>
 
+#include "demo_network.h"
 #include "demo_updater.h"
 #include "png_writer.h"
 #include "vellum/app.h"
 #include "vellum/stdio_storage.h"
+#ifdef VELLUM_SIM_CURL
+#include "curl_network.h"
+#endif
 
 namespace {
 
@@ -45,8 +51,9 @@ struct Options {
   std::string screenshot;
   int scale = 1;
   int battery = 82;
-  int fixed_minutes = -1;  // --time HH:MM; -1 = the computer's clock
-  std::string card;        // --card DIR: a folder that plays the SD card
+  int fixed_minutes = -1;   // --time HH:MM; -1 = the computer's clock
+  std::string card;         // --card DIR: a folder that plays the SD card
+  bool demo_store = false;  // --demo-store
 };
 
 const char* mode_name(vellum::RefreshMode m) { return m == vellum::RefreshMode::Full ? "full" : "fast"; }
@@ -370,6 +377,8 @@ bool parse(int argc, char** argv, Options& opt) {
       opt.scale = std::max(1, std::atoi(v));
     } else if (a == "--battery" && (v = value())) {
       opt.battery = std::atoi(v);
+    } else if (a == "--demo-store") {
+      opt.demo_store = true;
     } else if (a == "--card" && (v = value())) {
       opt.card = v;
     } else if (a == "--time" && (v = value())) {
@@ -379,7 +388,7 @@ bool parse(int argc, char** argv, Options& opt) {
     } else {
       std::fprintf(stderr,
                    "usage: vellum-sim [--headless] [--keys onph] [--screenshot out.png] [--scale N] [--battery N] "
-                   "[--time HH:MM] [--card DIR]\n");
+                   "[--time HH:MM] [--card DIR] [--demo-store]\n");
       return false;
     }
   }
@@ -416,6 +425,12 @@ int main(int argc, char** argv) {
   DemoUpdater updater;
   board.version = "sim";
   board.updater = &updater;
+  DemoNetwork demo_network(VELLUM_DEMO_DATA);
+  board.network = &demo_network;
+#ifdef VELLUM_SIM_CURL
+  CurlNetwork internet;
+  if (!opt.demo_store) board.network = &internet;
+#endif
   vellum::run(board);
 
   if (!opt.screenshot.empty() && !display.save_screenshot(opt.screenshot)) {

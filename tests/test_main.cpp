@@ -20,12 +20,14 @@
 #include "vellum/highlights.h"
 #include "vellum/keyboard.h"
 #include "vellum/library.h"
+#include "vellum/opds.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/reading_stats.h"
 #include "vellum/settings.h"
 #include "vellum/shelves.h"
 #include "vellum/stdio_storage.h"
+#include "vellum/store.h"
 #include "vellum/strings.h"
 #include "vellum/text.h"
 #include "vellum/touch.h"
@@ -254,9 +256,9 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint :
-         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery, t.hint_light,
-          t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead, t.hint_pick_line, t.hint_pick_word}) {
+    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead,
+                             t.hint_battery, t.hint_light, t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead,
+                             t.hint_pick_line, t.hint_pick_word, t.store_lead, t.hint_store_busy}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -2464,6 +2466,342 @@ void test_app_reading_stats() {
   }
 }
 
+// ---- Free book store -----------------------------------------------------------
+
+// Parses a feed handed over in pieces of `piece` bytes.
+OpdsFeed parse_feed(const std::string& text, const char* base, OpdsEntry* entries, int capacity, size_t piece,
+                    bool* atom = nullptr) {
+  OpdsFeed feed;
+  feed.entries = entries;
+  feed.capacity = capacity;
+  static OpdsParser parser;  // large buffers: not on the stack
+  parser.begin(feed, base);
+  for (size_t i = 0; i < text.size(); i += piece) parser.feed(text.data() + i, std::min(piece, text.size() - i));
+  const bool ok = parser.finish();
+  if (atom != nullptr) *atom = ok;
+  return feed;
+}
+
+void test_opds_gutenberg() {
+  static OpdsEntry entries[30];
+  const std::string list = read_all(VELLUM_TEST_DATA "/store/gutenberg-popular.opds");
+  CHECK(!list.empty());
+  const char* base = "https://www.gutenberg.org/ebooks/search.opds/?sort_order=downloads";
+  for (size_t piece : {size_t{1}, size_t{7}, size_t{4096}}) {
+    bool atom = false;
+    const OpdsFeed feed = parse_feed(list, base, entries, 30, piece, &atom);
+    CHECK(atom);
+    CHECK(feed.count == 10);  // the "Sort by" entries are not books
+    CHECK(std::string(entries[0].title) == "Pride and Prejudice");
+    CHECK(std::string(entries[0].author) == "Jane Austen");
+    CHECK(std::string(entries[0].detail) == "https://www.gutenberg.org/ebooks/1342.opds");
+    CHECK(entries[0].epub[0] == '\0');
+    CHECK(std::string(entries[3].title) == "Alice's Adventures in Wonderland");
+    CHECK(std::string(feed.next) ==
+          "https://www.gutenberg.org/ebooks/search.opds/?sort_order=downloads&start_index=26");
+  }
+  // Fewer places than books: the rest are counted, not kept.
+  const OpdsFeed small = parse_feed(list, base, entries, 4, 512);
+  CHECK(small.count == 4 && small.dropped == 6);
+  // The last page has no next link.
+  const OpdsFeed last =
+      parse_feed(read_all(VELLUM_TEST_DATA "/store/gutenberg-popular-2.opds"), base, entries, 30, 100);
+  CHECK(last.count == 2 && last.next[0] == '\0');
+  // Lithuanian titles come through as UTF-8.
+  const OpdsFeed lt = parse_feed(read_all(VELLUM_TEST_DATA "/store/gutenberg-lt.opds"), base, entries, 30, 3);
+  CHECK(lt.count == 3 && std::string(entries[0].title) == "Anyk\xC5\xA1\xC4\x8Di\xC5\xB3 \xC5\xA1ilelis");
+
+  // One book's own feed: its summary, the best EPUB and its size.
+  const std::string book = read_all(VELLUM_TEST_DATA "/store/gutenberg-book.opds");
+  for (size_t piece : {size_t{1}, size_t{5}, size_t{9999}}) {
+    const OpdsFeed feed = parse_feed(book, "https://www.gutenberg.org/ebooks/1342.opds", entries, 30, piece);
+    CHECK(feed.count == 1);  // "By Jane Austen" and "also downloaded" are not books
+    const OpdsEntry& e = entries[0];
+    CHECK(std::string(e.author) == "Jane Austen");
+    CHECK(std::string(e.epub) == "https://www.gutenberg.org/ebooks/1342.epub3.images");
+    CHECK(e.size == 24994304);
+    CHECK(std::string(e.language) == "en");
+    CHECK(std::string(e.summary).rfind("\"Pride and Prejudice\" by Jane Austen is a classic", 0) == 0);
+    CHECK(std::string(e.summary).find("Bennet & her sisters") != std::string::npos);
+    CHECK(std::string(e.summary).find("England \xE2\x80\x94 with wit") != std::string::npos);
+  }
+}
+
+void test_opds_standard_ebooks() {
+  static OpdsEntry entries[10];
+  const std::string text = read_all(VELLUM_TEST_DATA "/store/standard-ebooks-new.atom");
+  for (size_t piece : {size_t{1}, size_t{11}, size_t{8192}}) {
+    const OpdsFeed feed = parse_feed(text, "https://standardebooks.org/feeds/atom/new-releases", entries, 10, piece);
+    CHECK(feed.count == 3);
+    CHECK(feed.next[0] == '\0');
+    // The compatible EPUB, not the advanced one or the Kobo one.
+    CHECK(std::string(entries[0].epub) ==
+          "https://standardebooks.org/ebooks/joseph-conrad/the-secret-agent/downloads/"
+          "joseph-conrad_the-secret-agent.epub");
+    CHECK(entries[0].size == 512340);
+    CHECK(std::string(entries[0].summary) ==
+          "A shopkeeper in London\xE2\x80\x99s Soho is drawn into an anarchist plot to bomb the Greenwich "
+          "Observatory.");
+    // CDATA keeps its & and < as they are; a relative link gets the site's address.
+    CHECK(std::string(entries[1].summary) == "Lily Bart & the cost of beauty <in> New York society.");
+    CHECK(std::string(entries[1].epub) ==
+          "https://standardebooks.org/ebooks/edith-wharton/the-house-of-mirth/downloads/"
+          "edith-wharton_the-house-of-mirth.epub");
+    // Two authors: the first one. No length given: size unknown.
+    CHECK(std::string(entries[2].author) == "Fyodor Dostoevsky");
+    CHECK(entries[2].size == 0);
+  }
+}
+
+void test_opds_details() {
+  static OpdsEntry entries[4];
+  // Escaped HTML loses its markup; ISO-8859-1 turns into UTF-8; comments are skipped.
+  const std::string feed_text =
+      "<?xml version='1.0' encoding='ISO-8859-1'?><feed xmlns='http://www.w3.org/2005/Atom'>"
+      "<!-- <entry><title>Not this</title></entry> -->"
+      "<entry><title>Caf\xE9</title><author><name>Dumas, Alexandre</name></author>"
+      "<content type='html'>&lt;p&gt;One&lt;/p&gt;&lt;p&gt;two &amp;amp; three&lt;/p&gt;</content>"
+      "<link rel='http://opds-spec.org/acquisition/open-access' type='application/epub+zip' href='../b.epub'/>"
+      "</entry></feed>";
+  bool atom = false;
+  const OpdsFeed feed = parse_feed(feed_text, "http://example.org/cat/list.xml?p=1", entries, 4, 3, &atom);
+  CHECK(atom && feed.count == 1);
+  CHECK(std::string(entries[0].title) == "Caf\xC3\xA9");
+  CHECK(std::string(entries[0].author) == "Alexandre Dumas");
+  CHECK(std::string(entries[0].summary) == "One two & three");
+  CHECK(std::string(entries[0].epub) == "http://example.org/cat/../b.epub");
+  // An HTML page is not a feed.
+  parse_feed("<!DOCTYPE html><html><body>Sign in</body></html>", "https://x.org/", entries, 4, 8, &atom);
+  CHECK(!atom);
+
+  char url[128];
+  CHECK(resolve_url("https://a.org/x/y?z=1", "/b", url, sizeof(url)) && std::string(url) == "https://a.org/b");
+  CHECK(resolve_url("https://a.org/x/y", "//c.org/d", url, sizeof(url)) && std::string(url) == "https://c.org/d");
+  CHECK(resolve_url("https://a.org/x/y", "z", url, sizeof(url)) && std::string(url) == "https://a.org/x/z");
+  CHECK(resolve_url("https://a.org", "z", url, sizeof(url)) && std::string(url) == "https://a.org/z");
+  CHECK(resolve_url("https://a.org/x", "http://e.org/", url, sizeof(url)) && std::string(url) == "http://e.org/");
+  CHECK(!resolve_url("https://a.org/x", "/a-long-path", url, 12));
+
+  char name[64];
+  natural_name("Austen, Jane, 1775-1817", name, sizeof(name));
+  CHECK(std::string(name) == "Jane Austen");
+  natural_name("Homer", name, sizeof(name));
+  CHECK(std::string(name) == "Homer");
+  natural_name(" Tolstoy , Leo ", name, sizeof(name));
+  CHECK(std::string(name) == "Leo Tolstoy");
+
+  char query[64];
+  CHECK(url_encode_query("war & peace", query, sizeof(query)) && std::string(query) == "war+%26+peace");
+  CHECK(url_encode_query("\xC5\xBE", query, sizeof(query)) && std::string(query) == "%C5%BE");
+  CHECK(!url_encode_query("too long for this", query, 8));
+  CHECK(store::search_url("Moby Dick", url, sizeof(url)) &&
+        std::string(url) == "https://www.gutenberg.org/ebooks/search.opds/?query=Moby+Dick");
+
+  char size[16];
+  store::format_size(Language::English, 24994304, size, sizeof(size));
+  CHECK(std::string(size) == "23.8 MB");
+  store::format_size(Language::Lithuanian, 1572864, size, sizeof(size));
+  CHECK(std::string(size) == "1,5 MB");
+  store::format_size(Language::English, 397286, size, sizeof(size));
+  CHECK(std::string(size) == "388 KB");
+}
+
+// Serves the test feeds and books in place of the internet.
+class FakeNetwork : public Network {
+ public:
+  NetResult get(const char* url, BodyFn body, void* ctx) override {
+    ++gets;
+    last_url = url;
+    joined = true;
+    if (fail != NetResult::Ok) return fail;
+    std::string data;
+    const std::string u = url;
+    const std::string dir = VELLUM_TEST_DATA "/store/";
+    if (u.find("standardebooks.org/feeds") != std::string::npos) {
+      data = read_all((dir + "standard-ebooks-new.atom").c_str());
+    } else if (u.find("start_index=26") != std::string::npos) {
+      data = read_all((dir + "gutenberg-popular-2.opds").c_str());
+    } else if (u.find("search.opds") != std::string::npos) {
+      data = read_all((dir + "gutenberg-popular.opds").c_str());
+    } else if (u.find(".opds") != std::string::npos) {
+      data = read_all((dir + "gutenberg-book.opds").c_str());
+    } else if (u.find("epub") != std::string::npos) {
+      data = book.empty() ? read_all(VELLUM_TEST_DATA "/sample.epub") : book;
+    } else {
+      return NetResult::NoServer;
+    }
+    // In pieces, as a network gives it; the length only when asked to say it.
+    for (size_t i = 0; i < data.size(); i += 1000) {
+      const uint32_t n = static_cast<uint32_t>(std::min<size_t>(1000, data.size() - i));
+      if (!body(ctx, reinterpret_cast<const uint8_t*>(data.data() + i), n,
+                give_length ? static_cast<uint32_t>(data.size()) : 0))
+        return NetResult::Stopped;
+      if (break_after > 0 && i + n >= break_after) return NetResult::BrokeOff;
+    }
+    return NetResult::Ok;
+  }
+  void disconnect() override {
+    joined = false;
+    ++disconnects;
+  }
+
+  int gets = 0;
+  int disconnects = 0;
+  bool joined = false;
+  bool give_length = true;
+  size_t break_after = 0;  // bytes after which the download breaks off; 0 never
+  NetResult fail = NetResult::Ok;
+  std::string book;  // served for EPUB links instead of the sample book
+  std::string last_url;
+};
+
+// Card storage whose writes fail after `room` bytes.
+class SmallCard : public StdioStorage {
+ public:
+  using StdioStorage::StdioStorage;
+  Writer* create(const char* path) override {
+    inner_ = StdioStorage::create(path);
+    if (inner_ == nullptr) return nullptr;
+    used_ = 0;
+    return &wrap_;
+  }
+  bool finish(Writer*, bool keep) override { return StdioStorage::finish(inner_, keep); }
+  uint32_t room = 1000;
+
+ private:
+  class Wrap : public Writer {
+   public:
+    explicit Wrap(SmallCard& c) : c_(c) {}
+    bool write(const void* data, uint32_t len) override {
+      if (c_.used_ + len > c_.room) return false;
+      c_.used_ += len;
+      return c_.inner_->write(data, len);
+    }
+
+   private:
+    SmallCard& c_;
+  };
+  Writer* inner_ = nullptr;
+  uint32_t used_ = 0;
+  Wrap wrap_{*this};
+};
+
+void test_store_download() {
+  std::filesystem::remove_all("test-store");
+  std::filesystem::create_directories("test-store/books");
+  StdioStorage card("test-store");
+  char path[160];
+  CHECK(store::book_path(card, "Frankenstein; Or, The Modern Prometheus", "Mary Wollstonecraft Shelley", path,
+                         sizeof(path)));
+  CHECK(std::string(path) == "books/Mary Wollstonecraft Shelley - Frankenstein.epub");
+  CHECK(store::book_path(card, "What? Why: Now", "", path, sizeof(path)) &&
+        std::string(path) == "books/What_ Why.epub");
+  CHECK(store::book_path(card, "../../etc", "a/b", path, sizeof(path)) &&
+        std::string(path).find("..") == std::string::npos && std::string(path).find('/', 6) == std::string::npos);
+
+  FakeNetwork net;
+  std::vector<int> seen;
+  auto progress = [](void* ctx, int percent) { static_cast<std::vector<int>*>(ctx)->push_back(percent); };
+  CHECK(store::book_path(card, "Pride and Prejudice", "Jane Austen", path, sizeof(path)));
+  CHECK(store::download(net, card, "https://www.gutenberg.org/ebooks/1342.epub3.images", path, progress, &seen) ==
+        store::Saved::Ok);
+  CHECK(read_all("test-store/books/Jane Austen - Pride and Prejudice.epub") ==
+        read_all(VELLUM_TEST_DATA "/sample.epub"));
+  CHECK(!seen.empty() && seen.back() == 100);
+  // Taken: the next one gets a number.
+  CHECK(store::book_path(card, "Pride and Prejudice", "Jane Austen", path, sizeof(path)) &&
+        std::string(path) == "books/Jane Austen - Pride and Prejudice 2.epub");
+
+  // A web page instead of a book, a broken download and a full card leave nothing behind.
+  net.book = "<!DOCTYPE html><html>Please sign in</html>";
+  CHECK(store::download(net, card, "https://x.org/a.epub", path, nullptr, nullptr) == store::Saved::NotBook);
+  CHECK(!std::filesystem::exists(std::string("test-store/") + path));
+  net.book.clear();
+  net.break_after = 2000;
+  CHECK(store::download(net, card, "https://x.org/a.epub", path, nullptr, nullptr) == store::Saved::NoServer);
+  CHECK(!std::filesystem::exists(std::string("test-store/") + path));
+  net.break_after = 0;
+  SmallCard small("test-store");
+  CHECK(store::download(net, small, "https://x.org/a.epub", path, nullptr, nullptr) == store::Saved::CardFull);
+  CHECK(!std::filesystem::exists(std::string("test-store/") + path));
+  net.fail = NetResult::NoNetwork;
+  CHECK(store::download(net, card, "https://x.org/a.epub", path, nullptr, nullptr) == store::Saved::NoNetwork);
+  std::filesystem::remove_all("test-store");
+}
+
+void test_app_store() {
+  std::filesystem::remove_all("test-card-store");
+  std::filesystem::create_directories("test-card-store/books");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-store");
+  FakeNetwork net;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  board.network = &net;
+  auto* app = new App(board);
+  app->start();
+
+  // Home › All books; the store is the row after the four built-in books.
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  const int full = panel.full;
+  press(*app, Key::Power);  // the store: its catalogues
+  CHECK(panel.full == full + 1 && net.gets == 0);
+  press(*app, Key::Power);  // Project Gutenberg: its lists
+  press(*app, Key::Power);  // Most popular
+  CHECK(net.gets == 1 && net.last_url.find("sort_order=downloads") != std::string::npos);
+
+  // The last row of the page's books is "More books"; Prev wraps to it.
+  press(*app, Key::Prev);
+  press(*app, Key::Power);
+  CHECK(net.gets == 2 && net.last_url.find("start_index=26") != std::string::npos);
+  press(*app, Key::Power);  // "Earlier books" is first, the first book is selected: open it
+  CHECK(net.gets == 3 && net.last_url == "https://www.gutenberg.org/ebooks/64317.opds");
+  press(*app, Key::Home);  // back to the list, on that book
+  press(*app, Key::Prev);  // "Earlier books"
+  press(*app, Key::Power);
+  CHECK(net.gets == 4 && net.last_url.find("start_index") == std::string::npos);
+
+  // A book: its own feed, then the download.
+  press(*app, Key::Power);  // Pride and Prejudice
+  CHECK(net.gets == 5 && net.last_url == "https://www.gutenberg.org/ebooks/1342.opds");
+  press(*app, Key::Power);  // Download
+  CHECK(net.gets == 6 && net.last_url == "https://www.gutenberg.org/ebooks/1342.epub3.images");
+  CHECK(std::filesystem::exists("test-card-store/books/Jane Austen - Pride and Prejudice.epub"));
+  CHECK(net.joined);
+  const int full_before_reading = panel.full;
+  press(*app, Key::Power);  // Read now: the radio goes off and the book opens
+  CHECK(!net.joined && net.disconnects == 1);
+  CHECK(panel.full == full_before_reading + 1);
+  const int fast = panel.fast;
+  press(*app, Key::Next);  // a page turns: it is the reader
+  CHECK(panel.fast == fast + 1);
+
+  // No home Wi-Fi: it says so; Try again asks once more; Home climbs out.
+  press(*app, Key::Home);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // All books
+  tap(*app, 240, 645);      // "Get free books", after the five books
+
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // Standard Ebooks
+  net.fail = NetResult::NoNetwork;
+  const int gets = net.gets;
+  press(*app, Key::Power);  // New releases
+  press(*app, Key::Power);  // Try again
+  CHECK(net.gets == gets + 2);
+  net.fail = NetResult::Ok;
+  tap(*app, 240, 290);  // Try again, by touch: the list arrives
+  CHECK(net.gets == gets + 3 && net.last_url.find("standardebooks.org") != std::string::npos);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Home);  // list, catalogues, out of the store
+  CHECK(net.disconnects == 2);
+  delete app;
+  std::filesystem::remove_all("test-card-store");
+}
+
 // ---- Library: keyboard, search, sorting, shelves -----------------------------
 
 // Taps the middle of a key of the keyboard.
@@ -2855,6 +3193,11 @@ int main() {
   test_reading_stats();
   test_reader_pages_left();
   test_app_reading_stats();
+  test_opds_gutenberg();
+  test_opds_standard_ebooks();
+  test_opds_details();
+  test_store_download();
+  test_app_store();
   test_keyboard();
   test_search_folding();
   test_library_sorting();

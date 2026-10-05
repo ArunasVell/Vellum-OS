@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Test fixture shaped like Project Gutenberg's feed for one book (www.gutenberg.org/ebooks/1342.opds), trimmed. -->
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:opds="http://opds-spec.org/" xmlns:os="http://a9.com/-/spec/opensearch/1.1/">
+<id>https://www.gutenberg.org/ebooks/1342.opds</id>
+<updated>2026-10-04T08:12:33Z</updated>
+<title>Pride and Prejudice by Jane Austen</title>
+<author><name>Project Gutenberg</name><uri>https://www.gutenberg.org</uri></author>
+<link rel="self" title="This Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks/1342.opds"/>
+<link rel="start" title="Start Page" type="application/atom+xml;profile=opds-catalog" href="/ebooks.opds/"/>
+<entry>
+<updated>2026-10-04T08:12:33Z</updated>
+<title>Pride and Prejudice</title>
+<content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>This edition has images.</p><p>Release date: Jun 1, 1998</p><p>Downloads: 62&#160;317</p></div></content>
+<id>urn:gutenberg:1342:3</id>
+<published>1998-06-01T00:00:00+00:00</published>
+<rights>Public domain in the USA.</rights>
+<author>
+<name>Austen, Jane, 1775-1817</name>
+<uri>https://www.gutenberg.org/ebooks/author/68</uri>
+</author>
+<category scheme="http://purl.org/dc/terms/LCSH" term="Courtship -- Fiction"/>
+<dcterms:language>en</dcterms:language>
+<summary>&#34;Pride and Prejudice&#34; by Jane Austen is a classic novel written in the early 19th century. The story follows Elizabeth Bennet &amp; her sisters as they navigate love, class and family in Regency England &#x2014; with wit to spare.</summary>
+<link type="application/epub+zip" rel="http://opds-spec.org/acquisition" title="EPUB (no images, older E-readers)" length="397286" href="/ebooks/1342.epub.noimages"/>
+<link type="application/epub+zip" rel="http://opds-spec.org/acquisition" title="EPUB3 (E-readers incl. Send-to-Kindle)" length="24994304" href="/ebooks/1342.epub3.images"/>
+<link type="application/epub+zip" rel="http://opds-spec.org/acquisition" title="EPUB (older E-readers)" length="24981432" href="/ebooks/1342.epub.images"/>
+<link type="application/x-mobipocket-ebook" rel="http://opds-spec.org/acquisition" title="Kindle" length="25049117" href="/ebooks/1342.kf8.images"/>
+<link type="text/html" rel="http://opds-spec.org/acquisition" title="Read online (web)" href="/ebooks/1342.html.images"/>
+<link type="image/jpeg" rel="http://opds-spec.org/image" href="https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:33Z</updated>
+<title>By Jane Austen</title>
+<content type="text">63 books</content>
+<id>https://www.gutenberg.org/ebooks/author/68.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/author/68.opds"/>
+</entry>
+<entry>
+<updated>2026-10-04T08:12:33Z</updated>
+<title>Readers also downloaded…</title>
+<id>https://www.gutenberg.org/ebooks/1342/also/.opds</id>
+<link type="application/atom+xml;profile=opds-catalog" rel="related" href="/ebooks/1342/also/.opds"/>
+</entry>
+</feed>
