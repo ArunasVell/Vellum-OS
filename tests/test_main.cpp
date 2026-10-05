@@ -11,6 +11,7 @@
 #include "vellum/battery_log.h"
 #include "vellum/book.h"
 #include "vellum/charset.h"
+#include "vellum/controls.h"
 #include "vellum/covers.h"
 #include "vellum/dictionary.h"
 #include "vellum/display_queue.h"
@@ -25,6 +26,7 @@
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/reading_stats.h"
+#include "vellum/screenshot.h"
 #include "vellum/settings.h"
 #include "vellum/shelves.h"
 #include "vellum/stdio_storage.h"
@@ -3916,6 +3918,461 @@ void test_app_store_search() {
   std::filesystem::remove_all("test-card-store-search");
 }
 
+// ---- Buttons, screen orientation, auto page turn, refresh cadence, screenshots ----
+
+void test_button_sets() {
+  using A = ButtonAction;
+  CHECK(buttons_safe(kDefaultButtons.reader, true));
+  CHECK(buttons_safe(kDefaultButtons.menu, false));
+  CHECK(!buttons_safe(kDefaultButtons.reader, false));  // page turns are not menu actions
+
+  // While reading, something must lead out: the contents, home or the library.
+  ButtonAction reader[kButtonInputs] = {A::PrevPage, A::NextPage, A::Contents, A::None, A::None, A::None, A::None};
+  CHECK(buttons_safe(reader, true));
+  CHECK(next_button_action(reader, true, 2) == A::Home);  // the next one that still leads out
+  reader[2] = A::Library;
+  CHECK(next_button_action(reader, true, 2) == A::Contents);  // past all that would not, around to Contents
+  reader[3] = A::Home;
+  CHECK(next_button_action(reader, true, 2) == A::Bookmark);  // Home leads out now
+  reader[3] = A::None;
+  reader[2] = A::Bookmark;
+  CHECK(!buttons_safe(reader, true));
+
+  // In menus: something selects, something goes back, something moves.
+  ButtonAction menu[kButtonInputs];
+  std::copy(std::begin(kDefaultButtons.menu), std::end(kDefaultButtons.menu), menu);
+  CHECK(next_button_action(menu, false, 2) == A::Select);  // Power is the only Select: it stays
+  CHECK(next_button_action(menu, false, 3) == A::Back);    // and Home the only Back
+  CHECK(next_button_action(menu, false, 0) == A::Down);    // Prev may leave Up: Next still moves
+  menu[5] = A::Select;                                     // Next held selects too
+  CHECK(next_button_action(menu, false, 2) == A::Back);
+  menu[0] = A::None;
+  menu[1] = A::PageDown;
+  CHECK(!buttons_safe(menu, false));  // paging alone does not move the highlight
+
+  CHECK(button_input(Key::Prev, false) == static_cast<int>(ButtonInput::Prev));
+  CHECK(button_input(Key::Home, true) == static_cast<int>(ButtonInput::HomeHeld));
+  CHECK(button_input(Key::Power, false) == static_cast<int>(ButtonInput::Power));
+  CHECK(button_input(Key::Power, true) == -1);  // holding Power always sleeps
+
+  // Saved as key=value lines; a set that is unsafe, not offered or cut short is ignored.
+  std::filesystem::remove_all("test-card-buttons");
+  StdioStorage card("test-card-buttons");
+  Settings s;
+  s.buttons.reader[4] = A::PrevChapter;
+  s.buttons.reader[5] = A::NextChapter;
+  s.buttons.menu[6] = A::Screenshot;
+  s.orientation = Orientation::LandscapeRight;
+  s.auto_turn = 0;
+  s.full_refresh = FullRefresh::NewChapter;
+  CHECK(save_settings(card, s));
+  const std::string saved = read_all("test-card-buttons/vellum/settings.txt");
+  CHECK(saved.find("buttons_reading=1,2,5,6,3,4,0\n") != std::string::npos);
+  CHECK(saved.find("buttons_menus=15,16,17,18,0,0,13\n") != std::string::npos);
+  Settings back;
+  load_settings(card, back);
+  CHECK(back == s);
+  for (const char* bad : {"buttons_reading=1,2,8,0,0,0,0\n",      // nothing leads out
+                          "buttons_menus=1,2,17,18,0,0,0\n",      // page turns in menus
+                          "buttons_menus=15,16,17\n",             // cut short
+                          "buttons_reading=1,2,5,6,3,4,0,0\n",    // one too many
+                          "buttons_reading=1,2,5,6,3,4,99\n"}) {  // no such action
+    card.write("vellum/settings.txt", bad, static_cast<uint32_t>(std::strlen(bad)));
+    Settings loaded;
+    load_settings(card, loaded);
+    CHECK(loaded.buttons == kDefaultButtons);
+  }
+  std::filesystem::remove_all("test-card-buttons");
+}
+
+// A touch at logical (x, y) on a screen turned by r.
+InputEvent touch_turned(InputEvent::Type type, Rotation r, int x, int y) {
+  InputEvent ev;
+  ev.type = type;
+  int px, py;
+  rotate_to_physical(r, kW, kH, x, y, px, py);
+  ev.x = static_cast<int16_t>(px);
+  ev.y = static_cast<int16_t>(py);
+  return ev;
+}
+
+void tap_turned(App& app, Rotation r, int x, int y) {
+  app.handle(touch_turned(InputEvent::Type::TouchDown, r, x, y));
+  app.handle(touch_turned(InputEvent::Type::TouchUp, r, x, y));
+}
+
+// A card for the controls tests: the sample book, read last, and these settings.
+void controls_card(StdioStorage& card, const char* settings) {
+  std::filesystem::remove_all("test-card-controls");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  CHECK(card.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
+  const char* progress = "books/sample.epub\t0\t0\t0\t0\t1\n";
+  CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
+  CHECK(card.write("vellum/settings.txt", settings, static_cast<uint32_t>(std::strlen(settings))));
+}
+
+bool controls_progress_has(const char* fields) {
+  return read_all("test-card-controls/vellum/progress.txt").find(fields) != std::string::npos;
+}
+
+void hold(App& app, TimedInput& input, Key key) {
+  app.handle(key_event(InputEvent::Type::KeyDown, key));
+  CHECK(app.wait_ms() == kHoldKeyMs);
+  input.ms += kHoldKeyMs;
+  app.timeout();
+  app.handle(key_event(InputEvent::Type::KeyUp, key));
+}
+
+void test_app_buttons() {
+  using T = InputEvent::Type;
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  TimedInput input;
+  SleepyPower power;
+  StdioStorage card("test-card-controls");
+  // Held Prev and Next skip chapters; held Home saves a screenshot.
+  controls_card(card, "buttons_reading=1,2,5,6,3,4,13\n");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the book: Power, in menus, still selects
+  CHECK(controls_progress_has("books/sample.epub\t0\t0\t0\t"));
+
+  // A button with a held action acts on release when let go at once.
+  const int fast = panel.fast;
+  app->handle(key_event(T::KeyDown, Key::Next));
+  CHECK(panel.fast == fast);  // not yet: it may be held
+  CHECK(app->wait_ms() == kHoldKeyMs);
+  input.ms += 100;
+  CHECK(app->wait_ms() == kHoldKeyMs - 100);
+  app->handle(key_event(T::KeyUp, Key::Next));
+  CHECK(panel.fast == fast + 1);  // the next page
+  press(*app, Key::Prev);
+  CHECK(panel.fast == fast + 2);
+
+  // Held: the next chapter, and back to the one before from its first page.
+  int full = panel.full;
+  hold(*app, input, Key::Next);
+  CHECK(panel.full == full + 1);
+  press(*app, Key::Power);  // contents ...
+  press(*app, Key::Power);  // ... and back, which saves the place
+  CHECK(controls_progress_has("books/sample.epub\t1\t0\t0\t"));
+  hold(*app, input, Key::Prev);
+  press(*app, Key::Power);
+  press(*app, Key::Power);
+  CHECK(controls_progress_has("books/sample.epub\t0\t0\t0\t"));
+
+  // A held press without a timeout (a board that kept sending events) counts on release.
+  full = panel.full;
+  app->handle(key_event(T::KeyDown, Key::Next));
+  input.ms += kHoldKeyMs + 50;
+  app->handle(key_event(T::KeyUp, Key::Next));
+  CHECK(panel.full == full + 1);
+
+  // Held Home: a screenshot, and a notice that goes away by itself.
+  hold(*app, input, Key::Home);
+  CHECK(read_all("test-card-controls/screenshots/screenshot-0001.bmp").size() == screenshot::bmp_size(480, 800));
+  CHECK(app->wait_ms() == 2500);  // the notice
+  const int fast_now = panel.fast;
+  input.ms += 2500;
+  app->timeout();
+  CHECK(panel.fast == fast_now + 1 && power.sleeps == 0);  // gone, and still awake
+  CHECK(app->wait_ms() == 10 * 60 * 1000);
+
+  // Holding Power still sleeps, whatever the buttons do.
+  app->handle(key_event(T::KeyDown, Key::Power));
+  app->timeout();
+  CHECK(power.sleeps == 1);
+  app->handle(key_event(T::KeyUp, Key::Power));
+  press(*app, Key::Next);  // wake
+  press(*app, Key::Home);  // a short Home: home, as always
+
+  // Settings › Buttons: the last but one row of the general page.
+  press(*app, Key::Prev);  // Settings, the last link
+  press(*app, Key::Power);
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);
+  full = panel.full;
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 1);
+  auto saved = [] { return read_all("test-card-controls/vellum/settings.txt"); };
+  // Power while reading: Contents, Home screen, Library, then around to Contents
+  // (Home does nothing while reading here, so nothing else would lead out).
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(saved().find("buttons_reading=1,2,6,6,3,4,13\n") != std::string::npos);
+  press(*app, Key::Next);  // Home: away from Home screen, as Power leads out now
+  press(*app, Key::Power);
+  CHECK(saved().find("buttons_reading=1,2,6,7,3,4,13\n") != std::string::npos);
+  for (int i = 0; i < 14; ++i) press(*app, Key::Power);  // all the way around, to Home screen again
+  CHECK(saved().find("buttons_reading=1,2,6,6,3,4,13\n") != std::string::npos);
+
+  // In menus, Power is the only Select: it stays.
+  for (int i = 0; i < 4; ++i) press(*app, Key::Prev);  // the tabs
+  press(*app, Key::Power);                             // In menus
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(saved().find("buttons_menus=15,16,17,18,0,0,0\n") != std::string::npos);
+  // Reset to default, the last row.
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);  // the tabs, then around to Reset
+  press(*app, Key::Power);
+  CHECK(saved().find("buttons_reading=1,2,5,6,0,0,0\n") != std::string::npos);
+  // Home goes back to Settings, on the Buttons row.
+  full = panel.full;
+  press(*app, Key::Home);
+  CHECK(panel.full == full + 1);
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 2);  // the buttons screen again
+  delete app;
+
+  // Remapped in menus: Prev opens, Next goes down, Power goes back, Home goes up.
+  controls_card(card, "buttons_menus=17,16,18,15,0,0,0\n");
+  app = new App(board);
+  app->start();
+  full = panel.full;
+  press(*app, Key::Prev);  // opens the current book
+  CHECK(panel.full == full + 1);
+  press(*app, Key::Power);  // reading: Power still opens the contents
+  CHECK(panel.full == full + 2);
+  press(*app, Key::Power);  // in the contents, Power goes back: home
+  CHECK(panel.full == full + 3);
+  delete app;
+  std::filesystem::remove_all("test-card-controls");
+}
+
+bool any_black(const Framebuffer& fb, Rect r) {
+  for (int y = r.y; y < r.y + r.h; ++y)
+    for (int x = r.x; x < r.x + r.w; ++x)
+      if (fb.pixel(x, y) == Color::Black) return true;
+  return false;
+}
+
+void test_app_orientation() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-controls");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+
+  // Upside down: every screen turns, touches with it, and Prev and Next trade places.
+  controls_card(card, "orientation=1\n");
+  auto* app = new App(board);
+  app->start();
+  Framebuffer upside(buf.data(), kW, kH);
+  upside.set_rotation(Rotation::R270);
+  CHECK(any_black(upside, {380, 20, 72, 30}));  // the battery, top right as the reader holds it
+  tap_turned(*app, Rotation::R270, 240, 200);   // the current book's card
+  CHECK(panel.full == 2);
+  const int fast = panel.fast;
+  press(*app, Key::Prev);  // towards the reading: the next page
+  CHECK(panel.fast == fast + 1);
+  press(*app, Key::Next);
+  CHECK(panel.fast == fast + 2);  // and Next back again
+  delete app;
+
+  // Landscape: the reader lies on its side at 800x480; menus stay upright.
+  controls_card(card, "orientation=2\n");
+  app = new App(board);
+  app->start();
+  Framebuffer portrait(buf.data(), kW, kH);
+  portrait.set_rotation(Rotation::R90);
+  CHECK(any_black(portrait, {380, 20, 72, 30}));  // home: the battery where it always is
+  press(*app, Key::Power);                        // open the book
+  Framebuffer wide(buf.data(), kW, kH);
+  wide.set_rotation(Rotation::R0);
+  CHECK(any_black(wide, {700, 440, 100, 40}));  // the battery, bottom right of the wide page
+  CHECK(any_black(wide, {28, 30, 744, 200}));   // the chapter's heading and text
+  CHECK(!any_black(wide, {0, 0, 16, 480}));     // and stays inside the margins
+  CHECK(!any_black(wide, {800 - 16, 0, 16, 480}));
+  int fast_now = panel.fast;
+  tap_turned(*app, Rotation::R0, 700, 240);  // the right third: forward
+  CHECK(panel.fast == fast_now + 1);
+  tap_turned(*app, Rotation::R0, 100, 240);  // the left third: back
+  CHECK(panel.fast == fast_now + 2);
+  // Contents is upright: its rows take taps in portrait.
+  tap_turned(*app, Rotation::R0, 400, 240);  // the middle: contents
+  CHECK(any_black(portrait, {380, 20, 72, 30}));
+  const int full = panel.full;
+  tap_turned(*app, Rotation::R90, 240, 186 + 25);  // Back to book
+  CHECK(panel.full == full + 1);
+  CHECK(any_black(wide, {700, 440, 100, 40}));  // on its side again
+  delete app;
+
+  // On its side the other way, Prev and Next trade places too.
+  controls_card(card, "orientation=3\n");
+  app = new App(board);
+  app->start();
+  press(*app, Key::Power);
+  fast_now = panel.fast;
+  press(*app, Key::Next);  // back: nothing before the first page
+  CHECK(panel.fast == fast_now);
+  press(*app, Key::Prev);
+  CHECK(panel.fast == fast_now + 1);
+  delete app;
+  std::filesystem::remove_all("test-card-controls");
+}
+
+void test_app_auto_turn() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  TimedInput input;
+  SleepyPower power;
+  StdioStorage card("test-card-controls");
+  controls_card(card, "auto_turn=0\n");                               // every 5 s
+  std::filesystem::remove("test-card-controls/vellum/progress.txt");  // Alice, built in: many pages
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the book
+  press(*app, Key::Power);  // contents: back, bookmark, light, look up, turn pages
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(app->wait_ms() == 2500);  // the notice goes first
+  int fast = panel.fast;
+  input.ms += 2500;
+  app->timeout();
+  CHECK(panel.fast == fast + 1);  // the notice went; the page stays
+  CHECK(app->wait_ms() == 2500);  // the rest of the 5 s
+  input.ms += 2500;
+  app->timeout();
+  CHECK(panel.fast == fast + 2);  // a page turned
+  CHECK(app->wait_ms() == 5000);
+  for (int i = 0; i < 3; ++i) {
+    input.ms += 5000;
+    app->timeout();
+  }
+  CHECK(panel.fast == fast + 5 && power.sleeps == 0);  // turning counts as use
+
+  // Any button stops it, and does nothing else.
+  app->handle(key_event(InputEvent::Type::KeyDown, Key::Next));
+  app->handle(key_event(InputEvent::Type::KeyUp, Key::Next));
+  CHECK(panel.fast == fast + 6);  // the "stopped" notice only
+  input.ms += 2500;
+  app->timeout();
+  CHECK(app->wait_ms() == 10 * 60 * 1000);  // the idle time runs again
+
+  // A touch stops it too, and is not a tap.
+  press(*app, Key::Power);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  fast = panel.fast;
+  tap(*app, 400, 400);  // the right third would turn the page
+  CHECK(panel.fast == fast + 1);
+  tap(*app, 400, 400);  // now it does
+  CHECK(panel.fast == fast + 2);
+  delete app;
+
+  // It stops at the end of the book; then the reader may sleep again.
+  controls_card(card, "auto_turn=0\n");
+  app = new App(board);
+  app->start();
+  press(*app, Key::Power);
+  press(*app, Key::Power);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  for (int i = 0; i < 20 && app->wait_ms() <= 5000; ++i) {
+    input.ms += app->wait_ms();
+    app->timeout();
+  }
+  CHECK(app->wait_ms() == 10 * 60 * 1000);
+  CHECK(power.sleeps == 0);
+  press(*app, Key::Home);  // saves the place: the last chapter
+  CHECK(controls_progress_has("books/sample.epub\t1\t"));
+  delete app;
+  std::filesystem::remove_all("test-card-controls");
+}
+
+void test_app_refresh_cadence() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-controls");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  // Pages of Alice, built in, after this many: full and fast refreshes.
+  auto turns = [&](const char* settings, int pages, int& full, int& fast) {
+    controls_card(card, settings);
+    std::filesystem::remove("test-card-controls/vellum/progress.txt");
+    auto* app = new App(board);
+    app->start();
+    press(*app, Key::Power);
+    full = panel.full;
+    fast = panel.fast;
+    for (int i = 0; i < pages; ++i) press(*app, Key::Next);
+    full = panel.full - full;
+    fast = panel.fast - fast;
+    delete app;
+  };
+  int full, fast;
+  turns("", 13, full, fast);  // as always: a full refresh after 12 fast ones
+  CHECK(full == 1 && fast == 12);
+  turns("full_refresh=1\n", 12, full, fast);  // after 5
+  CHECK(full == 2 && fast == 10);
+  turns("full_refresh=0\n", 3, full, fast);  // every page
+  CHECK(full == 3 && fast == 0);
+  turns("full_refresh=3\n", 21, full, fast);  // after 20
+  CHECK(full == 1 && fast == 20);
+  turns("full_refresh=4\n", 20, full, fast);  // only at a new chapter: Alice has one
+  CHECK(full == 0 && fast == 20);
+
+  // At a new chapter, in the sample book.
+  controls_card(card, "full_refresh=4\n");
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);
+  full = panel.full;
+  press(*app, Key::Next);  // chapter one is a page long
+  CHECK(panel.full == full + 1);
+  delete app;
+  std::filesystem::remove_all("test-card-controls");
+}
+
+void test_screenshot_bmp() {
+  std::filesystem::remove_all("test-card-shots");
+  StdioStorage card("test-card-shots");
+  char path[64];
+  screenshot::next_path(card, path, sizeof(path));
+  CHECK(std::string(path) == "screenshots/screenshot-0001.bmp");
+  card.write("screenshots/screenshot-0007.bmp", "x", 1);
+  card.write("screenshots/notes.txt", "x", 1);
+  screenshot::next_path(card, path, sizeof(path));
+  CHECK(std::string(path) == "screenshots/screenshot-0008.bmp");
+
+  // Portrait: 480 x 800, the logical top-left pixel black.
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  f.fb.clear(Color::White);
+  f.fb.set_pixel(0, 0, Color::Black);
+  f.fb.set_pixel(479, 799, Color::Black);
+  CHECK(screenshot::save_bmp(card, f.fb, path));
+  const std::string bmp = read_all("test-card-shots/screenshots/screenshot-0008.bmp");
+  CHECK(bmp.size() == 62 + 60 * 800 && bmp.size() == screenshot::bmp_size(480, 800));
+  auto u32 = [&](size_t at) {
+    return uint32_t{uint8_t(bmp[at])} | uint32_t{uint8_t(bmp[at + 1])} << 8 | uint32_t{uint8_t(bmp[at + 2])} << 16 |
+           uint32_t{uint8_t(bmp[at + 3])} << 24;
+  };
+  CHECK(bmp.size() > 62 && bmp[0] == 'B' && bmp[1] == 'M');
+  CHECK(u32(2) == bmp.size() && u32(10) == 62);             // file size, pixels' offset
+  CHECK(u32(18) == 480 && u32(22) == 800);                  // width, height (rows bottom up)
+  CHECK(uint8_t(bmp[28]) == 1 && u32(46) == 2);             // 1 bit, two colours
+  CHECK(u32(54) == 0 && (u32(58) & 0xFFFFFF) == 0xFFFFFF);  // black, white
+  const size_t top_row = 62 + 799 * 60;                     // the last row stored is the top one
+  CHECK(uint8_t(bmp[top_row]) == 0x7F);                     // its first pixel black
+  CHECK(uint8_t(bmp[62 + 59]) == 0xFE);                     // the bottom row's last pixel black
+  CHECK(uint8_t(bmp[62 + 60]) == 0xFF);
+
+  // Landscape: 800 x 480.
+  f.fb.set_rotation(Rotation::R0);
+  CHECK(screenshot::save_bmp(card, f.fb, "screenshots/wide.bmp"));
+  const std::string wide = read_all("test-card-shots/screenshots/wide.bmp");
+  CHECK(wide.size() == screenshot::bmp_size(800, 480) && wide.size() == 62 + 100 * 480);
+  std::filesystem::remove_all("test-card-shots");
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -3996,6 +4453,12 @@ int main() {
   test_library_sorting();
   test_shelves_store();
   test_app_library();
+  test_button_sets();
+  test_app_buttons();
+  test_app_orientation();
+  test_app_auto_turn();
+  test_app_refresh_cadence();
+  test_screenshot_bmp();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;
