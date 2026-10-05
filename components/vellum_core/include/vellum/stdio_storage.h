@@ -20,6 +20,7 @@ class StdioStorage : public Storage {
   bool list(const char* dir, ListFn fn, void* ctx) override;
   Writer* create(const char* path) override;
   bool finish(Writer* w, bool keep) override;
+  bool remove(const char* path) override;
 
  private:
   class StdioWriter : public Writer {

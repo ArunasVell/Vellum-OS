@@ -104,6 +104,8 @@ bool StdioStorage::finish(Writer* w, bool keep) {
   return std::rename(part, writer_.path) == 0;
 }
 
+bool StdioStorage::remove(const char* path) { return full_path(path) && std::remove(full_) == 0; }
+
 bool StdioStorage::list(const char* dir, ListFn fn, void* ctx) {
   if (!full_path(dir)) return false;
   DIR* d = opendir(full_);

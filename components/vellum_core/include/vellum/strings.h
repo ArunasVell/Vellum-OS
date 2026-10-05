@@ -244,6 +244,27 @@ struct Strings {
   const char* shelves;           // screen title: a book's shelves
   const char* shelves_label;     // uppercase label
   const char* finished_reading;  // the toggle on that screen
+  // Sleep screens
+  const char* sleep_screen;           // settings row and screen title
+  const char* sleep_kinds[5];         // book cover, my pictures, reading stats, minimal, page as left
+  const char* sleep_help[5];          // a line about each
+  const char* pictures_label;         // uppercase label
+  const char* sleep_order;            // row: which of the pictures
+  const char* sleep_order_names[2];   // shuffle, one picture
+  const char* choose_pictures;        // row: opens the pictures
+  const char* preview;                // row: shows the sleep screen
+  const char* no_pictures;            // the sleep folder is empty
+  const char* preparing_pictures;     // while converting them
+  const char* picture_broken;         // under a picture that cannot be shown
+  const char* pictures_shuffle_lead;  // line under the pictures' title
+  const char* pictures_one_lead;
+  const char* hint_pictures_shuffle;
+  const char* hint_pictures_one;
+  const char* hint_preview;
+  const char* now_reading;     // uppercase label on the reading stats sleep screen
+  const char* last_7_days;     // uppercase label
+  const char* finished_label;  // uppercase label: books finished
+  const char* left_in_book;    // printf: a duration ("3 h left")
 };
 
 const Strings& strings(Language lang);

@@ -750,7 +750,7 @@ void test_app_update() {
   auto* app = new App(board);
   app->start();
   tap(*app, 240, 700);  // Settings
-  tap(*app, 240, 358);  // Updates
+  tap(*app, 240, 394);  // Updates
   tap(*app, 240, 475);  // Update from a file: the phone page
   CHECK(transfer.starts == 1);
 
@@ -1634,7 +1634,7 @@ void test_app_fonts() {
   press(*app, Key::Power);
   CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
   CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);  // down to Reading
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);  // down to Reading
   press(*app, Key::Power);
   press(*app, Key::Power);  // Book font: the next after Literata
   CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
@@ -1763,7 +1763,7 @@ void test_app_updates_screen() {
   app->start();
 
   tap(*app, 240, 700);  // Settings
-  tap(*app, 240, 358);  // Updates, the seventh row
+  tap(*app, 240, 394);  // Updates, the eighth row
   tap(*app, 240, 325);  // Check now: the home Wi-Fi is out of reach
   CHECK(updater.checks == 1 && updater.installs == 0);
   CHECK(read_all("test-card/vellum/update.txt").empty());  // a failed check remembers nothing
@@ -1984,8 +1984,8 @@ void test_app_device_check() {
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i)
-    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Light, Battery, Updates, Stats: Device check
+  for (int i = 0; i < 9; ++i)
+    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Sleep screen, Light, Battery, Updates, Stats
   CHECK(!on_check());
   press(*app, Key::Power);
   CHECK(on_check());
@@ -2033,7 +2033,7 @@ void test_app_device_check_memory() {
     app.start();
     for (int i = 0; i < 5; ++i) press(app, Key::Next);  // Settings
     press(app, Key::Power);
-    for (int i = 0; i < 8; ++i) press(app, Key::Next);  // Device check
+    for (int i = 0; i < 9; ++i) press(app, Key::Next);  // Device check
     press(app, Key::Power);
   };
   auto* app = new App(board);
@@ -3125,10 +3125,10 @@ void test_app_reading_stats() {
   CHECK(saved.find("b\t1\t510\t13\tbuiltin:") != std::string::npos);
   CHECK(saved.find("d\t2026-10-04\t0\t510\t13\n") != std::string::npos);
 
-  // Settings › Reading stats, the eighth row: opens, Power goes back.
+  // Settings › Reading stats, the ninth row: opens, Power goes back.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
   int full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -3136,7 +3136,7 @@ void test_app_reading_stats() {
   CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::Black);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);
-  CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::White);
+  CHECK(view.pixel(17, 430) == Color::Black);  // back on Settings, the Reading stats row highlighted
 
   // Settings › Reading › Footer: time left in the chapter, then the percent.
   press(*app, Key::Next);  // Device check
@@ -3153,7 +3153,7 @@ void test_app_reading_stats() {
   press(*app, Key::Home);
   press(*app, Key::Prev);
   press(*app, Key::Power);
-  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 10; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);

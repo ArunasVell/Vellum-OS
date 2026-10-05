@@ -157,6 +157,8 @@ class Storage {
   // Closes the writer; `keep` replaces `path` with what was written, else it
   // is thrown away. Returns false when keeping failed.
   virtual bool finish(Writer*, bool) { return false; }
+  // Deletes a file. Returns false when it is missing or cannot be deleted.
+  virtual bool remove(const char*) { return false; }
 };
 
 // Receiving books from a phone or computer over Wi-Fi. The device opens its

@@ -41,5 +41,28 @@ bool make(Storage& storage, const char* cover_path, const uint8_t* data, uint32_
 // or kSmallW*kSmallH (small) bytes. Returns false when there is none.
 bool load(Storage& storage, const char* cover_path, bool large, CoverImage& out);
 
+// Full-screen pictures, for sleep screens: cut to the screen's shape and
+// shrunk to at most kScreenW x kScreenH (never enlarged), with a thumbnail
+// for choosing among them. Converting and loading use the same work
+// buffers as the book covers, so they cost no memory of their own.
+constexpr int kScreenW = 480;
+constexpr int kScreenH = 800;
+constexpr int kThumbW = 120;
+constexpr int kThumbH = 200;
+constexpr uint32_t kMaxPngFile = 512 * 1024;  // a PNG is read whole; larger ones are refused
+
+// Decodes the picture file at `picture_path` (JPEG, PNG or uncompressed
+// BMP, told apart by their first bytes) and writes the screen picture and
+// its thumbnail to `out_path`. Returns false when it cannot be decoded.
+bool make_screen(Storage& storage, const char* picture_path, const char* out_path);
+
+// Reads a screen picture into memory kept here, valid until the next call
+// into covers. nullptr when there is none (or it is broken).
+const CoverImage* load_screen(Storage& storage, const char* path);
+
+// Reads a screen picture's thumbnail into out.px, which must hold
+// kThumbW*kThumbH bytes. Returns false when there is none.
+bool load_thumb(Storage& storage, const char* path, CoverImage& out);
+
 }  // namespace covers
 }  // namespace vellum

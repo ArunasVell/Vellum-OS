@@ -17,6 +17,7 @@
 #include "vellum/reading_stats.h"
 #include "vellum/settings.h"
 #include "vellum/shelves.h"
+#include "vellum/sleep_pictures.h"
 #include "vellum/strings.h"
 #include "vellum/text_book.h"
 #include "vellum/touch.h"
@@ -69,6 +70,13 @@ namespace vellum {
 // at once. The reader joins the home Wi-Fi for the first page it fetches
 // and turns the radio off on leaving the store (or sleeping).
 //
+// Settings › Sleep screen chooses what the screen keeps while asleep
+// (app_sleep.cpp): the book's cover, the reader's own pictures from the
+// card's sleep/ folder (SleepPictures), a reading stats dashboard, a
+// minimal page with the book's title, or the last screen as it was with a
+// small badge. Its Preview row shows the sleep screen until a button is
+// pressed.
+//
 // Settings › Device check shows every button press and touch, and what the
 // board reports (battery, clock, card), for trying out new hardware.
 //
@@ -119,7 +127,10 @@ class App {
     Send,
     Stats,
     Store,
-    Shelve  // a book's shelves, and whether it is finished
+    Shelve,       // a book's shelves, and whether it is finished
+    SleepSetup,   // Settings › Sleep screen
+    Pictures,     // the reader's own sleep pictures, to mark
+    SleepPreview  // the sleep screen, until a button is pressed
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -147,7 +158,9 @@ class App {
   };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
-  static constexpr int kHomeRows = 2;  // other books listed under the current one
+  static constexpr int kSleepSetupRows = 8;   // five kinds, the pictures' order, the pictures, preview
+  static constexpr int kPicturesPerPage = 6;  // thumbnails on the pictures screen
+  static constexpr int kHomeRows = 2;         // other books listed under the current one
   // What the on-screen keyboard is typing for.
   enum class Typing : uint8_t { Off, Search, NewShelf, RenameShelf, NewShelfForBook, StoreSearch };
 
@@ -314,7 +327,26 @@ class App {
   // sleep screen asks to charge it and no night wake is set.
   void sleep(bool empty = false);
   void wake();
-  void draw_sleep(bool empty);
+  // Draws the sleep screen Settings asks for. `preview`: shown from the
+  // sleep screen settings, so a shuffle does not count it as shown.
+  void draw_sleep(bool empty, bool preview = false);
+  // The sleep screens (app_sleep.cpp). Those returning bool draw nothing
+  // and return false when they cannot be shown (the cover is drawn instead).
+  void draw_sleep_cover();
+  bool draw_sleep_picture(bool preview);
+  void draw_sleep_stats();
+  void draw_sleep_minimal();
+  void draw_sleep_badge();
+  // Settings › Sleep screen: the five kinds, the pictures' order, the
+  // pictures, and a preview.
+  void open_sleep_setup();
+  void close_sleep_setup();  // back to Settings
+  void draw_sleep_setup();
+  void sleep_setup_activate();
+  // The reader's own pictures, as thumbnails to mark.
+  void open_pictures();
+  void draw_pictures();
+  void pictures_activate();
   // The battery is under `percent` and not charging (false when unknown).
   bool battery_below(int percent);
   void save_progress();
@@ -437,8 +469,13 @@ class App {
   bool resume_reader_ = false;  // reopen the current book on start
   Screen before_sleep_ = Screen::Home;
   TransferInfo transfer_info_;
-  CoverImage large_cover_;  // buffers for cover thumbnails, allocated once
+  CoverImage large_cover_;  // buffers for cover thumbnails, allocated once (also the pictures' thumbnails)
   CoverImage small_cover_;
+  SleepPictures sleep_pictures_;
+  int sleep_sel_ = 0;     // row on the sleep screen settings
+  int pictures_sel_ = 0;  // picture on the pictures screen
+  uint32_t sleeps_ = 0;   // varies the shuffle
+  bool drawn_ = false;    // a screen was drawn since start: "Page as left" has something to keep
   BatteryLog battery_;
   ReadingStats stats_;
   uint32_t battery_saved_at_ = 0;  // time of the last sample written to the card
