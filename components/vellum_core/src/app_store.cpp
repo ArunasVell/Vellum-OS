@@ -355,8 +355,8 @@ void App::store_load(const char* url) {
   draw();
   queue_.submit();
   const bool custom = store_custom();
-  const NetResult r =
-      store::fetch_feed(*board_.network, store_url_, store_feed_, store_->parser, custom ? store_->auth : nullptr, custom);
+  const NetResult r = store::fetch_feed(*board_.network, store_url_, store_feed_, store_->parser,
+                                        custom ? store_->auth : nullptr, custom);
   if (custom && store_depth_ == 0 && r == NetResult::Ok) {
     // The catalogue's search, from its first page.
     textfile::copy(store_->parser.search(), store_->search, sizeof(store_->search));

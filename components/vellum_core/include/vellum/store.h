@@ -37,8 +37,8 @@ bool search_url(const char* words, char* out, size_t size);
 // NoServer also covers an answer that was not a catalogue. `headers` (as in
 // HttpRequest, nullptr for none) sign in to a catalogue that asks;
 // `sections` keeps a catalogue's links to other lists (OpdsParser::begin).
-NetResult fetch_feed(Network& net, const char* url, OpdsFeed& feed, OpdsParser& parser,
-                     const char* headers = nullptr, bool sections = false);
+NetResult fetch_feed(Network& net, const char* url, OpdsFeed& feed, OpdsParser& parser, const char* headers = nullptr,
+                     bool sections = false);
 
 // GET of `url` with `headers` when there are any (Network::request; only a
 // 200 answer counts), else a plain Network::get().

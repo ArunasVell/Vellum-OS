@@ -72,9 +72,9 @@ int page_at(double within, int page_count);
 
 // What the server holds for a book.
 struct Progress {
-  double share = -1;      // "percentage"; below 0 when the server has none
-  char where[128] = {};   // "progress": a KOReader xpointer (or a page number)
-  char device[48] = {};   // the device that sent it
+  double share = -1;     // "percentage"; below 0 when the server has none
+  char where[128] = {};  // "progress": a KOReader xpointer (or a page number)
+  char device[48] = {};  // the device that sent it
   char device_id[40] = {};
   uint32_t timestamp = 0;
 };
@@ -100,8 +100,7 @@ Result push(Network& net, const Account& a, const char* document, double share, 
 Result pull(Network& net, const Account& a, const char* document, Progress& out);
 
 // Builds the body of a push; false when it does not fit.
-bool push_body(const char* document, double share, const char* where, const char* device_id, char* out,
-               size_t size);
+bool push_body(const char* document, double share, const char* where, const char* device_id, char* out, size_t size);
 // Reads the answer of a pull. False when it holds no position.
 bool parse_progress(const char* json, Progress& out);
 

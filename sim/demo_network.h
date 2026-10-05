@@ -62,9 +62,8 @@ class DemoNetwork : public vellum::Network {
     } else {
       req.status = 404;
     }
-    if (!answer.empty() &&
-        !body(ctx, reinterpret_cast<const uint8_t*>(answer.data()), static_cast<uint32_t>(answer.size()),
-              static_cast<uint32_t>(answer.size()))) {
+    if (!answer.empty() && !body(ctx, reinterpret_cast<const uint8_t*>(answer.data()),
+                                 static_cast<uint32_t>(answer.size()), static_cast<uint32_t>(answer.size()))) {
       return vellum::NetResult::Stopped;
     }
     return vellum::NetResult::Ok;

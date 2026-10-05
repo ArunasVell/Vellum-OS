@@ -4123,7 +4123,8 @@ void test_kosync_account() {
   // The same user keeps the password; a trailing slash goes; a bad address is refused.
   const char* change = "server=https%3A%2F%2Fsync.example.org%2F&user=alice&password=&auto=0&method=1";
   CHECK(kosync::account_from_form(change, std::strlen(change), a));
-  CHECK(std::string(a.server) == "https://sync.example.org" && std::string(a.key) == "5ebe2294ecd0e0f08eab7690d2a6ee69");
+  CHECK(std::string(a.server) == "https://sync.example.org" &&
+        std::string(a.key) == "5ebe2294ecd0e0f08eab7690d2a6ee69");
   CHECK(!a.automatic && a.method == kosync::Method::FileName);
   const char* bad = "server=ftp%3A%2F%2Fx&user=alice&password=x";
   CHECK(!kosync::account_from_form(bad, std::strlen(bad), a));
@@ -4133,8 +4134,8 @@ void test_kosync_account() {
   CHECK(kosync::save_account(card, a));
   kosync::Account back;
   kosync::load_account(card, back);
-  CHECK(std::string(back.server) == a.server && std::string(back.user) == "alice" &&
-        std::string(back.key) == a.key && back.create && back.method == kosync::Method::FileName);
+  CHECK(std::string(back.server) == a.server && std::string(back.user) == "alice" && std::string(back.key) == a.key &&
+        back.create && back.method == kosync::Method::FileName);
   char json[256];
   CHECK(kosync::account_json(back, json, sizeof(json)));
   CHECK(std::string(json) == "{\"server\":\"https://sync.example.org\",\"user\":\"alice\",\"auto\":0,\"method\":1}");
@@ -4151,7 +4152,8 @@ void test_catalogues() {
   CHECK(c.count() == 0);
   const char* add = "action=add&name=&url=https%3A%2F%2Fbooks.example.org%3A8080%2Fopds&user=alice&password=secret";
   CHECK(c.apply_form(add, std::strlen(add)) == Catalogues::FormResult::Ok);
-  CHECK(std::string(c.at(0).name) == "books.example.org" && std::string(c.at(0).url) == "https://books.example.org:8080/opds");
+  CHECK(std::string(c.at(0).name) == "books.example.org" &&
+        std::string(c.at(0).url) == "https://books.example.org:8080/opds");
   const char* named = "action=add&name=Calibre&url=http%3A%2F%2F192.168.1.9%3A8080%2Fopds";
   CHECK(c.apply_form(named, std::strlen(named)) == Catalogues::FormResult::Ok);
   const char* bad = "action=add&name=x&url=file%3A%2F%2Fetc";
@@ -4183,7 +4185,8 @@ void test_catalogues() {
   const char* remove = "action=remove&index=0";
   CHECK(back.apply_form(remove, std::strlen(remove)) == Catalogues::FormResult::Ok && back.count() == 1);
   CHECK(back.apply_form("action=remove&index=5", 21) == Catalogues::FormResult::Bad);
-  for (int i = 1; i < Catalogues::kMax; ++i) CHECK(back.apply_form(named, std::strlen(named)) == Catalogues::FormResult::Ok);
+  for (int i = 1; i < Catalogues::kMax; ++i)
+    CHECK(back.apply_form(named, std::strlen(named)) == Catalogues::FormResult::Ok);
   CHECK(back.apply_form(named, std::strlen(named)) == Catalogues::FormResult::Full);
   std::filesystem::remove_all("test-catalogues");
 }
@@ -4263,7 +4266,8 @@ void test_opds_sections_and_search() {
   const char* templated = R"(<feed><link rel="search" type="application/atom+xml" href="/s?q={searchTerms}"/></feed>)";
   parser.begin(feed, "https://x.org/opds", true);
   parser.feed(templated, std::strlen(templated));
-  CHECK(parser.finish() && parser.search_is_template() && std::string(parser.search()) == "https://x.org/s?q={searchTerms}");
+  CHECK(parser.finish() && parser.search_is_template() &&
+        std::string(parser.search()) == "https://x.org/s?q={searchTerms}");
 }
 
 void test_phone_settings() {
@@ -4299,7 +4303,8 @@ void test_phone_settings() {
   CHECK(j.find("\"home_network\":\"HomeNet\"") != std::string::npos);
   CHECK(j.find("\"sync\":{\"server\":\"https://sync.koreader.rocks\",\"user\":\"bob\",\"auto\":0,\"method\":0}") !=
         std::string::npos);
-  CHECK(j.ends_with(",\"catalogues\":[{\"name\":\"Calibre\",\"url\":\"http://192.168.1.9:8080/opds\",\"user\":\"\"}]}"));
+  CHECK(
+      j.ends_with(",\"catalogues\":[{\"name\":\"Calibre\",\"url\":\"http://192.168.1.9:8080/opds\",\"user\":\"\"}]}"));
   CHECK(!phone_settings_json(card, nullptr, "", json, 100));  // too small: says so
   std::filesystem::remove_all("test-phone");
 }
@@ -4400,8 +4405,9 @@ void test_app_sync() {
   CHECK(net.urls[2] == "https://sync.example.org/syncs/progress/9f06430a0700212493289d3aa92738b1");
 
   // Another device read further: the book moves there, nothing is sent.
-  net.remote = "{\"percentage\":0.95,\"progress\":\"/body/DocFragment[3]/body\",\"device\":\"KOReader\","
-               "\"device_id\":\"OTHER\",\"timestamp\":1760000000}";
+  net.remote =
+      "{\"percentage\":0.95,\"progress\":\"/body/DocFragment[3]/body\",\"device\":\"KOReader\","
+      "\"device_id\":\"OTHER\",\"timestamp\":1760000000}";
   press(*app, Key::Power);
   CHECK(net.methods.size() == 5 && net.methods.back() == "GET");
   CHECK(!progress_has("books/sample.epub\t0\t"));

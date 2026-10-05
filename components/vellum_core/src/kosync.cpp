@@ -255,9 +255,9 @@ void load_account(Storage& storage, Account& out) {
 
 bool save_account(Storage& storage, const Account& a) {
   char buf[512];
-  const int n = std::snprintf(buf, sizeof(buf), "server=%s\nuser=%s\nkey=%s\ncreate=%d\nauto=%d\nmethod=%d\n", a.server,
-                              a.user, a.key, a.create ? 1 : 0, a.automatic ? 1 : 0,
-                              a.method == Method::FileName ? 1 : 0);
+  const int n =
+      std::snprintf(buf, sizeof(buf), "server=%s\nuser=%s\nkey=%s\ncreate=%d\nauto=%d\nmethod=%d\n", a.server, a.user,
+                    a.key, a.create ? 1 : 0, a.automatic ? 1 : 0, a.method == Method::FileName ? 1 : 0);
   if (n < 0 || static_cast<size_t>(n) >= sizeof(buf)) return false;
   return storage.write(kAccountPath, buf, static_cast<uint32_t>(n));
 }
@@ -389,8 +389,7 @@ int xpointer_chapter(const char* xpointer) {
 
 // ---- Requests -----------------------------------------------------------------
 
-bool push_body(const char* document, double share, const char* where, const char* device_id, char* out,
-               size_t size) {
+bool push_body(const char* document, double share, const char* where, const char* device_id, char* out, size_t size) {
   size_t len = 0;
   int n = std::snprintf(out, size, "{\"document\":\"%s\",\"percentage\":%.4f,\"progress\":\"", document, share);
   if (n < 0 || static_cast<size_t>(n) >= size) return false;

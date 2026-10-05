@@ -2147,7 +2147,8 @@ void App::draw_contents() {
             std::snprintf(status, sizeof(status), "%s", t.sync_up_to_date);
             break;
           case SyncState::Failed:
-            std::snprintf(status, sizeof(status), "%s", t.sync_errors[std::max(0, static_cast<int>(sync_error_) - 1) % 5]);
+            std::snprintf(status, sizeof(status), "%s",
+                          t.sync_errors[std::max(0, static_cast<int>(sync_error_) - 1) % 5]);
             break;
         }
         const Rect b{r.x, r.y + 2, r.w, kLinkHeight};
@@ -2763,7 +2764,7 @@ void App::sleep(bool empty) {
   queue_.submit_full();
   if (board_.frontlight != nullptr) board_.frontlight->set(0, 0);
   if (in_book && !empty) sync_auto();  // under the sleep screen
-  board_.power.sleep();  // a deep-sleeping board restarts from here on waking
+  board_.power.sleep();                // a deep-sleeping board restarts from here on waking
 }
 
 void App::wake() {

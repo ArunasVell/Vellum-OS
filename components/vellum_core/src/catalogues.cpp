@@ -42,15 +42,16 @@ void Catalogues::load(Storage& storage) {
   if (!buf) return;
   const int32_t n = textfile::read(storage, kPath, buf.get(), kFileBytes);
   if (n <= 0) return;
-  textfile::for_each_line(std::string_view(buf.get(), static_cast<size_t>(n)), [&](const std::string_view* f, int fields) {
-    if (fields < 2 || count_ >= kMax || f[1].empty()) return;
-    Catalogue& c = items_[count_++];
-    c = {};
-    textfile::copy(f[0], c.name, sizeof(c.name));
-    textfile::copy(f[1], c.url, sizeof(c.url));
-    if (fields > 2) textfile::copy(f[2], c.user, sizeof(c.user));
-    if (fields > 3) textfile::copy(f[3], c.password, sizeof(c.password));
-  });
+  textfile::for_each_line(std::string_view(buf.get(), static_cast<size_t>(n)),
+                          [&](const std::string_view* f, int fields) {
+                            if (fields < 2 || count_ >= kMax || f[1].empty()) return;
+                            Catalogue& c = items_[count_++];
+                            c = {};
+                            textfile::copy(f[0], c.name, sizeof(c.name));
+                            textfile::copy(f[1], c.url, sizeof(c.url));
+                            if (fields > 2) textfile::copy(f[2], c.user, sizeof(c.user));
+                            if (fields > 3) textfile::copy(f[3], c.password, sizeof(c.password));
+                          });
 }
 
 bool Catalogues::save(Storage& storage) const {
@@ -59,7 +60,8 @@ bool Catalogues::save(Storage& storage) const {
   size_t len = 0;
   for (int i = 0; i < count_; ++i) {
     const Catalogue& c = items_[i];
-    const int n = std::snprintf(buf.get() + len, kFileBytes - len, "%s\t%s\t%s\t%s\n", c.name, c.url, c.user, c.password);
+    const int n =
+        std::snprintf(buf.get() + len, kFileBytes - len, "%s\t%s\t%s\t%s\n", c.name, c.url, c.user, c.password);
     if (n < 0 || static_cast<size_t>(n) >= kFileBytes - len) return false;
     len += static_cast<size_t>(n);
   }
@@ -134,8 +136,8 @@ bool base64(const void* data, size_t len, char* out, size_t size) {
   if ((len + 2) / 3 * 4 + 1 > size) return false;
   size_t n = 0;
   for (size_t i = 0; i < len; i += 3) {
-    const uint32_t v = uint32_t{p[i]} << 16 | (i + 1 < len ? uint32_t{p[i + 1]} << 8 : 0) |
-                       (i + 2 < len ? uint32_t{p[i + 2]} : 0);
+    const uint32_t v =
+        uint32_t{p[i]} << 16 | (i + 1 < len ? uint32_t{p[i + 1]} << 8 : 0) | (i + 2 < len ? uint32_t{p[i + 2]} : 0);
     out[n++] = kDigits[(v >> 18) & 63];
     out[n++] = kDigits[(v >> 12) & 63];
     out[n++] = i + 1 < len ? kDigits[(v >> 6) & 63] : '=';

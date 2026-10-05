@@ -29,8 +29,7 @@ bool phone_settings_json(Storage& card, const char* fonts, const char* home_netw
     len += std::strlen(out + len);
     return true;
   };
-  if (!add("{\"settings\":") ||
-      !part([&](char* at, size_t room) { return settings_json(s, fonts, at, room); }) ||
+  if (!add("{\"settings\":") || !part([&](char* at, size_t room) { return settings_json(s, fonts, at, room); }) ||
       !add(",\"home_network\":\"") || !json_escape(home_network != nullptr ? home_network : "", out, size, len) ||
       !add("\",\"sync\":")) {
     return false;

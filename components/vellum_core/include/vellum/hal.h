@@ -254,7 +254,7 @@ enum class NetResult : uint8_t {
 // A request with a method, headers or a body: for services that answer more
 // than files (KOReader sync) or ask for a password (catalogues).
 struct HttpRequest {
-  const char* method = "GET";     // "GET", "POST" or "PUT"
+  const char* method = "GET";  // "GET", "POST" or "PUT"
   const char* url = nullptr;
   const char* headers = nullptr;  // extra header lines, each "Name: value\r\n"; nullptr for none
   const char* body = nullptr;     // sent as it is; nullptr for none

@@ -295,11 +295,11 @@ class App {
     OpdsEntry detail;  // one book's own feed
     char history[kStoreHistory][256];
     char history_titles[kStoreHistory][64];
-    Catalogues catalogues;     // the reader's own, from the card
-    char auth[192];            // their sign-in header, "" for none
-    char search[256];          // the search of the own catalogue shown: a template or a description
-    bool search_template;      // search holds {searchTerms}
-    char description[4096];    // an OpenSearch description, fetched to search
+    Catalogues catalogues;   // the reader's own, from the card
+    char auth[192];          // their sign-in header, "" for none
+    char search[256];        // the search of the own catalogue shown: a template or a description
+    bool search_template;    // search holds {searchTerms}
+    char description[4096];  // an OpenSearch description, fetched to search
   };
   void open_store();
   // Turns the radio off; the screen stays.
@@ -516,21 +516,21 @@ class App {
   int store_book_ = 0;   // the list entry the book page shows
   int store_depth_ = 0;  // pages in store_->history
   int store_percent_ = 0;
-  int store_saved_ = -1;       // library index of the book just downloaded
+  int store_saved_ = -1;        // library index of the book just downloaded
   int store_custom_count_ = 0;  // the reader's own catalogues, as last loaded
-  char store_url_[256] = {};   // the list page shown
-  char store_title_[64] = {};  // its name
+  char store_url_[256] = {};    // the list page shown
+  char store_title_[64] = {};   // its name
 
   // KOReader sync.
   enum class SyncState : uint8_t { Idle, Busy, Sent, Moved, UpToDate, Failed };
   kosync::Account sync_account_;
   SyncState sync_state_ = SyncState::Idle;  // shown on the Contents row
   kosync::Result sync_error_ = kosync::Result::Ok;
-  int sync_percent_ = 0;           // sent, or moved to
-  char sync_doc_[33] = {};         // the open book's id on the server
-  uint32_t sync_doc_book_ = 0;     // reader_.id() it is for; 0 for none
-  BookPos sync_sent_;              // the position last sent
-  uint32_t sync_sent_book_ = 0;    // and the book, by reader_.id()
+  int sync_percent_ = 0;         // sent, or moved to
+  char sync_doc_[33] = {};       // the open book's id on the server
+  uint32_t sync_doc_book_ = 0;   // reader_.id() it is for; 0 for none
+  BookPos sync_sent_;            // the position last sent
+  uint32_t sync_sent_book_ = 0;  // and the book, by reader_.id()
 
   struct Hit {
     Rect r;

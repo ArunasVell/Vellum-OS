@@ -54,9 +54,9 @@ struct WifiTransfer::Impl {
   esp_pm_lock_handle_t awake = nullptr;
   bool awake_held = false;
   bool wifi_on = false;
-  HomeWifi home;            // the home Wi-Fi, when the page is served there
+  HomeWifi home;                // the home Wi-Fi, when the page is served there
   const char* fonts = nullptr;  // TransferInfo::fonts, for the page's Settings
-  char* buffer = nullptr;  // kChunk bytes, allocated once
+  char* buffer = nullptr;       // kChunk bytes, allocated once
   // The highlights file, for the phone page's notes. Made the first time the
   // page asks; the server's own storage, so it never shares the app's.
   vellum::StdioStorage* card = nullptr;
