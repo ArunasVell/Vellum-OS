@@ -937,7 +937,7 @@ bool App::library_gesture(const Gesture& g) {
   using K = Gesture::Kind;
   const int item = hit_at(g.x, g.y);
   const int first_book = library_first_book();
-  if (g.kind == K::LongPress && item >= first_book) {
+  if (g.kind == K::LongPress && item >= first_book && item - first_book < library_view_count_) {
     // Holding a book: its shelves.
     library_sel_ = item;
     open_shelve(library_view_[item - first_book], Screen::Library);
