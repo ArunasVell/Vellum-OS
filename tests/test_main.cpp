@@ -659,6 +659,10 @@ void test_upload_helpers() {
   CHECK(safe("notes.pdf") == "<rejected>");
   CHECK(safe(".epub") == "<rejected>");
   CHECK(safe("") == "<rejected>");
+  CHECK(safe_picture_name("C:\\fakepath\\Sea.JPG", buf, sizeof(buf)) && std::string(buf) == "Sea.JPG");
+  CHECK(safe_picture_name("../dawn.jpeg", buf, sizeof(buf)) && std::string(buf) == "dawn.jpeg");
+  CHECK(safe_picture_name("a.bmp", buf, sizeof(buf)) && safe_picture_name("b.png", buf, sizeof(buf)));
+  CHECK(!safe_picture_name("cover.gif", buf, sizeof(buf)) && !safe_picture_name("book.epub", buf, sizeof(buf)));
   // Long names keep their extension and stay whole UTF-8.
   std::string long_name;
   for (int i = 0; i < 80; ++i) long_name += "\xC4\x85";  // ą, two bytes each

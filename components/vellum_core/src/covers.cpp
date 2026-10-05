@@ -264,6 +264,8 @@ struct ScreenShrinker {
   int cx = 0, cy = 0, cw = 1, ch = 1;  // the crop, in source pixels
   int w = 1, h = 1;                    // the picture kept
   uint32_t* band = nullptr;            // kBand rows of w sums
+  uint32_t* cols = nullptr;            // source pixels per output column (kScreenW)
+  uint32_t* rows = nullptr;            // and per output row (kScreenH)
   uint8_t* out = nullptr;              // w * h
   int done = 0;                        // output rows finished
 
@@ -271,10 +273,10 @@ struct ScreenShrinker {
     screen_crop(src_w, src_h, cx, cy, cw, ch);
     w = std::min(want_w, cw);
     h = std::min(want_h, ch);
-    std::fill_n(cols(), w, 0u);
-    std::fill_n(rows(), h, 0u);
-    for (int x = 0; x < cw; ++x) ++cols()[static_cast<int>(int64_t{x} * w / cw)];
-    for (int y = 0; y < ch; ++y) ++rows()[static_cast<int>(int64_t{y} * h / ch)];
+    std::fill_n(cols, w, 0u);
+    std::fill_n(rows, h, 0u);
+    for (int x = 0; x < cw; ++x) ++cols[static_cast<int>(int64_t{x} * w / cw)];
+    for (int y = 0; y < ch; ++y) ++rows[static_cast<int>(int64_t{y} * h / ch)];
     std::fill_n(band, kBand * w, 0u);
     done = 0;
   }
@@ -291,7 +293,7 @@ struct ScreenShrinker {
     if (done >= h) return;
     uint32_t* sums = band + (done % kBand) * w;
     for (int tx = 0; tx < w; ++tx) {
-      const uint32_t n = cols()[tx] * rows()[done];
+      const uint32_t n = cols[tx] * rows[done];
       out[done * w + tx] = n ? static_cast<uint8_t>(sums[tx] / n) : 255;
       sums[tx] = 0;
     }
@@ -300,23 +302,16 @@ struct ScreenShrinker {
   void finish() {
     while (done < h) flush();
   }
-  static uint32_t* cols() {
-    static uint32_t c[kScreenW];
-    return c;
-  }
-  static uint32_t* rows() {
-    static uint32_t r[kScreenH];
-    return r;
-  }
 };
 
 // Where make_screen() keeps things in the work buffers. In the sums buffer:
-// the file it writes (header, picture, thumbnail), then the band of sums,
-// then a whole PNG file. The large thumbnail's buffer takes a BMP's rows,
-// then the thumbnail's sums.
+// the file it writes (header, picture, thumbnail), the band of sums, the
+// counts per column and row, then a whole PNG file. The large thumbnail's
+// buffer takes a BMP's rows, then the thumbnail's sums.
 constexpr size_t kScreenFileBytes = kHeader + kScreenW * kScreenH + kThumbW * kThumbH;
 constexpr size_t kBandAt = (kScreenFileBytes + 15) / 16 * 16;
-constexpr size_t kPngAt = kBandAt + ScreenShrinker::kBand * kScreenW * sizeof(uint32_t);
+constexpr size_t kCountsAt = kBandAt + ScreenShrinker::kBand * kScreenW * sizeof(uint32_t);
+constexpr size_t kPngAt = kCountsAt + (kScreenW + kScreenH) * sizeof(uint32_t);
 static_assert(kPngAt + kMaxPngFile <= kLargeW * kLargeH * sizeof(uint32_t));
 static_assert(kThumbW * kThumbH * sizeof(uint32_t) <= kLargeW * kLargeH);
 
@@ -418,6 +413,8 @@ bool make_screen(Storage& storage, const char* picture_path, const char* out_pat
   auto* file = reinterpret_cast<uint8_t*>(wk.sum);
   ScreenShrinker s;
   s.band = reinterpret_cast<uint32_t*>(file + kBandAt);
+  s.cols = reinterpret_cast<uint32_t*>(file + kCountsAt);
+  s.rows = s.cols + kScreenW;
   s.out = file + kHeader;
   uint8_t magic[4] = {};
   bool ok = f->read_at(0, magic, 4) == 4;

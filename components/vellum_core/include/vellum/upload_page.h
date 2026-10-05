@@ -5,8 +5,9 @@
 //   GET  /                  this page
 //   GET  /books             JSON list: [{"name": "Book.epub", "size": 123}, ...]
 //   POST /upload?name=NAME  the file as the request body (a book, a .ttf or
-//                           .otf font for the fonts folder, or a StarDict
-//                           dictionary file for the dictionaries folder); 200
+//                           .otf font for the fonts folder, a StarDict
+//                           dictionary file for the dictionaries folder, or a
+//                           JPEG, PNG or BMP picture for the sleep folder); 200
 //                           when saved, 507 when the card is full, 4xx/5xx
 //                           otherwise
 //   POST /time              the phone's local time, "YYYY-MM-DD HH:MM:SS",
@@ -14,6 +15,8 @@
 //   GET  /highlights        JSON list of the highlights (Highlights::write_json)
 //   POST /highlights/note   form body id=...&note=...; 200 when saved
 //   POST /highlights/remove form body id=...; 200 when removed
+//   GET  /sleep             JSON list of the sleep screen pictures, like /books
+//   POST /sleep/remove      form body name=...; 200 when the picture is deleted
 //
 // A second page, opened from Settings › Updates, sets the home Wi-Fi and
 // installs an update file:
@@ -55,6 +58,9 @@ bool safe_font_name(const char* in, char* out, size_t size);
 // The same for StarDict dictionary files (.ifo, .idx, .dict, .dict.dz, .syn),
 // which go in the dictionaries folder.
 bool safe_dictionary_name(const char* in, char* out, size_t size);
+// The same for sleep screen pictures (.jpg, .jpeg, .png, .bmp), which go in
+// the sleep folder.
+bool safe_picture_name(const char* in, char* out, size_t size);
 
 // Parses "YYYY-MM-DD HH:MM:SS" (the body of POST /time). Returns false for
 // anything else, including dates outside 2000-2099.

@@ -123,6 +123,7 @@ upper bounds):
 | Library entries, cache, bookmarks and file buffer | about 0.6 MB | always |
 | Highlights and their file buffer | about 0.5 MB | always |
 | Battery log and reading stats | about 0.25 MB | always |
+| Sleep screen pictures: up to 64 names and the marks file buffer | about 15 KB | always |
 | Reader page table | 64 KB | always |
 | Text, FB2 and web-page books: chapter, paragraph and contents tables | about 0.8 MB | always (added with more book types) |
 | **Total at start** | **about 6.2 MB** | |
@@ -130,6 +131,7 @@ upper bounds):
 | Rendered fonts | 20–60 KB per size | with a font other than Literata |
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |
+| A sleep screen picture | none of its own: the cover work buffers (a PNG of at most 512 KB is read into them whole, and decodes like a cover) | while converting it, and while the sleep screen is drawn |
 | Wi-Fi and TLS buffers | 100–200 KB | while Wi-Fi is on |
 
 About 1.6 MB stay free. A very large colour PNG cover (roughly a million
