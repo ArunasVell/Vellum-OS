@@ -29,7 +29,11 @@ namespace vellum {
 // reader, Power opens the book's contents: its chapters and bookmarks, and
 // a row that bookmarks the page.
 // Holding Power for a second sleeps; so does leaving the reader idle for
-// the time set in Settings. Any button wakes it, back where it was.
+// the time set in Settings. Any button wakes it, back where it was. When the
+// battery runs out (kEmptyPercent, not charging) it sleeps with a screen
+// asking to charge it. After a crash (Power::after_crash) it starts on the
+// home screen with Literata, so a broken book or font cannot crash it again
+// at once.
 // Touch: tap an item to open it (or change a setting); in the reader, tap
 // the left third or swipe right to go back, the right third or swipe left
 // to go forward, the middle for the contents. Swipes page through lists.
@@ -203,9 +207,13 @@ class App {
   const CoverImage* cover_of(int book, bool large);
 
   void open_book(int index);
-  void sleep();
+  // Saves where the reader is and sleeps. `empty`: the battery ran out; the
+  // sleep screen asks to charge it and no night wake is set.
+  void sleep(bool empty = false);
   void wake();
-  void draw_sleep();
+  void draw_sleep(bool empty);
+  // The battery is under `percent` and not charging (false when unknown).
+  bool battery_below(int percent);
   void save_progress();
   void show(Screen s);  // switches screen with a full refresh
   void draw();
@@ -288,6 +296,7 @@ class App {
   Dictionaries::Result lookup_result_;
   static constexpr uint32_t kDefinitionBytes = 4096;  // as much of a definition as is shown
   char* definition_;                                  // the definition shown, allocated once
+  bool safe_fonts_;                                   // started after a crash: Literata until a typeface is chosen
   Rect word_overlay_;                                 // where the panel or bar was drawn
   int definition_scroll_ = 0;                         // first line shown
   int definition_lines_ = 0;                          // lines it takes, as last drawn

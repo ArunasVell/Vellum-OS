@@ -252,15 +252,15 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint :
-         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery, t.hint_light,
-          t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead, t.hint_pick_line, t.hint_pick_word}) {
+    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead,
+                             t.hint_battery, t.hint_light, t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead,
+                             t.hint_pick_line, t.hint_pick_word, t.charge_hint}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
     }
     // Software update lines on the Add books screen.
-    for (const char* line : {t.updating, t.update_done, t.update_not_vellum, t.update_broken}) {
+    for (const char* line : {t.updating, t.update_done, t.update_not_vellum, t.update_broken, t.battery_empty}) {
       const int w = text_width_px(fonts::literata_20, line);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, line);
       CHECK(w <= kH - 2 * 28);
@@ -1611,6 +1611,161 @@ void test_app_device_check() {
   delete app;
 }
 
+void test_app_device_check_memory() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  Board board{"test", panel, input, power, nullptr, nullptr, nullptr, Rotation::R90, buf.data()};
+  Framebuffer view(buf.data(), kW, kH);
+  view.set_rotation(Rotation::R90);
+  // Ink in the row under Wi-Fi, where free memory goes.
+  auto memory_row_inked = [&] {
+    for (int y = 708; y < 732; ++y)
+      for (int x = 28; x < kH - 28; ++x)
+        if (view.pixel(x, y) == Color::Black) return true;
+    return false;
+  };
+  auto open_check = [&](App& app) {
+    app.start();
+    for (int i = 0; i < 5; ++i) press(app, Key::Next);  // Settings
+    press(app, Key::Power);
+    for (int i = 0; i < 8; ++i) press(app, Key::Next);  // Device check
+    press(app, Key::Power);
+  };
+  auto* app = new App(board);
+  open_check(*app);
+  CHECK(!memory_row_inked());  // the board does not tell: no row
+  delete app;
+
+  static int asked = 0;
+  board.memory = [](MemoryInfo& m) {
+    ++asked;
+    m.internal_free = 150 * 1024;
+    m.external_free = 7 * 1024 * 1024 + 300 * 1024;  // 7.3 MB
+  };
+  app = new App(board);
+  open_check(*app);
+  CHECK(asked > 0 && memory_row_inked());
+  delete app;
+}
+
+// A battery the test sets, and a last run that may have ended in a crash.
+class TestPower : public Power {
+ public:
+  int battery_percent() override { return level; }
+  bool charging() override { return plugged; }
+  void sleep() override { ++sleeps; }
+  void set_wake_timer(uint32_t seconds) override { wake_after = seconds; }
+  bool woke_by_timer() override { return timer; }
+  bool after_crash() override { return crashed; }
+  int level = 50;
+  bool plugged = false;
+  int sleeps = 0;
+  uint32_t wake_after = 7;
+  bool timer = false;
+  bool crashed = false;
+};
+
+void test_app_empty_battery() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  TestPower power;
+  TestClock clock;
+  FakeUpdater updater;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/update.txt");
+  StdioStorage card("test-card");
+  card.write("vellum/state.txt", "reader\n", 7);
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data()};
+  board.updater = &updater;
+
+  // Woken with an empty battery: straight back to sleep, asking for a charge.
+  power.level = 2;
+  auto* app = new App(board);
+  app->start();
+  CHECK(power.sleeps == 1);
+  CHECK(power.wake_after == 0);                                 // no radio at night on an empty battery
+  CHECK(panel.full == 1);                                       // the sleep screen
+  CHECK(read_all("test-card/vellum/state.txt") == "reader\n");  // once charged, back into the book
+  press(*app, Key::Power);                                      // still empty: sleeps again
+  CHECK(power.sleeps == 2);
+  power.plugged = true;  // charging: it wakes
+  press(*app, Key::Power);
+  CHECK(power.sleeps == 2);
+  delete app;
+
+  // Running down while in use: the next press sleeps.
+  power.plugged = false;
+  power.level = 5;
+  app = new App(board);
+  app->start();
+  press(*app, Key::Next);
+  CHECK(power.sleeps == 2);
+  power.level = 1;
+  press(*app, Key::Next);
+  CHECK(power.sleeps == 3 && power.wake_after == 0);
+  delete app;
+
+  // Woken at night with little charge: no update check, back to sleep.
+  power.level = 15;
+  power.timer = true;
+  app = new App(board);
+  app->start();
+  CHECK(updater.checks == 0 && power.sleeps == 4);
+  delete app;
+  power.level = 60;
+  app = new App(board);
+  app->start();
+  CHECK(updater.checks == 1 && updater.installs == 1);  // enough charge: it looks, and installs
+  delete app;
+  std::remove("test-card/vellum/update.txt");
+  std::remove("test-card/vellum/state.txt");
+}
+
+void test_app_after_crash() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  TestPower power;
+  StdioStorage card("test-card");
+  const char* saved = "menu_font=Atkinson Hyperlegible Next\n";
+  card.write("vellum/settings.txt", saved, static_cast<uint32_t>(std::strlen(saved)));
+  card.write("vellum/state.txt", "reader\n", 7);
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+
+  // A normal start: the chosen font, and back into the book.
+  auto* app = new App(board);
+  app->start();
+  CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
+  app->handle(key_event(InputEvent::Type::KeyDown, Key::Power));
+  app->timeout();  // held: sleep, from the book
+  CHECK(read_all("test-card/vellum/state.txt") == "reader\n");
+  delete app;
+
+  // After a crash: home, with Literata; the settings stay as they were.
+  power.crashed = true;
+  app = new App(board);
+  app->start();
+  CHECK(ui::menu_fonts().label == &fonts::literata_16);
+  CHECK(read_all("test-card/vellum/settings.txt") == saved);
+  app->handle(key_event(InputEvent::Type::KeyDown, Key::Power));
+  app->timeout();
+  CHECK(read_all("test-card/vellum/state.txt") == "home\n");  // slept from home, not the book
+  press(*app, Key::Power);                                    // wake
+  // Choosing a menu font again uses it at once.
+  press(*app, Key::Prev);  // Settings, the last link
+  press(*app, Key::Power);
+  press(*app, Key::Next);  // Menu font: the next after Atkinson
+  press(*app, Key::Power);
+  CHECK(std::string(ui::menu_fonts().label->family) == "EB Garamond");
+  delete app;
+  std::remove("test-card/vellum/settings.txt");
+  std::remove("test-card/vellum/state.txt");
+  ui::set_menu_fonts(literata_menu());
+}
+
 // Two readers on one desk: packets go into the other's queue, and every
 // `drop_every`-th one is lost on the way.
 struct DeskRadio {
@@ -2578,6 +2733,9 @@ int main() {
   test_app_fonts();
   test_app_updates_screen();
   test_app_night_update();
+  test_app_device_check_memory();
+  test_app_empty_battery();
+  test_app_after_crash();
   test_peer_transfer();
   test_app_send_book();
   test_reader_crosses_chapters();

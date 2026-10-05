@@ -85,6 +85,11 @@ class Power {
   virtual void set_wake_timer(uint32_t seconds) { (void)seconds; }
   // True when this start is that timer waking the device, not a person.
   virtual bool woke_by_timer() { return false; }
+  // True when the last run ended in a crash (a panic or a watchdog reset),
+  // not in sleep or restart(): the app then starts on the home screen with
+  // the built-in typeface, so a broken book or font cannot crash it again
+  // and again.
+  virtual bool after_crash() { return false; }
 };
 
 class Frontlight {
@@ -253,6 +258,12 @@ class Peers {
   virtual bool receive(PeerPacket& out) = 0;
 };
 
+// Free memory, for the device check.
+struct MemoryInfo {
+  uint32_t internal_free = 0;  // bytes of the chip's own RAM
+  uint32_t external_free = 0;  // bytes of external RAM (PSRAM), 0 when none
+};
+
 struct Board {
   const char* name;
   DisplayPanel& display;
@@ -267,6 +278,8 @@ struct Board {
   Peers* peers = nullptr;        // nullptr when it cannot reach other readers
   const char* version = "dev";   // the software version running
   Updater* updater = nullptr;    // nullptr when the device cannot update itself
+  // Fills in the free memory now; nullptr when the board does not tell.
+  void (*memory)(MemoryInfo& out) = nullptr;
 };
 
 }  // namespace vellum

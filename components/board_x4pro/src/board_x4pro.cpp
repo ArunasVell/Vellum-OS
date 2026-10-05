@@ -1,6 +1,7 @@
 #include "board_x4pro.h"
 
 #include <atomic>
+#include <cstdint>
 
 #include "bm8563.h"
 #include "cw2017.h"
@@ -14,14 +15,17 @@
 #include "esp_log.h"
 #include "esp_now_peers.h"
 #include "esp_ota_ops.h"
+#include "esp_pm.h"
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/task.h"
 #include "gt911.h"
 #include "ota_updater.h"
 #include "sd_card.h"
+#include "sdkconfig.h"
 #include "vellum/stdio_storage.h"
 #include "wifi_transfer.h"
 
@@ -29,6 +33,72 @@ namespace {
 
 constexpr const char* kTag = "x4pro";
 constexpr int kDebounceMs = 10;
+
+// What the boot summary reports, gathered while the board starts.
+struct BootInfo {
+  const char* controller = "?";
+  bool card = false;
+};
+BootInfo g_boot;
+
+const char* reset_name(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_POWERON:
+      return "power on";
+    case ESP_RST_DEEPSLEEP:
+      return "deep sleep";
+    case ESP_RST_SW:
+      return "restart";
+    case ESP_RST_PANIC:
+      return "crash";
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+      return "watchdog";
+    case ESP_RST_BROWNOUT:
+      return "brownout (battery)";
+    default:
+      return "other";
+  }
+}
+
+// A crash or a hang the watchdog caught ended the last run.
+bool ended_in_crash(esp_reset_reason_t r) {
+  return r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT || r == ESP_RST_WDT;
+}
+
+void memory_info(vellum::MemoryInfo& out) {
+  out.internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  out.external_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+}
+
+// One line once the first screen is up, and warnings when internal RAM or
+// the app's stack run low later (checked between events).
+void log_memory(bool first) {
+  constexpr size_t kLowInternal = 24 * 1024;  // Wi-Fi needs more than this to start
+  constexpr size_t kLowStack = 2 * 1024;
+  static bool warned_heap = false;
+  static size_t warned_stack = SIZE_MAX;
+  const size_t internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  const size_t stack = uxTaskGetStackHighWaterMark(nullptr);  // bytes, the least ever free
+  if (first) {
+    ESP_LOGI(kTag, "boot: Vellum %s, panel %s, card %s, start: %s, first screen at %d ms",
+             esp_app_get_description()->version, g_boot.controller, g_boot.card ? "mounted" : "none",
+             reset_name(esp_reset_reason()), static_cast<int>(esp_timer_get_time() / 1000));
+    ESP_LOGI(kTag, "boot: free internal %u KB (largest block %u KB), PSRAM %u KB, app stack %u B left",
+             static_cast<unsigned>(internal >> 10),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) >> 10),
+             static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) >> 10), static_cast<unsigned>(stack));
+  }
+  if (internal < kLowInternal && !warned_heap) {
+    ESP_LOGW(kTag, "internal RAM low: %u KB free", static_cast<unsigned>(internal >> 10));
+  }
+  warned_heap = internal < kLowInternal;
+  if (stack < kLowStack && stack < warned_stack) {
+    ESP_LOGW(kTag, "app stack nearly full: %u B were left at the deepest", static_cast<unsigned>(stack));
+    warned_stack = stack;
+  }
+}
 
 // Detects which controller this unit's panel has, then drives it over SPI.
 class Display : public vellum::DisplayPanel {
@@ -51,6 +121,7 @@ class Display : public vellum::DisplayPanel {
     ESP_ERROR_CHECK(bus_.init(pins, controller_->spi_hz()) ? ESP_OK : ESP_FAIL);
     controller_->begin(bus_);
     ESP_LOGI(kTag, "display controller %s", controller_->name());
+    g_boot.controller = controller_->name();
   }
 
   int width() const override { return x4pro::kPanelWidth; }
@@ -73,9 +144,14 @@ class Display : public vellum::DisplayPanel {
 // debounces buttons and reads the touch controller. While a finger or the
 // Home pad is down the touch controller is also polled, so a lost interrupt
 // never leaves a press stuck.
+//
+// The CPU runs at full speed while the app works on an event and drops to
+// the lowest speed (power management, see init_power_management) while it
+// waits here for the next one.
 class Input : public vellum::InputSource {
  public:
   void init() {
+    if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "app", &busy_) == ESP_OK) esp_pm_lock_acquire(busy_);
     queue_ = xQueueCreate(16, sizeof(uint32_t));
     gpio_config_t cfg = {};
     for (const Pin& p : kPins) cfg.pin_bit_mask |= 1ULL << p.gpio;
@@ -101,6 +177,11 @@ class Input : public vellum::InputSource {
     ESP_ERROR_CHECK(gpio_isr_handler_add(irq, on_edge, reinterpret_cast<void*>(static_cast<uintptr_t>(kTouchSource))));
   }
 
+  // Before deep sleep: the touch controller to its lowest power.
+  void sleep_touch() {
+    if (have_touch_) touch_.sleep();
+  }
+
   // Wakes the waiting task with an InputEvent::Type::Transfer. Safe from any task.
   static void post_transfer() {
     const uint32_t i = kTransferSource;
@@ -117,10 +198,15 @@ class Input : public vellum::InputSource {
   uint32_t now_ms() override { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
+    log_memory(!summary_logged_);
+    summary_logged_ = true;
     if (pop(out)) return true;
     const bool held = touching_ || home_;
     uint32_t i;
-    if (xQueueReceive(queue_, &i, pdMS_TO_TICKS(held ? kPollMs : timeout_ms)) != pdTRUE) {
+    if (busy_ != nullptr) esp_pm_lock_release(busy_);
+    const BaseType_t got = xQueueReceive(queue_, &i, pdMS_TO_TICKS(held ? kPollMs : timeout_ms));
+    if (busy_ != nullptr) esp_pm_lock_acquire(busy_);
+    if (got != pdTRUE) {
       if (!held) return false;
       i = kTouchSource;
     }
@@ -221,6 +307,8 @@ class Input : public vellum::InputSource {
   }
 
   static inline QueueHandle_t queue_ = nullptr;
+  esp_pm_lock_handle_t busy_ = nullptr;  // held while the app works
+  bool summary_logged_ = false;
   bool pressed_[kCount] = {};
   Gt911 touch_;
   bool have_touch_ = false;
@@ -233,6 +321,7 @@ class Input : public vellum::InputSource {
   int count_ = 0;
 };
 
+Input* g_input = nullptr;  // for enter_deep_sleep
 void enter_deep_sleep(uint32_t wake_after_s);
 
 // Charge level from the CW2017 gauge; charging state from the charger's status pin.
@@ -258,6 +347,7 @@ class Power : public vellum::Power {
   void restart() override { esp_restart(); }
   void set_wake_timer(uint32_t seconds) override { wake_after_s_ = seconds; }
   bool woke_by_timer() override { return woke_by_timer_; }
+  bool after_crash() override { return after_crash_; }
 
  private:
   static constexpr int64_t kCacheUs = 60LL * 1000 * 1000;
@@ -267,6 +357,7 @@ class Power : public vellum::Power {
   uint32_t wake_after_s_ = 0;
   // Read once at start: later light sleeps would change the answer.
   const bool woke_by_timer_ = (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_TIMER)) != 0;
+  const bool after_crash_ = ended_in_crash(esp_reset_reason());
 };
 
 // Two LEDC channels mixed for brightness and colour temperature.
@@ -324,6 +415,7 @@ void enter_deep_sleep(uint32_t wake_after_s) {
 
   // Everything off and held off while asleep: frontlight, touch, SD card.
   // The display controller already powered down after its last refresh.
+  if (g_input != nullptr) g_input->sleep_touch();
   for (int pin : {x4pro::kLightCool, x4pro::kLightWarm}) {
     const auto g = static_cast<gpio_num_t>(pin);
     gpio_set_direction(g, GPIO_MODE_OUTPUT);
@@ -371,6 +463,21 @@ void init_power_rails() {
   ESP_ERROR_CHECK(gpio_config(&in));
 }
 
+// Battery while awake: dynamic frequency scaling between 240 MHz (while the
+// app or the radio works: they hold power management locks) and 80 MHz. 80,
+// not 40: below it the APB clock slows, and with it the front light's PWM.
+// Automatic light sleep would save more, but the buttons, the touch
+// interrupt and the front light must first be set up to work through it
+// (docs/checkup.md).
+void init_power_management() {
+  esp_pm_config_t pm = {};
+  pm.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
+  pm.min_freq_mhz = 80;
+  pm.light_sleep_enable = false;
+  const esp_err_t err = esp_pm_configure(&pm);
+  if (err != ESP_OK) ESP_LOGW(kTag, "power management not set: %s", esp_err_to_name(err));
+}
+
 // Shared by the touch controller, the fuel gauge and the clock.
 i2c_master_bus_handle_t init_i2c() {
   i2c_master_bus_config_t cfg = {};
@@ -413,6 +520,7 @@ vellum::Board& board_x4pro_init() {
   static Bm8563 clock;
 
   init_power_rails();
+  init_power_management();
   ESP_ERROR_CHECK(gpio_install_isr_service(0));  // buttons, touch and display BUSY
   input.init();
   light.init();
@@ -420,6 +528,7 @@ vellum::Board& board_x4pro_init() {
   power.init(i2c);
   if (!clock.attach(i2c, x4pro::kI2cHz)) ESP_LOGW(kTag, "clock not added");
   input.init_touch(i2c);
+  g_input = &input;
   display.init();
 
   // Internal, DMA-capable RAM so the panel driver can stream it over SPI.
@@ -430,6 +539,13 @@ vellum::Board& board_x4pro_init() {
   // Portrait reading orientation; the exact rotation is to be confirmed on hardware.
   static vellum::StdioStorage card(kSdMountPoint);
   const bool have_card = mount_sd_card();
+  g_boot.card = have_card;
+  if (ended_in_crash(esp_reset_reason())) {
+    ESP_LOGW(kTag,
+             "the last run crashed (%s): starting at home with the built-in font; "
+             "`idf.py coredump-info` shows where",
+             reset_name(esp_reset_reason()));
+  }
 
   // Wi-Fi stays off until "Add books" starts it.
   static WifiTransfer transfer(kSdMountPoint, Input::post_transfer, &clock);
@@ -439,6 +555,7 @@ vellum::Board& board_x4pro_init() {
       "XTEINK X4 Pro",       display, input,     power, &light, &clock, have_card ? &card : nullptr,
       vellum::Rotation::R90, fb,      &transfer, &peers};
   board.version = esp_app_get_description()->version;
+  board.memory = memory_info;
   static OtaUpdater updater;
   board.updater = &updater;
   keep_this_version_once_settled();

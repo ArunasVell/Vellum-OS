@@ -489,7 +489,9 @@ bool WifiTransfer::start(vellum::TransferInfo& info) {
   Impl& m = *impl_;
   stop();
   if (m.buffer == nullptr) m.buffer = static_cast<char*>(heap_caps_malloc(kChunk, MALLOC_CAP_DEFAULT));
-  if (m.awake == nullptr) esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "transfer", &m.awake);
+  // Full speed while it runs: the app waits for input meanwhile (at the
+  // lowest speed) and the server's tasks do the work.
+  if (m.awake == nullptr) esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "transfer", &m.awake);
   if (m.buffer == nullptr) return false;
   xSemaphoreTake(m.lock, portMAX_DELAY);
   m.st = {};

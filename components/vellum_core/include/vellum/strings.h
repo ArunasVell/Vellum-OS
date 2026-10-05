@@ -38,6 +38,8 @@ struct Strings {
   const char* sleep_names[4];  // 5, 10, 30 minutes, never
   const char* sleeping;        // uppercase label on the sleep screen
   const char* wake_hint;
+  const char* battery_empty;  // the sleep screen when the battery runs out
+  const char* charge_hint;
   const char* text_size;
   const char* size_names[4];  // small .. extra large
   const char* line_spacing;
@@ -112,6 +114,7 @@ struct Strings {
   const char* screen;
   const char* memory_card;
   const char* wifi;
+  const char* free_memory;  // device check row: free RAM, internal · external
   const char* version;
   const char* present;
   const char* missing;

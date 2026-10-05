@@ -39,6 +39,11 @@ constexpr int kSleepCoverTop = 120;
 constexpr int kSleepCoverSide = 90;
 
 constexpr uint32_t kHoldMs = 1000;  // holding Power this long sleeps
+// Battery levels, unless charging: at kEmptyPercent the reader sleeps with a
+// "charge it" screen before the voltage sags too low for a refresh; under
+// kNightUpdatePercent the night's update check is skipped.
+constexpr int kEmptyPercent = 2;
+constexpr int kNightUpdatePercent = 20;
 constexpr const char* kStatePath = "vellum/state.txt";
 
 // Contents geometry.
@@ -80,8 +85,8 @@ constexpr int kKeysTop = 166;
 constexpr int kKeyHeight = 56;
 constexpr int kTouchLabelBase = 258;
 constexpr int kTouchTop = 272;
-constexpr int kTouchHeight = 130;
-constexpr int kAboutLabelBase = 444;
+constexpr int kTouchHeight = 106;
+constexpr int kAboutLabelBase = 420;
 constexpr int kAboutRowHeight = 34;
 constexpr int kCorner = 14;  // marks in the screen's corners
 
@@ -352,7 +357,8 @@ App::App(Board& board)
       fb_(board.framebuffer, board.display.width(), board.display.height()),
       queue_(board.display, fb_),
       library_(),
-      definition_(new(std::nothrow) char[kDefinitionBytes]) {
+      definition_(new(std::nothrow) char[kDefinitionBytes]),
+      safe_fonts_(board.power.after_crash()) {
   large_cover_.px = new (std::nothrow) uint8_t[covers::kLargeW * covers::kLargeH];
   small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   fb_.set_rotation(board.rotation);
@@ -360,7 +366,8 @@ App::App(Board& board)
     load_settings(*board_.storage, settings_);
     char state[16];
     const int32_t n = textfile::read(*board_.storage, kStatePath, state, sizeof(state) - 1);
-    resume_reader_ = n >= 6 && std::strncmp(state, "reader", 6) == 0;
+    // After a crash, home rather than the book: it may be what crashed.
+    resume_reader_ = n >= 6 && std::strncmp(state, "reader", 6) == 0 && !safe_fonts_;
     battery_.load(*board_.storage);
     stats_.load(*board_.storage);
     load_update_state(*board_.storage, update_state_);
@@ -645,6 +652,7 @@ void App::settings_activate() {
   if (row == Row::MenuFont || row == Row::BookFont) {
     // The next typeface in the list, Literata after the last.
     char* name = row == Row::MenuFont ? settings_.menu_font : settings_.book_font;
+    safe_fonts_ = false;
     const int next = (std::max(fonts_.find(name), 0) + 1) % fonts_.count();
     std::snprintf(name, sizeof(settings_.menu_font), "%s", fonts_.name(next));
   } else {
@@ -655,6 +663,12 @@ void App::settings_activate() {
 }
 
 void App::apply_fonts() {
+  if (safe_fonts_) {
+    // Started after a crash: Literata, built in, until a typeface is chosen again.
+    ui::set_menu_fonts(literata_menu());
+    book_fonts_ = literata_book(text_px(settings_.text_size));
+    return;
+  }
   MenuFonts menu = literata_menu();
   const int menu_family = fonts_.find(settings_.menu_font);
   if (menu_family < 0 || !fonts_.menu(menu_family, menu)) menu = literata_menu();
@@ -1061,7 +1075,8 @@ void App::night_update() {
     // The version installed a moment ago started: back to sleep.
     update_state_.night_restart = false;
     if (board_.storage != nullptr) save_update_state(*board_.storage, update_state_);
-  } else if (settings_.auto_update != AutoUpdate::Off && board_.updater != nullptr) {
+  } else if (settings_.auto_update != AutoUpdate::Off && board_.updater != nullptr &&
+             !battery_below(kNightUpdatePercent)) {
     char latest[32] = "";
     const UpdateResult r = board_.updater->check(board_.version, latest, sizeof(latest));
     record_update_check(r, latest);
@@ -1928,6 +1943,7 @@ void App::draw() {
 
 void App::start() {
   if (board_.power.woke_by_timer() || update_state_.night_restart) return night_update();
+  if (battery_below(kEmptyPercent + 1)) return sleep(true);
   apply_light();
   record_battery(BatterySample::Kind::Wake);
   save_battery();
@@ -1979,14 +1995,20 @@ void App::timeout() {
   if (sleep_after_ms(settings_.sleep_after) != 0 && screen_ != Screen::Transfer) sleep();
 }
 
-void App::sleep() {
+bool App::battery_below(int percent) {
+  const int level = board_.power.battery_percent();
+  return level >= 0 && level < percent && !board_.power.charging();
+}
+
+void App::sleep(bool empty) {
   if (screen_ == Screen::Transfer) close_transfer();  // radio off first
   word_mode_ = WordMode::Off;
   if (screen_ == Screen::Send) {
     close_send();
     screen_ = Screen::Reader;  // wake to the book
   }
-  const bool in_book = screen_ == Screen::Reader || screen_ == Screen::Contents;
+  // In the book, or about to reopen it (the battery ran out at start).
+  const bool in_book = screen_ == Screen::Reader || screen_ == Screen::Contents || resume_reader_;
   if (in_book) save_progress();
   stop_reading();
   if (board_.storage != nullptr) {
@@ -1995,10 +2017,14 @@ void App::sleep() {
   }
   record_battery(BatterySample::Kind::Sleep);
   save_battery();
-  schedule_night_check();
+  if (empty) {
+    board_.power.set_wake_timer(0);  // no radio at night on an empty battery
+  } else {
+    schedule_night_check();
+  }
   before_sleep_ = screen_;
   asleep_ = true;
-  draw_sleep();
+  draw_sleep(empty);
   queue_.submit_full();
   if (board_.frontlight != nullptr) board_.frontlight->set(0, 0);
   board_.power.sleep();  // a deep-sleeping board restarts from here on waking
@@ -2006,12 +2032,13 @@ void App::sleep() {
 
 void App::wake() {
   asleep_ = false;
+  if (battery_below(kEmptyPercent + 1)) return sleep(true);
   apply_light();
   record_battery(BatterySample::Kind::Wake);
   show(before_sleep_);
 }
 
-void App::draw_sleep() {
+void App::draw_sleep(bool empty) {
   hit_count_ = 0;
   const int w = fb_.width();
   const int h = fb_.height();
@@ -2025,8 +2052,13 @@ void App::draw_sleep() {
     ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author,
                    cover_of(library_.current(), true));
   }
-  ui::draw_centered(fb_, ui::label_font(), h - 96, t.sleeping);
-  ui::draw_hint(fb_, t.wake_hint);
+  if (empty) {
+    ui::draw_centered(fb_, ui::text_font(), h - 96, t.battery_empty);
+    ui::draw_hint(fb_, t.charge_hint);
+  } else {
+    ui::draw_centered(fb_, ui::label_font(), h - 96, t.sleeping);
+    ui::draw_hint(fb_, t.wake_hint);
+  }
 }
 
 // ---- Device check ------------------------------------------------------------
@@ -2176,7 +2208,17 @@ void App::draw_check() {
   } else {
     std::snprintf(card, sizeof(card), "%s", t.missing);
   }
-  const char* names[] = {t.device, t.version, t.screen, t.battery, t.clock, t.memory_card, t.front_light, t.wifi};
+  // Free memory, when the board tells: its own RAM, then external RAM.
+  char memory[40] = "";
+  if (board_.memory != nullptr) {
+    MemoryInfo m;
+    board_.memory(m);
+    const unsigned tenths = static_cast<unsigned>((uint64_t{m.external_free} * 10 + (1u << 19)) >> 20);
+    std::snprintf(memory, sizeof(memory), "%u KB \xC2\xB7 %u.%u MB", static_cast<unsigned>(m.internal_free >> 10),
+                  tenths / 10, tenths % 10);
+  }
+  const char* names[] = {t.device,      t.version,     t.screen, t.battery,    t.clock,
+                         t.memory_card, t.front_light, t.wifi,   t.free_memory};
   const char* values[] = {board_.name,
                           board_.version,
                           screen,
@@ -2184,8 +2226,10 @@ void App::draw_check() {
                           clock,
                           card,
                           board_.frontlight != nullptr ? t.present : t.missing,
-                          board_.transfer != nullptr ? t.present : t.missing};
-  for (int i = 0; i < 8; ++i) {
+                          board_.transfer != nullptr ? t.present : t.missing,
+                          memory};
+  const int rows = board_.memory != nullptr ? 9 : 8;
+  for (int i = 0; i < rows; ++i) {
     const int y = kAboutLabelBase + 10 + i * kAboutRowHeight;
     if (i > 0) dotted_rule(fb_, y);
     draw_text(fb_, ui::label_font(), kSide * 64, y + 25, names[i]);
@@ -2198,7 +2242,13 @@ void App::draw_check() {
 // ---- Input -------------------------------------------------------------------
 
 bool App::handle(const InputEvent& ev) {
-  if (!asleep_ && ev.type != InputEvent::Type::Quit) sample_battery();
+  if (!asleep_ && ev.type != InputEvent::Type::Quit) {
+    sample_battery();
+    if (battery_below(kEmptyPercent + 1)) {
+      sleep(true);
+      return true;
+    }
+  }
   if (asleep_) {
     if (ev.type == InputEvent::Type::Quit) return false;
     if (ev.type == InputEvent::Type::KeyDown) wake();  // its release is ignored
