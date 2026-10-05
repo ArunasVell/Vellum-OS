@@ -162,7 +162,7 @@ WebPower power;
 WebPeers peers;
 WebClock clock;
 WebFrontlight light;
-// The page writes dropped EPUBs into /card/books in Emscripten's in-memory file system.
+// The page writes dropped books into /card/books in Emscripten's in-memory file system.
 vellum::StdioStorage card("/card");
 std::vector<uint8_t> framebuffer(vellum::Framebuffer::bytes_for(kPanelW, kPanelH));
 vellum::Board board{"Browser simulator", display,   input, power, &light, &clock, &card, vellum::Rotation::R90,
