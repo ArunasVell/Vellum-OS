@@ -258,9 +258,10 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint : {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead,
-                             t.hint_battery, t.hint_light, t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead,
-                             t.hint_pick_line, t.hint_pick_word, t.store_lead, t.hint_store_busy, t.charge_hint}) {
+    for (const char* hint :
+         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery, t.hint_light,
+          t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead, t.hint_pick_line, t.hint_pick_word, t.store_lead,
+          t.hint_store_busy, t.charge_hint, t.hint_picture}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -3837,7 +3838,9 @@ void test_app_library() {
   // Reading to the last page marks a book finished.
   open_library();
   for (int i = 0; i < 7; ++i) press(*app, Key::Prev);
-  press(*app, Key::Power);  // Sort: back to Recent; the sample book first
+  press(*app, Key::Power);  // Sort: Added
+  CHECK(file("settings.txt").find("library_sort=3") != std::string::npos);
+  press(*app, Key::Power);  // back to Recent; the sample book first
   for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   const auto sample_line = [&]() {
@@ -3922,6 +3925,400 @@ void test_app_store_search() {
   std::filesystem::remove_all("test-card-store-search");
 }
 
+// ---- Library views: folders, recently added, moving finished books, the
+// cover grid, the folder browser and pictures.
+
+void write_file(StdioStorage& card, const char* path, const std::string& data) {
+  CHECK(card.write(path, data.data(), static_cast<uint32_t>(data.size())));
+}
+
+// A Windows bitmap of `bits` 1, 8 or 24 a pixel, rows stored bottom to top
+// unless top_down: black on the top half, white below.
+std::string make_bmp(int w, int h, int bits, bool top_down) {
+  const int stride = ((w * bits + 31) / 32) * 4;
+  const int colours = bits <= 8 ? 1 << bits : 0;
+  const int offset = 14 + 40 + colours * 4;
+  std::string out(static_cast<size_t>(offset + stride * h), '\0');
+  const auto put = [&](int at, uint32_t v, int n) {
+    for (int i = 0; i < n; ++i) out[at + i] = static_cast<char>(v >> (8 * i));
+  };
+  out[0] = 'B';
+  out[1] = 'M';
+  put(2, static_cast<uint32_t>(out.size()), 4);
+  put(10, static_cast<uint32_t>(offset), 4);
+  put(14, 40, 4);
+  put(18, static_cast<uint32_t>(w), 4);
+  put(22, static_cast<uint32_t>(top_down ? -h : h), 4);
+  put(26, 1, 2);
+  put(28, static_cast<uint32_t>(bits), 2);
+  put(46, static_cast<uint32_t>(colours), 4);
+  for (int c = 0; c < colours; ++c) {
+    const uint32_t v = bits == 1 ? (c ? 255 : 0) : static_cast<uint32_t>(c);
+    put(54 + c * 4, v | v << 8 | v << 16, 4);
+  }
+  for (int i = 0; i < h; ++i) {
+    const int y = top_down ? i : h - 1 - i;
+    const uint8_t v = y < h / 2 ? 0 : 255;
+    char* row = out.data() + offset + i * stride;
+    for (int x = 0; x < w; ++x) {
+      if (bits == 24) {
+        row[x * 3] = row[x * 3 + 1] = row[x * 3 + 2] = static_cast<char>(v);
+      } else if (bits == 8) {
+        row[x] = static_cast<char>(v);
+      } else if (v != 0) {
+        row[x / 8] = static_cast<char>(row[x / 8] | (0x80 >> (x % 8)));
+      }
+    }
+  }
+  return out;
+}
+
+void test_library_folders() {
+  std::filesystem::remove_all("test-card-folders");
+  StdioStorage card("test-card-folders");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  for (const char* path :
+       {"books/a.epub", "books/X/b.epub", "books/X/Y/c.epub", "books/X/Y/Z/d.epub", "e.epub", "Root/f.epub",
+        "Root/F/g.epub", "Root/F/G/h.epub", "vellum/i.epub", "fonts/j.epub", ".hidden/k.epub", "books/.trash/l.epub"}) {
+    write_file(card, path, book);
+  }
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  // Two folders down from books/ and from the root; not deeper, not Vellum's own, not hidden.
+  for (const char* path :
+       {"books/a.epub", "books/X/b.epub", "books/X/Y/c.epub", "e.epub", "Root/f.epub", "Root/F/g.epub"}) {
+    CHECK(lib.find(path) >= 0);
+  }
+  for (const char* path : {"books/X/Y/Z/d.epub", "Root/F/G/h.epub", "vellum/i.epub", "fonts/j.epub", ".hidden/k.epub",
+                           "books/.trash/l.epub"}) {
+    CHECK(lib.find(path) < 0);
+  }
+  CHECK(lib.count() == 4 + 6);
+  CHECK(lib.folder_count() == 4);  // books/X, books/X/Y, Root, Root/F
+  CHECK(Library::folder_depth(".") == 0 && Library::folder_depth("books") == 0);
+  CHECK(Library::folder_depth("books/X/Y") == 2 && Library::folder_depth("Root/F") == 2);
+  CHECK(Library::folder_depth("Root/F/G") == 3 && Library::folder_depth("booksellers") == 1);
+  CHECK(Library::shown_folder(".") && Library::shown_folder("books/X/Y") && Library::shown_folder("Root"));
+  CHECK(!Library::shown_folder("books/X/Y/Z") && !Library::shown_folder("Vellum/covers") &&
+        !Library::shown_folder("Root/.git") && !Library::shown_folder("dictionaries"));
+
+  // At most kMaxFolders folders are read, however many there are.
+  for (int i = 0; i < 80; ++i) write_file(card, ("books/many/N" + std::to_string(i) + "/m.epub").c_str(), book);
+  Library many;
+  many.load(builtin_books(), &card, epub);
+  CHECK(many.folder_count() == Library::kMaxFolders - 2);
+  CHECK(many.count() > 4 + 6 && many.count() < 4 + 6 + 80);
+  std::filesystem::remove_all("test-card-folders");
+}
+
+void test_recently_added() {
+  std::filesystem::remove_all("test-card-added");
+  StdioStorage card("test-card-added");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  write_file(card, "books/b.epub", book);
+  write_file(card, "books/a.epub", book);
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  int order[Library::kMaxBooks];
+  CHECK(lib.sorted(LibrarySort::Added, order, Library::kMaxBooks) == 6);
+  // The card's books first, numbered as found; the samples after them, by title.
+  CHECK(lib.entry(order[0]).added == 2 && lib.entry(order[1]).added == 1);
+  CHECK(std::string(lib.entry(order[2]).title).starts_with("Alice") && lib.entry(order[5]).builtin != nullptr);
+  const uint32_t a_added = lib.entry(lib.find("books/a.epub")).added;
+
+  // A book that arrives later comes first; the others keep their numbers.
+  write_file(card, "books/c.epub", book);
+  Library again;
+  again.load(builtin_books(), &card, epub);
+  again.sorted(LibrarySort::Added, order, Library::kMaxBooks);
+  CHECK(std::string(again.entry(order[0]).path) == "books/c.epub" && again.entry(order[0]).added == 3);
+  CHECK(again.entry(again.find("books/a.epub")).added == a_added);
+
+  // A cache from before the numbers (six fields) numbers its books once more.
+  std::string cache = read_all("test-card-added/vellum/library.txt");
+  std::string old;
+  for (size_t at = 0; at < cache.size();) {
+    const size_t end = cache.find('\n', at);
+    const std::string line = cache.substr(at, end - at);
+    old += line.substr(0, line.rfind('\t')) + "\n";
+    at = end + 1;
+  }
+  write_file(card, "vellum/library.txt", old);
+  Library older;
+  older.load(builtin_books(), &card, epub);
+  for (int i = 0; i < older.count(); ++i) CHECK((older.entry(i).builtin != nullptr) == (older.entry(i).added == 0));
+  CHECK(count_lines(read_all("test-card-added/vellum/library.txt")) == 3);
+  CHECK(read_all("test-card-added/vellum/library.txt").find("\t2\t3\n") != std::string::npos);
+
+  // In the app, Sort goes Recent, Title, Author, Added and round again.
+  Settings s;
+  s.library_sort = LibrarySort::Added;
+  CHECK(save_settings(card, s));
+  Settings loaded;
+  load_settings(card, loaded);
+  CHECK(loaded.library_sort == LibrarySort::Added);
+  std::filesystem::remove_all("test-card-added");
+}
+
+void test_pictures() {
+  std::filesystem::remove_all("test-card-pictures");
+  StdioStorage card("test-card-pictures");
+  CHECK(is_picture_file("a.JPG") && is_picture_file("b.jpeg") && is_picture_file("c.Png") && is_picture_file("d.bmp"));
+  CHECK(!is_picture_file("e.gif") && !is_picture_file("jpg") && !is_picture_file("f.epub"));
+  std::vector<uint8_t> px(covers::kLargeW * covers::kLargeH);
+  CoverImage img;
+  img.px = px.data();
+  // Bitmaps of each kind, either way up: fitted into the large thumbnail's box.
+  for (int bits : {1, 8, 24}) {
+    for (bool top_down : {false, true}) {
+      write_file(card, "pictures/p.bmp", make_bmp(600, 300, bits, top_down));
+      CHECK(covers::load_picture(card, "pictures/p.bmp", img));
+      CHECK(img.w == covers::kLargeW && img.h == 200);
+      if (!img.valid()) continue;
+      CHECK(band_mean(img, 0, img.h / 4) < 30);
+      CHECK(band_mean(img, img.h * 3 / 4, img.h) > 225);
+    }
+  }
+  // The sample books' covers as picture files (white top, black bottom):
+  // a JPEG read as it decodes, and a PNG.
+  StdioStorage data(VELLUM_TEST_DATA);
+  for (auto [name, file] :
+       {std::pair{"sample.epub", "pictures/c.jpg"}, std::pair{"sample-ncx.epub", "pictures/c.png"}}) {
+    Epub epub;
+    CHECK(epub.open(data, name));
+    const uint8_t* picture = nullptr;
+    const int32_t len = epub.read_cover(&picture);
+    CHECK(len > 0);
+    if (len <= 0) continue;
+    CHECK(card.write(file, picture, static_cast<uint32_t>(len)));
+    CHECK(covers::load_picture(card, file, img));
+    if (!img.valid()) continue;
+    CHECK(band_mean(img, 0, img.h / 5) > 220);
+    CHECK(band_mean(img, img.h * 9 / 10, img.h) < 40);
+  }
+  // Not pictures, or not whole.
+  write_file(card, "pictures/junk.jpg", std::string("\xFF\xD8\xFF\x00junk", 8));
+  CHECK(!covers::load_picture(card, "pictures/junk.jpg", img) && !img.valid());
+  write_file(card, "pictures/cut.bmp", make_bmp(600, 300, 24, false).substr(0, 4000));
+  CHECK(!covers::load_picture(card, "pictures/cut.bmp", img));
+  CHECK(!covers::load_picture(card, "pictures/missing.png", img));
+  std::filesystem::remove_all("test-card-pictures");
+}
+
+void test_app_move_finished() {
+  std::filesystem::remove_all("test-card-move");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-move");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  write_file(card, "books/sample.epub", book);
+  write_file(card, "vellum/settings.txt", "move_finished=1\n");
+  write_file(card, "vellum/progress.txt", "books/sample.epub\t0\t0\t0\t0\t1\n");  // the book read last
+  write_file(card, "vellum/bookmarks.txt", "books/sample.epub\t0\t0\t0\t5\tFirst words\n");
+  {
+    // Everything else that names the book by its path.
+    Shelves shelves;
+    shelves.add("Poezija");
+    shelves.set(0, "books/sample.epub", true);
+    CHECK(shelves.save(card));
+    Highlights highlights;
+    Highlight h;
+    std::snprintf(h.path, sizeof(h.path), "books/sample.epub");
+    std::snprintf(h.text, sizeof(h.text), "a passage");
+    CHECK(highlights.add(h) == 0 && highlights.save(card));
+    ReadingStats stats;
+    stats.start("books/sample.epub", 0);
+    stats.turn(30000, -1, true);
+    stats.stop(60000, -1);
+    CHECK(stats.save(card));
+  }
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  const auto file = [](const char* name) { return read_all((std::string("test-card-move/vellum/") + name).c_str()); };
+
+  // Read to the end: finished, but the file stays while the book is open.
+  press(*app, Key::Power);
+  for (int i = 0; i < 40; ++i) press(*app, Key::Next);
+  CHECK(file("progress.txt").find("books/sample.epub\t") != std::string::npos);
+  CHECK(std::filesystem::exists("test-card-move/books/sample.epub"));
+
+  // Leaving it for home moves it, and every record follows.
+  press(*app, Key::Home);
+  CHECK(!std::filesystem::exists("test-card-move/books/sample.epub"));
+  CHECK(std::filesystem::exists("test-card-move/books/Read/sample.epub"));
+  for (const char* name :
+       {"progress.txt", "bookmarks.txt", "highlights.txt", "shelves.txt", "stats.txt", "library.txt"}) {
+    const std::string text = file(name);
+    if (text.find("books/Read/sample.epub") == std::string::npos) std::printf("not moved in %s\n", name);
+    CHECK(text.find("books/Read/sample.epub") != std::string::npos);
+    CHECK(text.find("books/sample.epub") == std::string::npos);
+  }
+  CHECK(file("progress.txt").find("books/Read/sample.epub\t") != std::string::npos);
+  CHECK(file("progress.txt").find("\t1\n") != std::string::npos);  // still finished
+  char cover[64];
+  covers::path_for("books/Read/sample.epub", static_cast<uint32_t>(book.size()), cover, sizeof(cover));
+  CHECK(std::filesystem::exists(std::string("test-card-move/") + cover));
+
+  // It opens again from its new place.
+  const int full = panel.full;
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 1);
+  press(*app, Key::Home);
+  delete app;
+
+  // A name taken in Read/ gets a number.
+  write_file(card, "books/sample.epub", book);
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  const int again = lib.find("books/sample.epub");
+  CHECK(again >= 0 && lib.move_book(card, again, Library::kReadFolder));
+  CHECK(std::string(lib.entry(again).path) == "books/Read/sample (2).epub");
+  CHECK(std::filesystem::exists("test-card-move/books/Read/sample (2).epub"));
+  CHECK(!lib.move_book(card, 0, Library::kReadFolder));  // a sample has no file
+  std::filesystem::remove_all("test-card-move");
+}
+
+void test_app_cover_grid() {
+  std::filesystem::remove_all("test-card-grid");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer screen(buf.data(), kW, kH);
+  screen.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-grid");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  for (int i = 0; i < 8; ++i) write_file(card, ("books/copy" + std::to_string(i) + ".epub").c_str(), book);
+  write_file(card, "vellum/settings.txt", "library_view=1\nlibrary_sort=1\n");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  // The same library the app sees: Alice, Moby-Dick, Persuasion, eight copies, Father Brown.
+  Epub epub;
+  Library lib;
+  lib.load(builtin_books(), &card, epub);
+  CHECK(lib.count() == 12);
+  const auto opened = [&](int i) {
+    return read_all("test-card-grid/vellum/progress.txt").find(std::string(lib.entry(i).path) + "\t") !=
+           std::string::npos;
+  };
+  // Tiles are a third of the width between the margins, 160 px tall.
+  const auto tile = [](int top, int slot, int& x, int& y) {
+    x = 16 + slot % 3 * 149 + 74;
+    y = top + slot / 3 * 160 + 60;
+  };
+  int x, y;
+
+  // Home: nine covers, nothing read yet so in library order. Tapping the third opens it.
+  tile(112, 2, x, y);
+  tap(*app, x, y);
+  CHECK(opened(2));
+  press(*app, Key::Home);
+  // Now it comes first; the side buttons go through the covers: the third is Moby-Dick.
+  press(*app, Key::Next);
+  press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(opened(1));
+  press(*app, Key::Home);
+
+  // After the last cover, All books. The library pages nine covers at a time.
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(screen.pixel(90, 233) == Color::Black);        // the first cover is selected: inverted
+  CHECK(screen.pixel(90 + 149, 233) == Color::White);  // the next is not
+  press(*app, Key::Next);
+  CHECK(screen.pixel(90, 233) == Color::White && screen.pixel(90 + 149, 233) == Color::Black);
+  swipe(*app, 400, 500, 100, 510);  // the second page: the tenth book first
+  tile(230, 0, x, y);
+  tap(*app, x, y);
+  CHECK(opened(9));
+  press(*app, Key::Home);
+
+  // Holding a cover opens its shelves, as in the list.
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  tile(230, 4, x, y);
+  hold(*app, x, y);
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // Finished reading
+  CHECK(read_all("test-card-grid/vellum/progress.txt").find(std::string(lib.entry(4).path) + "\t0\t0\t0\t0\t0\t1\n") !=
+        std::string::npos);
+  delete app;
+  std::filesystem::remove_all("test-card-grid");
+}
+
+void test_app_folders_and_pictures() {
+  std::filesystem::remove_all("test-card-browse");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer screen(buf.data(), kW, kH);
+  screen.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-browse");
+  write_file(card, "books/X/b.epub", read_all(VELLUM_TEST_DATA "/sample.epub"));
+  write_file(card, "pictures/a.bmp", make_bmp(600, 300, 24, false));  // black top
+  write_file(card, "pictures/b.bmp", make_bmp(600, 300, 8, true));
+  write_file(card, "pictures/c.jpg", std::string("\xFF\xD8\xFF\x00junk", 8));  // cannot be shown
+  write_file(card, "pictures/readme.md", "not shown");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  // The selected row of the folder list is inverted; rows are 76 px from y = 160.
+  const auto row_selected = [&](int row) { return screen.pixel(455, 160 + row * 76 + 38) == Color::Black; };
+
+  // The library's Folders tab, after Finished: from the first book, Prev twice.
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);
+  press(*app, Key::Power);
+  CHECK(row_selected(0) && !row_selected(1));  // books, pictures
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // pictures: up, a.bmp, b.bmp, c.jpg
+  CHECK(row_selected(1));
+  CHECK(screen.pixel(455, 160 + 4 * 76 + 38) == Color::White);  // no row for readme.md
+
+  // A picture fills the width, in the middle; the side buttons step through them.
+  press(*app, Key::Power);
+  CHECK(screen.pixel(240, 300) == Color::Black && screen.pixel(240, 500) == Color::White);
+  CHECK(screen.pixel(240, 100) == Color::White);
+  press(*app, Key::Next);  // b.bmp, the same picture stored the other way up
+  CHECK(screen.pixel(240, 300) == Color::Black && screen.pixel(240, 500) == Color::White);
+  press(*app, Key::Next);  // c.jpg cannot be shown: a message instead
+  CHECK(screen.pixel(240, 300) == Color::White && screen.pixel(240, 500) == Color::White);
+  press(*app, Key::Next);  // round to a.bmp
+  CHECK(screen.pixel(240, 300) == Color::Black);
+  swipe(*app, 100, 400, 400, 410);  // back: c.jpg
+  CHECK(screen.pixel(240, 300) == Color::White);
+  tap(*app, 240, 400);  // the middle: back to the folder, on that picture
+  CHECK(row_selected(3));
+
+  // Home goes up a folder, onto the one left; at the top, back to the library.
+  press(*app, Key::Home);
+  CHECK(row_selected(1) && !row_selected(0));
+  press(*app, Key::Home);
+  press(*app, Key::Power);  // the Folders tab is still selected
+  CHECK(row_selected(0));
+
+  // A book in a folder opens from there.
+  press(*app, Key::Power);  // books: up, X
+  press(*app, Key::Power);  // X: up, b.epub
+  CHECK(row_selected(1));
+  const int full = panel.full;
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 1);
+  CHECK(read_all("test-card-browse/vellum/progress.txt").find("books/X/b.epub\t") != std::string::npos);
+  delete app;
+  std::filesystem::remove_all("test-card-browse");
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -4002,6 +4399,12 @@ int main() {
   test_library_sorting();
   test_shelves_store();
   test_app_library();
+  test_library_folders();
+  test_recently_added();
+  test_pictures();
+  test_app_move_finished();
+  test_app_cover_grid();
+  test_app_folders_and_pictures();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;
