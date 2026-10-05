@@ -42,7 +42,8 @@ ReadingStyle reading_style(const Settings& s, const BookFonts* fonts) {
           kWordSpace[static_cast<int>(s.word_spacing)],
           kMargins[static_cast<int>(s.margins)],
           s.justify,
-          s.hyphenate};
+          s.hyphenate,
+          f.generation};
 }
 
 PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const char* language, bool opening) {

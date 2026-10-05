@@ -626,7 +626,7 @@ void App::draw_settings() {
     dotted_rule(fb_, top);
     dotted_rule(fb_, bottom);
     const char* preview[] = {t.preview_text};
-    const ReadingStyle style = reading_style(settings_, &book_fonts_);
+    const ReadingStyle style = reading_style(settings_, &book_fonts());
     PageStyle page = page_style(style, fb_, t.preview_language, false);
     page.area = {style.margin, top + 10, w - 2 * style.margin, bottom - top - 14};
     typeset_page(page, preview, 1, {}, &fb_);
@@ -663,20 +663,26 @@ void App::settings_activate() {
 }
 
 void App::apply_fonts() {
+  book_fonts_ready_ = false;  // rendered when a page is first set (book_fonts())
   if (safe_fonts_) {
     // Started after a crash: Literata, built in, until a typeface is chosen again.
     ui::set_menu_fonts(literata_menu());
-    book_fonts_ = literata_book(text_px(settings_.text_size));
     return;
   }
   MenuFonts menu = literata_menu();
   const int menu_family = fonts_.find(settings_.menu_font);
   if (menu_family < 0 || !fonts_.menu(menu_family, menu)) menu = literata_menu();
   ui::set_menu_fonts(menu);
+}
+
+const BookFonts& App::book_fonts() {
+  if (book_fonts_ready_) return book_fonts_;
+  book_fonts_ready_ = true;
   const int px = text_px(settings_.text_size);
   book_fonts_ = literata_book(px);
-  const int book_family = fonts_.find(settings_.book_font);
+  const int book_family = safe_fonts_ ? -1 : fonts_.find(settings_.book_font);
   if (book_family >= 0 && !fonts_.book(book_family, px, book_fonts_)) book_fonts_ = literata_book(px);
+  return book_fonts_;
 }
 
 // ---- Adding books over Wi-Fi -------------------------------------------------
@@ -1321,7 +1327,7 @@ int App::page_bookmark() const {
 void App::jump_to(BookPos pos) {
   Document& doc = *reader_.document();
   const BookPos before = reader_.position();
-  const ReadingStyle style = reading_style(settings_, &book_fonts_);
+  const ReadingStyle style = reading_style(settings_, &book_fonts());
   if (!reader_.open(doc, reader_.id(), style, pos, fb_)) reader_.open(doc, reader_.id(), style, before, fb_);
   BookState& state = library_.state(reading_);
   state.position = reader_.position();
@@ -1843,7 +1849,7 @@ void App::open_book(int index) {
     doc = &epub_;
   }
   BookState& state = library_.state(index);
-  if (!reader_.open(*doc, static_cast<uint32_t>(index) + 1, reading_style(settings_, &book_fonts_), state.position,
+  if (!reader_.open(*doc, static_cast<uint32_t>(index) + 1, reading_style(settings_, &book_fonts()), state.position,
                     fb_))
     return;
   library_.touch(index);

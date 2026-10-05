@@ -2650,6 +2650,34 @@ void test_reader_long_chapter() {
   CHECK(reader.pages_left_in_book() == fresh.pages_left_in_book());
 }
 
+void test_reader_relayout_rendered_fonts() {
+  // A rendered book font changes size or family behind the same pointers:
+  // the reader must lay the chapter out again, as a fresh one would.
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  FontLibrary lib;
+  lib.scan(nullptr);
+  BuiltinDocument doc;
+  doc.set(*builtin_books()[0]);
+  Settings s;
+  BookFonts fonts;
+  CHECK(lib.book(lib.find("EB Garamond"), 23, fonts));
+  Reader reader;
+  CHECK(reader.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  const int small_pages = reader.page_count();
+  s.text_size = TextSize::ExtraLarge;
+  CHECK(lib.book(lib.find("EB Garamond"), 34, fonts));
+  CHECK(reader.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  Reader fresh;
+  CHECK(fresh.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  CHECK(reader.page_count() == fresh.page_count() && reader.page_count() > small_pages);
+  CHECK(lib.book(lib.find("Atkinson Hyperlegible Next"), 34, fonts));  // same size, another family
+  CHECK(reader.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  Reader fresh2;
+  CHECK(fresh2.open(doc, 1, reading_style(s, &fonts), {}, f.fb));
+  CHECK(reader.page_count() == fresh2.page_count());
+}
+
 // Input with a steady count the test moves forward.
 class TimedInput : public InputSource {
  public:
@@ -2799,6 +2827,7 @@ int main() {
   test_reading_stats();
   test_reader_pages_left();
   test_reader_long_chapter();
+  test_reader_relayout_rendered_fonts();
   test_app_reading_stats();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);

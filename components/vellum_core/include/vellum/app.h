@@ -134,8 +134,11 @@ class App {
   void settings_activate();
   // Settings has a general page and a reading page (with a text preview).
   void open_settings(bool reading);
-  // Makes the menu and book typefaces from Settings current.
+  // Makes the menu and book typefaces from Settings current. Book fonts
+  // other than Literata are rendered only when a page is set with them
+  // (book_fonts()): a start that shows the home screen does not wait for them.
   void apply_fonts();
+  const BookFonts& book_fonts();
   // Starts or stops receiving books over Wi-Fi (the "Add books" screen).
   // `setup` opens the phone page for home Wi-Fi and update files instead.
   void open_transfer(bool setup = false);
@@ -275,6 +278,7 @@ class App {
   bool settings_reading_ = false;  // the reading page of Settings
   FontLibrary fonts_;
   BookFonts book_fonts_ = literata_book(26);
+  bool book_fonts_ready_ = false;  // book_fonts_ matches Settings
   int contents_sel_ = 0;
   int light_sel_ = 0;  // 0 brightness, 1 warmth, 2 done
   Screen light_back_ = Screen::Settings;

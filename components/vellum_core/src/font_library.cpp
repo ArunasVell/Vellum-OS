@@ -254,8 +254,9 @@ bool FontLibrary::book(int family, int px, BookFonts& out) {
     }
     book_family_ = family;
     book_px_ = px;
+    ++book_generation_;
   }
-  out = {&book_fonts_[0].font(), &book_fonts_[1].font(), &book_fonts_[2].font()};
+  out = {&book_fonts_[0].font(), &book_fonts_[1].font(), &book_fonts_[2].font(), book_generation_};
   return true;
 }
 

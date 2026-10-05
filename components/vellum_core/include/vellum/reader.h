@@ -26,6 +26,8 @@ struct ReadingStyle {
   int margin;                 // left and right, px
   bool justify;
   bool hyphenate;
+  // BookFonts::generation: the same font pointers may hold new glyphs.
+  uint32_t font_generation = 0;
 
   bool operator==(const ReadingStyle&) const = default;
 };
