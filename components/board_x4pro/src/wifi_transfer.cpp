@@ -34,6 +34,11 @@ constexpr const char* kTag = "transfer";
 constexpr size_t kChunk = 16 * 1024;          // one receive and write
 constexpr uint64_t kSpareBytes = 256 * 1024;  // keep this much of the card free
 constexpr int kMaxDevices = 2;
+// Receive timeouts (recv_wait_timeout each) in a row before an upload is
+// given up: a phone that walked away never closes its connection, and a
+// handler waiting for it forever would also hang httpd_stop(), and with it
+// the app when Home closes the transfer.
+constexpr int kMaxSilentWaits = 3;
 
 }  // namespace
 
@@ -205,9 +210,11 @@ struct WifiTransfer::Impl {
     setvbuf(f, nullptr, _IOFBF, 8192);
     size_t left = req->content_len;
     bool ok = true;
+    int silent = 0;
     while (left > 0) {
       const int n = httpd_req_recv(req, self->buffer, left < kChunk ? left : kChunk);
-      if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+      if (n == HTTPD_SOCK_ERR_TIMEOUT && ++silent < kMaxSilentWaits) continue;
+      silent = 0;
       if (n <= 0 || std::fwrite(self->buffer, 1, n, f) != static_cast<size_t>(n)) {
         ok = false;
         break;
@@ -337,10 +344,12 @@ struct WifiTransfer::Impl {
     size_t got = 0;
     int shown = 0;
     static uint8_t head[kHeadBytes];  // the first bytes, checked before anything is written
+    int silent = 0;
     while (got < req->content_len) {
       const size_t left = req->content_len - got;
       const int n = httpd_req_recv(req, self->buffer, left < kChunk ? left : kChunk);
-      if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+      if (n == HTTPD_SOCK_ERR_TIMEOUT && ++silent < kMaxSilentWaits) continue;
+      silent = 0;
       if (n <= 0) {
         ok = false;
         break;
