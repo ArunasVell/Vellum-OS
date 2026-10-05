@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "../demo_network.h"
 #include "../demo_updater.h"
 #include "vellum/app.h"
 #include "vellum/highlights.h"
@@ -157,6 +158,11 @@ class WebPeers : public vellum::Peers {
 WebDisplay display;
 WebTransfer transfer;
 DemoUpdater updater;
+// The store's canned catalogue: build.sh embeds the test feeds at /demo.
+// (Fetching the real catalogues from a web page would need the sites to
+// allow cross-origin requests, and the app's blocking calls to wait on
+// asynchronous fetches.)
+DemoNetwork network("/demo");
 NoInput input;
 WebPower power;
 WebPeers peers;
@@ -177,6 +183,7 @@ EMSCRIPTEN_KEEPALIVE void vellum_start(int battery) {
   power.percent = battery;
   board.version = "sim";
   board.updater = &updater;
+  board.network = &network;
   peers.pick_name();
   static vellum::App instance(board);
   app = &instance;

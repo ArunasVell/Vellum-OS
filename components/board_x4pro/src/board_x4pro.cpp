@@ -23,6 +23,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "gt911.h"
+#include "http_network.h"
 #include "ota_updater.h"
 #include "sd_card.h"
 #include "sdkconfig.h"
@@ -558,6 +559,8 @@ vellum::Board& board_x4pro_init() {
   board.memory = memory_info;
   static OtaUpdater updater;
   board.updater = &updater;
+  static HttpNetwork network;
+  board.network = &network;
   keep_this_version_once_settled();
   ESP_LOGI(kTag, "board ready");
   return board;
