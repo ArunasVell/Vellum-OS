@@ -125,14 +125,14 @@ upper bounds):
 | Battery log and reading stats | about 0.25 MB | always |
 | Reader page table | 64 KB | always |
 | Text, FB2 and web-page books: chapter, paragraph and contents tables | about 0.8 MB | always (added with more book types) |
-| **Total at start** | **about 5.8 MB** | |
+| **Total at start** | **about 6.2 MB** | |
 | Free book store: one list page, a book's details, the way back | about 52 KB | from the first visit to the store |
 | Rendered fonts | 20–60 KB per size | with a font other than Literata |
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |
 | Wi-Fi and TLS buffers | 100–200 KB | while Wi-Fi is on |
 
-About 2 MB stay free. A very large colour PNG cover (roughly a million
+About 1.6 MB stay free. A very large colour PNG cover (roughly a million
 pixels or more in RGB) does not fit and keeps the drawn cover; nothing
 crashes. The 2 MB chapter buffer is the one to shrink if PSRAM ever runs
 short.
