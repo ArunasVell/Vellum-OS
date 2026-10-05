@@ -32,8 +32,8 @@ constexpr List kStandardEbooksLists[] = {
 };
 
 constexpr Source kSources[] = {
-    {"Project Gutenberg", 0, kGutenbergLists, sizeof(kGutenbergLists) / sizeof(kGutenbergLists[0])},
-    {"Standard Ebooks", 1, kStandardEbooksLists, sizeof(kStandardEbooksLists) / sizeof(kStandardEbooksLists[0])},
+    {"Project Gutenberg", 0, kGutenbergLists, sizeof(kGutenbergLists) / sizeof(kGutenbergLists[0]), true},
+    {"Standard Ebooks", 1, kStandardEbooksLists, sizeof(kStandardEbooksLists) / sizeof(kStandardEbooksLists[0]), false},
 };
 
 }  // namespace
