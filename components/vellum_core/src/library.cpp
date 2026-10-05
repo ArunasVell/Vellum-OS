@@ -56,6 +56,10 @@ char* file_buffer() {
 
 }  // namespace
 
+bool is_book_file(const char* name) {
+  return ends_with_epub(name) || TextBook::format_of(name) != TextBook::Format::None;
+}
+
 Library::Library()
     : entries_(new(std::nothrow) LibraryEntry[kMaxBooks]),
       cache_(new(std::nothrow) LibraryEntry[kMaxBooks]),
@@ -67,7 +71,7 @@ Library::~Library() {
   delete[] bookmarks_;
 }
 
-void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub& epub) {
+void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub& epub, TextBook* text) {
   count_ = 0;
   if (entries_ == nullptr) return;
   for (const Book* b : builtins) {
@@ -83,8 +87,8 @@ void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub
   if (storage != nullptr && cache_ != nullptr) {
     load_cache(*storage);
     cache_dirty_ = false;
-    scan_folder(*storage, "books", epub);
-    scan_folder(*storage, ".", epub);
+    scan_folder(*storage, "books", epub, text);
+    scan_folder(*storage, ".", epub, text);
     if (cache_dirty_) {
       // Rewrite the cache from what is on the card now.
       char* buf = file_buffer();
@@ -130,7 +134,7 @@ void Library::load_cache(Storage& storage) {
   });
 }
 
-void Library::scan_folder(Storage& storage, const char* dir, Epub& epub) {
+void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBook* text) {
   struct Found {
     char name[128];
     uint32_t size;
@@ -147,7 +151,7 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub) {
       dir,
       [](void* p, const char* name, bool is_dir, uint32_t size) {
         auto* c = static_cast<Ctx*>(p);
-        if (is_dir || !ends_with_epub(name) || c->n >= kMaxBooks || std::strlen(name) >= sizeof(Found::name)) return;
+        if (is_dir || !is_book_file(name) || c->n >= kMaxBooks || std::strlen(name) >= sizeof(Found::name)) return;
         std::snprintf(c->found[c->n].name, sizeof(Found::name), "%s", name);
         c->found[c->n++].size = size;
       },
@@ -174,19 +178,22 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub) {
       }
     }
     if (!cached || e.cover < 0) {
-      if (!epub.open(storage, e.path)) continue;  // not a readable EPUB: leave it out
+      // Not a readable book: leave it out.
+      const bool is_epub = ends_with_epub(e.path);
+      if (is_epub ? !epub.open(storage, e.path) : text == nullptr || !text->open(storage, e.path)) continue;
+      const EpubInfo& info = is_epub ? epub.info() : text->info();
       if (!cached) {
-        std::memcpy(e.title, epub.info().title, sizeof(e.title));
-        std::memcpy(e.author, epub.info().author, sizeof(e.author));
-        std::memcpy(e.language, epub.info().language, sizeof(e.language));
+        std::memcpy(e.title, info.title, sizeof(e.title));
+        std::memcpy(e.author, info.author, sizeof(e.author));
+        std::memcpy(e.language, info.language, sizeof(e.language));
       }
       // The cover, once: decoded and shrunk now so screens only read thumbnails.
       const uint8_t* picture = nullptr;
-      const int32_t len = epub.read_cover(&picture);
+      const int32_t len = is_epub ? epub.read_cover(&picture) : text->read_cover(&picture);
       char cover_path[64];
       covers::path_for(e.path, e.file_size, cover_path, sizeof(cover_path));
       e.cover = len > 0 && covers::make(storage, cover_path, picture, static_cast<uint32_t>(len)) ? 1 : 0;
-      epub.close();
+      is_epub ? epub.close() : text->close();
       cache_dirty_ = true;
     }
     ++count_;

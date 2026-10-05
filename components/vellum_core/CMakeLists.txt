@@ -30,6 +30,7 @@ set(VELLUM_CORE_SRCS
   src/stdio_storage.cpp
   src/strings.cpp
   src/text.cpp
+  src/text_book.cpp
   src/textfile.cpp
   src/touch.cpp
   src/ui.cpp

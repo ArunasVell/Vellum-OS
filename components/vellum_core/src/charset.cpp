@@ -144,8 +144,8 @@ Encoding detect(const uint8_t* data, uint32_t len, uint32_t& bom) {
   // UTF-16 without a mark: most Latin text has a zero in every other byte.
   uint32_t zero_even = 0, zero_odd = 0;
   for (uint32_t i = 0; i < len; ++i) (i % 2 ? zero_odd : zero_even) += data[i] == 0;
-  if (len >= 16 && zero_odd > len / 4 && zero_even < len / 64) return Encoding::Utf16LE;
-  if (len >= 16 && zero_even > len / 4 && zero_odd < len / 64) return Encoding::Utf16BE;
+  if (len >= 16 && zero_odd > len / 4 && zero_even * 64 <= len) return Encoding::Utf16LE;
+  if (len >= 16 && zero_even > len / 4 && zero_odd * 64 <= len) return Encoding::Utf16BE;
 
   bool utf8 = true;
   uint32_t high = 0;  // bytes 0x80 and up
@@ -155,6 +155,7 @@ Encoding detect(const uint8_t* data, uint32_t len, uint32_t& bom) {
     if (n < 0) break;  // cut off by the end of the sample
     if (n == 0) {
       utf8 = false;
+      ++high;
       break;
     }
     high += n > 1;
