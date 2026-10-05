@@ -11,12 +11,18 @@
 // Search: Gutenberg's lists page starts with Search, which opens the
 // on-screen keyboard; store_search() then shows the results like a list.
 // A library search can carry its words here too (the library's last row).
+//
+// The reader's own catalogues (from the phone page) follow the built-in
+// ones. Choosing one shows its first page, whose sections lead to more
+// lists (Home goes back up) and whose search, when it has one, comes first.
+// Their requests carry the catalogue's user and password.
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <new>
 
 #include "vellum/app.h"
+#include "vellum/catalogues.h"
 #include "vellum/store.h"
 #include "vellum/text.h"
 #include "vellum/textfile.h"
@@ -71,7 +77,12 @@ void App::open_store() {
   store_feed_.entries = store_->entries;
   store_feed_.capacity = kStoreEntries;
   store_feed_.count = 0;
-  store_page_ = store::source_count() > 1 ? StorePage::Sources : StorePage::Lists;
+  store_->catalogues = {};
+  if (board_.storage != nullptr) store_->catalogues.load(*board_.storage);  // the phone page may have changed them
+  store_custom_count_ = store_->catalogues.count();
+  store_->auth[0] = '\0';
+  store_->search[0] = '\0';
+  store_page_ = store_source_count() > 1 ? StorePage::Sources : StorePage::Lists;
   store_source_ = 0;
   store_sel_ = 0;
   store_state_ = StoreState::Ready;
@@ -92,15 +103,28 @@ void App::store_back() {
     case StorePage::Book:
       // Back to the list, on the book's row.
       store_page_ = StorePage::Books;
-      store_sel_ = store_book_ + (store_depth_ > 0 ? 1 : 0);
+      store_sel_ = store_book_ + store_lead_rows();
       if (store_feed_.count == 0) store_load(store_url_);  // the list did not load before
       break;
     case StorePage::Books:
+      if (store_custom()) {
+        // Up a section (or back a page), then out to the catalogues.
+        if (store_depth_ > 0) {
+          --store_depth_;
+          char url[256];
+          textfile::copy(store_->history[store_depth_], url, sizeof(url));
+          textfile::copy(store_->history_titles[store_depth_], store_title_, sizeof(store_title_));
+          return store_load(url);
+        }
+        store_page_ = StorePage::Sources;
+        store_sel_ = store_source_;
+        break;
+      }
       store_page_ = StorePage::Lists;
       store_sel_ = 0;
       break;
     case StorePage::Lists:
-      if (store::source_count() > 1) {
+      if (store_source_count() > 1) {
         store_page_ = StorePage::Sources;
         store_sel_ = store_source_;
         break;
@@ -115,6 +139,37 @@ void App::store_back() {
 }
 
 bool App::store_busy() const { return store_state_ == StoreState::Loading || store_state_ == StoreState::Downloading; }
+
+int App::store_source_count() const { return store::source_count() + store_custom_count_; }
+
+bool App::store_custom() const { return store_source_ >= store::source_count(); }
+
+const char* App::store_source_name(int source) const {
+  if (source < store::source_count()) return store::source(source).name;
+  return store_->catalogues.at(source - store::source_count()).name;
+}
+
+int App::store_lead_rows() const {
+  if (store_custom()) return store_depth_ == 0 && store_->search[0] != '\0' ? 1 : 0;
+  return store_depth_ > 0 ? 1 : 0;
+}
+
+int App::store_rows_per_page() const {
+  if (store_page_ == StorePage::Sources) return std::max(1, (fb_.height() - kHintRoom - kListTop - 8) / kSourceHeight);
+  return kBookRows;
+}
+
+void App::store_push_history() {
+  if (store_depth_ == kStoreHistory) {
+    std::memmove(store_->history[0], store_->history[1], sizeof(store_->history[0]) * (kStoreHistory - 1));
+    std::memmove(store_->history_titles[0], store_->history_titles[1],
+                 sizeof(store_->history_titles[0]) * (kStoreHistory - 1));
+    --store_depth_;
+  }
+  textfile::copy(store_url_, store_->history[store_depth_], sizeof(store_->history[0]));
+  textfile::copy(store_title_, store_->history_titles[store_depth_], sizeof(store_->history_titles[0]));
+  ++store_depth_;
+}
 
 // ---- Input ------------------------------------------------------------------------
 
@@ -131,12 +186,13 @@ bool App::store_key(Key key) {
 }
 
 bool App::store_swipe(int forward) {
-  if (store_busy() || store_page_ != StorePage::Books) return false;
+  if (store_busy() || (store_page_ != StorePage::Books && store_page_ != StorePage::Sources)) return false;
   const int count = store_row_count();
-  const int pages = (count + kBookRows - 1) / kBookRows;
+  const int per_page = store_rows_per_page();
+  const int pages = (count + per_page - 1) / per_page;
   if (pages <= 1) return false;
-  const int page = wrap(store_sel_ / kBookRows + forward, pages);
-  store_sel_ = std::min(page * kBookRows, count - 1);
+  const int page = wrap(store_sel_ / per_page + forward, pages);
+  store_sel_ = std::min(page * per_page, count - 1);
   return true;
 }
 
@@ -145,11 +201,11 @@ int App::store_row_count() const {
   if (store_state_ == StoreState::Failed) return 1;  // Try again
   switch (store_page_) {
     case StorePage::Sources:
-      return store::source_count();
+      return store_source_count();
     case StorePage::Lists:
       return (store::source(store_source_).search ? 1 : 0) + store::source(store_source_).list_count;
     case StorePage::Books:
-      return (store_depth_ > 0 ? 1 : 0) + store_feed_.count + (store_feed_.next[0] != '\0' ? 1 : 0);
+      return store_lead_rows() + store_feed_.count + (store_feed_.next[0] != '\0' ? 1 : 0);
     case StorePage::Book:
       if (store_state_ == StoreState::Saved) return 2;  // Read now, back to the list
       return store_->detail.epub[0] != '\0' ? 1 : 0;
@@ -170,6 +226,17 @@ void App::store_activate() {
   switch (store_page_) {
     case StorePage::Sources:
       store_source_ = store_sel_;
+      if (store_custom()) {
+        // One of the reader's own: straight to its first page.
+        const Catalogue& c = store_->catalogues.at(store_source_ - store::source_count());
+        if (!basic_auth_header(c, store_->auth, sizeof(store_->auth))) store_->auth[0] = '\0';
+        store_->search[0] = '\0';
+        textfile::copy(c.name, store_title_, sizeof(store_title_));
+        store_depth_ = 0;
+        char url[256];
+        textfile::copy(c.url, url, sizeof(url));
+        return store_load(url);
+      }
       store_page_ = StorePage::Lists;
       store_sel_ = 0;
       draw();
@@ -190,7 +257,14 @@ void App::store_activate() {
     }
     case StorePage::Books: {
       int row = store_sel_;
-      if (store_depth_ > 0 && row-- == 0) {
+      if (store_lead_rows() > 0 && row-- == 0) {
+        if (store_custom()) {
+          // The catalogue's own search.
+          open_keyboard(Typing::StoreSearch, "");
+          draw();
+          queue_.submit();
+          return;
+        }
         // Earlier books: the page before this one.
         char url[256];
         textfile::copy(store_->history[--store_depth_], url, sizeof(url));
@@ -198,13 +272,17 @@ void App::store_activate() {
       }
       if (row == store_feed_.count) {
         // More books: remember this page, then the next.
-        if (store_depth_ == kStoreHistory) {
-          std::memmove(store_->history[0], store_->history[1], sizeof(store_->history[0]) * (kStoreHistory - 1));
-          --store_depth_;
-        }
-        textfile::copy(store_url_, store_->history[store_depth_++], sizeof(store_->history[0]));
+        store_push_history();
         char url[256];
         textfile::copy(store_feed_.next, url, sizeof(url));
+        return store_load(url);
+      }
+      if (store_->entries[row].section) {
+        // A section of the catalogue: its list, Home coming back here.
+        store_push_history();
+        textfile::copy(store_->entries[row].title, store_title_, sizeof(store_title_));
+        char url[256];
+        textfile::copy(store_->entries[row].detail, url, sizeof(url));
         return store_load(url);
       }
       return store_open_book(row);
@@ -276,9 +354,16 @@ void App::store_load(const char* url) {
   store_feed_.next[0] = '\0';
   draw();
   queue_.submit();
-  const NetResult r = store::fetch_feed(*board_.network, store_url_, store_feed_, store_->parser);
+  const bool custom = store_custom();
+  const NetResult r =
+      store::fetch_feed(*board_.network, store_url_, store_feed_, store_->parser, custom ? store_->auth : nullptr, custom);
+  if (custom && store_depth_ == 0 && r == NetResult::Ok) {
+    // The catalogue's search, from its first page.
+    textfile::copy(store_->parser.search(), store_->search, sizeof(store_->search));
+    store_->search_template = store_->parser.search_is_template();
+  }
   store_state_ = StoreState::Ready;
-  store_sel_ = store_depth_ > 0 && store_feed_.count > 0 ? 1 : 0;  // the first book
+  store_sel_ = store_feed_.count > 0 ? store_lead_rows() : 0;  // the first book
   if (r != NetResult::Ok) store_fail(net_error(r));
   draw();
   queue_.submit_full();
@@ -286,7 +371,53 @@ void App::store_load(const char* url) {
 
 void App::store_search(const char* words) {
   char url[256];
-  if (board_.network == nullptr || store_ == nullptr || !store::search_url(words, url, sizeof(url))) return;
+  if (board_.network == nullptr || store_ == nullptr) return;
+  if (store_custom() && store_page_ == StorePage::Books && store_->search[0] != '\0') {
+    bool ok = false;
+    if (store_->search_template) {
+      ok = search_from_template(store_->search, words, url, sizeof(url));
+    } else {
+      // An OpenSearch description first: it holds the address to fill in.
+      store_state_ = StoreState::Loading;
+      draw();
+      queue_.submit();
+      struct Sink {
+        char* buf;
+        size_t len;
+        size_t cap;
+      } sink{store_->description, 0, sizeof(store_->description) - 1};
+      const NetResult r = store::get(
+          *board_.network, store_->search, store_->auth,
+          [](void* ctx, const uint8_t* data, uint32_t len, uint32_t) {
+            auto& s = *static_cast<Sink*>(ctx);
+            const size_t take = std::min<size_t>(len, s.cap - s.len);
+            std::memcpy(s.buf + s.len, data, take);
+            s.len += take;
+            return true;
+          },
+          &sink);
+      store_state_ = StoreState::Ready;
+      char tmpl[256];
+      ok = r == NetResult::Ok &&
+           opensearch_template(std::string_view(store_->description, sink.len), store_->search, tmpl, sizeof(tmpl)) &&
+           search_from_template(tmpl, words, url, sizeof(url));
+      if (ok) {
+        // The next search needs no description.
+        textfile::copy(tmpl, store_->search, sizeof(store_->search));
+        store_->search_template = true;
+      }
+    }
+    if (!ok) {
+      store_fail(StoreError::NoServer);
+      draw();
+      queue_.submit_full();
+      return;
+    }
+    store_push_history();  // Home comes back to the catalogue
+    textfile::copy(words, store_title_, sizeof(store_title_));
+    return store_load(url);
+  }
+  if (!store::search_url(words, url, sizeof(url))) return;
   textfile::copy(words, store_title_, sizeof(store_title_));
   store_source_ = 0;  // Project Gutenberg
   store_depth_ = 0;
@@ -311,7 +442,9 @@ void App::store_open_book(int i) {
     feed.capacity = 1;
     char url[256];
     textfile::copy(book.detail, url, sizeof(url));
-    const NetResult r = store::fetch_feed(*board_.network, url, feed, store_->parser);
+    const bool custom = store_custom();
+    const NetResult r =
+        store::fetch_feed(*board_.network, url, feed, store_->parser, custom ? store_->auth : nullptr, custom);
     store_state_ = StoreState::Ready;
     if (feed.count == 0) book = store_->entries[i];
     if (book.title[0] == '\0') textfile::copy(store_->entries[i].title, book.title, sizeof(book.title));
@@ -348,7 +481,7 @@ void App::store_download() {
           app->draw();
           app->queue_.submit();
         },
-        this);
+        this, store_custom() ? store_->auth : nullptr);
     switch (r) {
       case store::Saved::Ok:
         store_state_ = StoreState::Saved;
@@ -385,7 +518,7 @@ void App::store_download() {
 void App::draw_store() {
   const int w = fb_.width();
   const Strings& t = text();
-  const store::Source& source = store::source(store_source_);
+  const store::Source& source = store::source(store_custom() ? 0 : store_source_);  // Lists: a built-in one
   if (store_page_ == StorePage::Book) return draw_store_book();
 
   const char* title = t.store_title;
@@ -395,7 +528,7 @@ void App::draw_store() {
     if (!board_.network->demo()) subtitle = t.store_abouts[source.about];
   } else if (store_page_ == StorePage::Books) {
     title = store_title_;
-    subtitle = source.name;
+    subtitle = store_source_name(store_source_);
   }
   ui::draw_fitted(fb_, ui::screen_title_font(), kSide, kTitleBase, w - 2 * kSide, title);
   ui::draw_fitted(fb_, ui::label_font(), kSide, kSubtitleBase, w - 2 * kSide, subtitle);
@@ -419,19 +552,35 @@ void App::draw_store() {
   }
 
   switch (store_page_) {
-    case StorePage::Sources:
-      for (int i = 0; i < store::source_count(); ++i) {
-        const Rect r = row_rect(fb_, kListTop + 8 + i * kSourceHeight, kSourceHeight);
+    case StorePage::Sources: {
+      // The built-in catalogues, then the reader's own, a screen at a time.
+      const int count = store_source_count();
+      const int per_page = store_rows_per_page();
+      const int first = store_sel_ / per_page * per_page;
+      if (count > per_page) {
+        char label[48];
+        std::snprintf(label, sizeof(label), t.page_of, first / per_page + 1, (count + per_page - 1) / per_page);
+        ui::draw_right(fb_, ui::label_font(), w - kSide, kSubtitleBase, label);
+      }
+      for (int i = first; i < std::min(count, first + per_page); ++i) {
+        const Rect r = row_rect(fb_, kListTop + 8 + (i - first) * kSourceHeight, kSourceHeight);
         const bool selected = i == store_sel_;
-        if (i > 0 && !selected && store_sel_ != i - 1) dotted_rule(fb_, r.y);
+        if (i > first && !selected && store_sel_ != i - 1) dotted_rule(fb_, r.y);
         const Color c = highlight(fb_, r, selected);
-        const store::Source& s = store::source(i);
-        draw_text(fb_, ui::large_font(), (r.x + kPad) * 64, r.y + 38, s.name, c);
-        ui::draw_fitted(fb_, ui::label_font(), r.x + kPad, r.y + 66, r.w - 2 * kPad - 24, t.store_abouts[s.about], c);
+        const char* about = nullptr;
+        if (i < store::source_count()) {
+          about = t.store_abouts[store::source(i).about];
+        } else {
+          about = store_->catalogues.at(i - store::source_count()).url;  // its address, without the scheme
+          if (const char* host = std::strstr(about, "://")) about = host + 3;
+        }
+        ui::draw_fitted(fb_, ui::large_font(), r.x + kPad, r.y + 38, r.w - 2 * kPad - 24, store_source_name(i), c);
+        ui::draw_fitted(fb_, ui::label_font(), r.x + kPad, r.y + 66, r.w - 2 * kPad - 24, about, c);
         ui::draw_right(fb_, ui::text_font(), r.x + r.w - kPad, r.y + 38, "\xE2\x80\xBA", c);  // ›
         add_hit(r, i);
       }
       break;
+    }
     case StorePage::Lists: {
       const int first_list = source.search ? 1 : 0;
       for (int i = 0; i < store_row_count(); ++i) {
@@ -459,13 +608,21 @@ void App::draw_store() {
         const bool selected = i == store_sel_;
         if (i > first && !selected && store_sel_ != i - 1) dotted_rule(fb_, r.y);
         add_hit(r, i);
-        const int book = i - (store_depth_ > 0 ? 1 : 0);
+        const int book = i - store_lead_rows();
         if (book < 0 || book >= store_feed_.count) {
-          draw_link(fb_, {r.x, r.y + 11, r.w, kLinkHeight}, book < 0 ? t.store_earlier : t.store_more, selected);
+          const char* label = book >= 0 ? t.store_more : store_custom() ? t.search : t.store_earlier;
+          draw_link(fb_, {r.x, r.y + 11, r.w, kLinkHeight}, label, selected);
           continue;
         }
         const OpdsEntry& e = store_->entries[book];
         const Color c = highlight(fb_, r, selected);
+        if (e.section) {
+          // A section: its name, what it holds, and a ›.
+          ui::draw_fitted(fb_, ui::text_font(), r.x + kPad, r.y + 32, r.w - 2 * kPad - 24, e.title, c);
+          ui::draw_fitted(fb_, ui::small_italic_font(), r.x + kPad, r.y + 58, r.w - 2 * kPad - 24, e.summary, c);
+          ui::draw_right(fb_, ui::text_font(), r.x + r.w - kPad, r.y + 32, "\xE2\x80\xBA", c);  // ›
+          continue;
+        }
         ui::draw_fitted(fb_, ui::text_font(), r.x + kPad, r.y + 32, r.w - 2 * kPad, e.title, c);
         ui::draw_fitted(fb_, ui::small_italic_font(), r.x + kPad, r.y + 58, r.w - 2 * kPad, e.author, c);
       }
@@ -488,7 +645,7 @@ void App::draw_store_book() {
   ui::draw_fitted(fb_, ui::large_font(), kSide, y - 4, w - 2 * kSide, book.author);
   y += 30;
   char facts[128];
-  int len = std::snprintf(facts, sizeof(facts), "%s", store::source(store_source_).name);
+  int len = std::snprintf(facts, sizeof(facts), "%s", store_source_name(store_source_));
   if (book.size > 0) {
     char size[24];
     store::format_size(settings_.language, book.size, size, sizeof(size));

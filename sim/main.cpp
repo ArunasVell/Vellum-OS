@@ -348,11 +348,17 @@ class SimFrontlight : public vellum::Frontlight {
   int warmth_ = -1;
 };
 
-// Shows the "Add books" screen as the device would; there is no real
-// network here. Copy books into the card folder's books/ instead.
+// Shows the "Add books" screen as the device would, on the reader's own
+// network or the (simulated) home Wi-Fi; there is no real network here.
+// Copy books into the card folder's books/ instead.
 class SimTransfer : public vellum::Transfer {
  public:
   bool start(vellum::TransferInfo& info) override {
+    if (info.home) {
+      std::snprintf(info.network, sizeof(info.network), "Home (simulated)");
+      std::snprintf(info.address, sizeof(info.address), "http://192.168.1.42");
+      return true;
+    }
     std::snprintf(info.network, sizeof(info.network), "Vellum-SIM");
     std::snprintf(info.password, sizeof(info.password), "48151623");
     std::snprintf(info.address, sizeof(info.address), "http://192.168.4.1");

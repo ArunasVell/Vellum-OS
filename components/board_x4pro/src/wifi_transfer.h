@@ -1,6 +1,8 @@
 // Receiving books over Wi-Fi: the reader opens its own network (a soft
-// access point, so no router or password typing is needed), serves the
-// upload page and saves books to the SD card's books folder.
+// access point, so no router or password typing is needed) or, when the app
+// asks, joins the home Wi-Fi; it serves the upload page and saves books to
+// the SD card's books folder. The page's Settings section changes files on
+// the card (settings, sync account, catalogues) for the app to take up.
 #pragma once
 
 #include <cstdint>

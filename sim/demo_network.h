@@ -1,6 +1,7 @@
 // The store in the simulators without internet: a canned catalogue made of
 // the test feeds (tests/data/store), marked as a demo on screen. Every
-// download is the same sample book.
+// download is the same sample book. KOReader sync answers as a server
+// that keeps one position (in memory) would.
 #pragma once
 
 #include <cstdio>
@@ -36,6 +37,35 @@ class DemoNetwork : public vellum::Network {
       if (!body(ctx, reinterpret_cast<const uint8_t*>(data.data() + i), static_cast<uint32_t>(n),
                 static_cast<uint32_t>(data.size())))
         return vellum::NetResult::Stopped;
+    }
+    return vellum::NetResult::Ok;
+  }
+
+  vellum::NetResult request(vellum::HttpRequest& req, BodyFn body, void* ctx) override {
+    const std::string u = req.url;
+    std::string answer;
+    req.status = 200;
+    if (u.find("/syncs/progress") != std::string::npos) {
+      if (std::string(req.method) == "PUT") {
+        progress_ = req.body != nullptr ? std::string(req.body, req.body_len) : "";
+        answer = "{\"document\":\"demo\",\"timestamp\":1760000000}";
+      } else {
+        answer = progress_.empty() ? "{}" : progress_;
+      }
+    } else if (u.find("/users/create") != std::string::npos) {
+      req.status = 201;
+      answer = "{\"username\":\"demo\"}";
+    } else if (std::string(req.method) == "GET") {
+      const vellum::NetResult r = get(req.url, body, ctx);
+      req.status = r == vellum::NetResult::Ok ? 200 : 404;
+      return r == vellum::NetResult::NoServer ? vellum::NetResult::Ok : r;
+    } else {
+      req.status = 404;
+    }
+    if (!answer.empty() &&
+        !body(ctx, reinterpret_cast<const uint8_t*>(answer.data()), static_cast<uint32_t>(answer.size()),
+              static_cast<uint32_t>(answer.size()))) {
+      return vellum::NetResult::Stopped;
     }
     return vellum::NetResult::Ok;
   }
@@ -85,4 +115,5 @@ class DemoNetwork : public vellum::Network {
   }
 
   std::string dir_;
+  std::string progress_;  // the last position sent to the sync server
 };

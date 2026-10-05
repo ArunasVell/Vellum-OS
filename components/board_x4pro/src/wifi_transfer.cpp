@@ -54,16 +54,22 @@ struct WifiTransfer::Impl {
   esp_pm_lock_handle_t awake = nullptr;
   bool awake_held = false;
   bool wifi_on = false;
+  HomeWifi home;            // the home Wi-Fi, when the page is served there
+  const char* fonts = nullptr;  // TransferInfo::fonts, for the page's Settings
   char* buffer = nullptr;  // kChunk bytes, allocated once
   // The highlights file, for the phone page's notes. Made the first time the
   // page asks; the server's own storage, so it never shares the app's.
   vellum::StdioStorage* card = nullptr;
   vellum::Highlights* highlights = nullptr;
 
-  bool load_highlights() {
+  bool load_card() {
     if (card == nullptr) card = new (std::nothrow) vellum::StdioStorage(root);
+    return card != nullptr;
+  }
+
+  bool load_highlights() {
     if (highlights == nullptr) highlights = new (std::nothrow) vellum::Highlights;
-    if (card == nullptr || highlights == nullptr) return false;
+    if (!load_card() || highlights == nullptr) return false;
     highlights->load(*card);
     return true;
   }
@@ -286,6 +292,47 @@ struct WifiTransfer::Impl {
     return httpd_resp_sendstr(req, "ok");
   }
 
+  // The page's Settings section: everything it shows, as JSON.
+  static esp_err_t get_settings(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    char ssid[33];
+    char password[65];
+    home_wifi_load(ssid, sizeof(ssid), password, sizeof(password));
+    if (!self->load_card() || !vellum::phone_settings_json(*self->card, self->fonts, ssid, self->buffer, kChunk)) {
+      return fail(req, "500 Internal Server Error", "Could not read the settings.");
+    }
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Cache-Control", "no-store");
+    return httpd_resp_sendstr(req, self->buffer);
+  }
+
+  // A form from the Settings section, applied to the card by `apply`;
+  // `tell` has the app take it up at once.
+  static esp_err_t post_form(httpd_req_t* req, vellum::PhoneSaved (*apply)(vellum::Storage&, const char*, size_t),
+                             bool tell) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    const int n = req->content_len < kChunk ? httpd_req_recv(req, self->buffer, req->content_len) : -1;
+    if (n <= 0) return fail(req, "400 Bad Request", "Expected a form.");
+    if (!self->load_card()) return fail(req, "500 Internal Server Error", "Out of memory.");
+    switch (apply(*self->card, self->buffer, static_cast<size_t>(n))) {
+      case vellum::PhoneSaved::Ok:
+        break;
+      case vellum::PhoneSaved::Bad:
+        return fail(req, "400 Bad Request", "That value cannot be used.");
+      case vellum::PhoneSaved::Full:
+        return fail(req, "507 Insufficient Storage", "There is no room for more.");
+      case vellum::PhoneSaved::NotSaved:
+        return fail(req, "500 Internal Server Error", "Could not save.");
+    }
+    if (tell) self->update([](vellum::TransferStatus& s) { ++s.settings_saved; });
+    return httpd_resp_sendstr(req, "ok");
+  }
+
+  static esp_err_t post_settings(httpd_req_t* req) { return post_form(req, vellum::phone_post_settings, true); }
+  static esp_err_t post_sync(httpd_req_t* req) { return post_form(req, vellum::phone_post_sync, true); }
+  // The store reads the catalogues when it opens: nothing to tell.
+  static esp_err_t post_catalogues(httpd_req_t* req) { return post_form(req, vellum::phone_post_catalogues, false); }
+
   static esp_err_t get_info(httpd_req_t* req) {
     char body[256];
     char ssid[33];
@@ -422,7 +469,31 @@ struct WifiTransfer::Impl {
     return httpd_resp_sendstr(req, "ok");
   }
 
+  // The page on the home Wi-Fi: the reader joins it like the store does,
+  // and the page's address is the one the router gave it.
+  bool start_home(vellum::TransferInfo& info) {
+    char ssid[33];
+    char password[65];
+    if (!home_wifi_load(ssid, sizeof(ssid), password, sizeof(password))) return false;
+    if (home.join() != vellum::UpdateResult::UpToDate) {
+      home.leave();
+      return false;
+    }
+    esp_netif_ip_info_t ip = {};
+    esp_netif_t* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (sta == nullptr || esp_netif_get_ip_info(sta, &ip) != ESP_OK || ip.ip.addr == 0) {
+      home.leave();
+      return false;
+    }
+    std::snprintf(info.network, sizeof(info.network), "%s", ssid);
+    info.password[0] = '\0';
+    std::snprintf(info.address, sizeof(info.address), "http://" IPSTR, IP2STR(&ip.ip));
+    ESP_LOGI(kTag, "page at %s on %s", info.address, ssid);
+    return true;
+  }
+
   bool start_wifi(vellum::TransferInfo& info) {
+    if (info.home) return start_home(info);
     static bool once = false;
     if (!once) {
       if (!wifi_base_init()) return false;
@@ -467,7 +538,7 @@ struct WifiTransfer::Impl {
     cfg.recv_wait_timeout = 15;
     cfg.send_wait_timeout = 15;
     cfg.lru_purge_enable = true;
-    cfg.max_uri_handlers = 14;
+    cfg.max_uri_handlers = 18;
     if (httpd_start(&server, &cfg) != ESP_OK) return false;
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = get_page, .user_ctx = this},
@@ -481,6 +552,10 @@ struct WifiTransfer::Impl {
         {.uri = "/highlights", .method = HTTP_GET, .handler = get_highlights, .user_ctx = this},
         {.uri = "/highlights/note", .method = HTTP_POST, .handler = post_note, .user_ctx = this},
         {.uri = "/highlights/remove", .method = HTTP_POST, .handler = post_remove, .user_ctx = this},
+        {.uri = "/settings", .method = HTTP_GET, .handler = get_settings, .user_ctx = this},
+        {.uri = "/settings", .method = HTTP_POST, .handler = post_settings, .user_ctx = this},
+        {.uri = "/sync", .method = HTTP_POST, .handler = post_sync, .user_ctx = this},
+        {.uri = "/catalogues", .method = HTTP_POST, .handler = post_catalogues, .user_ctx = this},
     };
     for (const httpd_uri_t& r : routes) httpd_register_uri_handler(server, &r);
     return true;
@@ -505,6 +580,7 @@ bool WifiTransfer::start(vellum::TransferInfo& info) {
   xSemaphoreTake(m.lock, portMAX_DELAY);
   m.st = {};
   xSemaphoreGive(m.lock);
+  m.fonts = info.fonts;
   if (m.awake != nullptr && esp_pm_lock_acquire(m.awake) == ESP_OK) m.awake_held = true;  // keep the radio responsive
   if (!m.start_wifi(info) || !m.start_server()) {
     ESP_LOGW(kTag, "could not start");
@@ -525,6 +601,7 @@ void WifiTransfer::stop() {
     esp_wifi_deinit();  // frees the radio's memory until next time
     m.wifi_on = false;
   }
+  m.home.leave();  // the home Wi-Fi too, when the page was there
   if (m.awake_held) {
     esp_pm_lock_release(m.awake);
     m.awake_held = false;
