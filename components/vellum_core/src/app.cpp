@@ -130,8 +130,8 @@ void dotted_rule(Framebuffer& fb, int y) {
 
 void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
   const Color c = highlight(fb, r, selected);
-  draw_text(fb, ui::text_font(), (r.x + kPad) * 64, r.y + 30, text, c);
-  ui::draw_right(fb, ui::text_font(), r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);  // ›
+  ui::draw_fitted(fb, ui::text_font(), r.x + kPad, r.y + 30, r.w - 2 * kPad - 24, text, c);  // clear of the ›
+  ui::draw_right(fb, ui::text_font(), r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);        // ›
 }
 
 // A 2 px line; dotted lines leave every other pair of pixels out.
@@ -592,7 +592,7 @@ int App::library_item_count() const {
   return library_first_book() + library_view_count_ + (library_has_store() ? 1 : 0);
 }
 
-bool App::library_has_store() const { return board_.network != nullptr && library_tab_ == 0 && search_[0] == '\0'; }
+bool App::library_has_store() const { return board_.network != nullptr && (library_tab_ == 0 || search_[0] != '\0'); }
 
 int App::library_list_top() const { return library_on_shelf() ? kShelfActionsTop + kButtonHeight + 10 : kLibListTop; }
 
@@ -793,7 +793,13 @@ void App::draw_library() {
     if (y + kLinkHeight <= bottom) {
       const Rect r = row_rect(fb_, y, kLinkHeight);
       const int item = first_book + library_view_count_;
-      draw_link(fb_, r, t.store_link, library_sel_ == item);
+      char label[160];
+      if (searching) {
+        std::snprintf(label, sizeof(label), t.store_search_for, search_);
+      } else {
+        std::snprintf(label, sizeof(label), "%s", t.store_link);
+      }
+      draw_link(fb_, r, label, library_sel_ == item);
       add_hit(r, item);
     }
   }
@@ -847,7 +853,11 @@ bool App::library_activate() {
   if (library_sel_ - first_book < library_view_count_) {
     open_book(library_view_[library_sel_ - first_book]);
   } else if (library_has_store()) {
+    // The store; while searching, its search for the same words.
+    char words[sizeof(search_)];
+    std::snprintf(words, sizeof(words), "%s", search_);
     open_store();
+    if (words[0] != '\0' && screen_ == Screen::Store) store_search(words);
   }
   return false;
 }
@@ -1007,12 +1017,13 @@ void App::save_shelves() {
 bool App::open_keyboard(Typing typing, std::string_view text_now) {
   const Strings& t = text();
   Keyboard::Options o;
-  o.prompt = typing == Typing::Search ? t.search_prompt : t.shelf_name;
+  const bool search = typing == Typing::Search || typing == Typing::StoreSearch;
+  o.prompt = search ? t.search_prompt : t.shelf_name;
   o.ok = t.ok;
   o.cancel = t.cancel;
   o.page = settings_.language == Language::Lithuanian ? Keyboard::Page::Lithuanian : Keyboard::Page::English;
-  o.capitalize = typing != Typing::Search;
-  o.max_bytes = typing == Typing::Search ? Keyboard::kMaxBytes : Shelves::kNameBytes - 1;
+  o.capitalize = !search;
+  o.max_bytes = search ? Keyboard::kMaxBytes : Shelves::kNameBytes - 1;
   keyboard_.open(text_now, o);
   typing_ = typing;
   return true;
@@ -1092,6 +1103,16 @@ bool App::finish_typing(bool ok) {
       save_shelves();
       shelve_sel_ = 3 + shelf;
       break;
+    }
+    case Typing::StoreSearch: {
+      size_t b = 0, e = s.size();
+      while (b < e && s[b] == ' ') ++b;
+      while (e > b && s[e - 1] == ' ') --e;
+      if (!ok || b == e) break;
+      char words[Keyboard::kMaxBytes + 1];
+      std::snprintf(words, sizeof(words), "%.*s", static_cast<int>(e - b), s.data() + b);
+      store_search(words);  // draws the results itself
+      return false;
     }
   }
   return true;

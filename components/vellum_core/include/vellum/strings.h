@@ -165,12 +165,13 @@ struct Strings {
   const char* hint_retry;
   const char* peer_hint;  // on "Add books"
   // The free book store
-  const char* store_link;       // last row of the library
-  const char* store_title;      // screen title
-  const char* store_lead;       // one line under the title
-  const char* store_demo;       // the simulators' canned catalogue
-  const char* store_abouts[2];  // a line under each catalogue's name
-  const char* store_lists[9];   // Gutenberg: popular, new, Lithuanian, 5 subjects; Standard Ebooks: new releases
+  const char* store_link;        // last row of the library
+  const char* store_search_for;  // the same row while searching: %s is the words
+  const char* store_title;       // screen title
+  const char* store_lead;        // one line under the title
+  const char* store_demo;        // the simulators' canned catalogue
+  const char* store_abouts[2];   // a line under each catalogue's name
+  const char* store_lists[9];    // Gutenberg: popular, new, Lithuanian, 5 subjects; Standard Ebooks: new releases
   const char* store_loading;
   const char* store_earlier;  // row before a list page
   const char* store_more;     // row after it

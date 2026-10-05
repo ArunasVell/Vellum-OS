@@ -144,7 +144,7 @@ class App {
 
   static constexpr int kHomeRows = 2;  // other books listed under the current one
   // What the on-screen keyboard is typing for.
-  enum class Typing : uint8_t { Off, Search, NewShelf, RenameShelf, NewShelfForBook };
+  enum class Typing : uint8_t { Off, Search, NewShelf, RenameShelf, NewShelfForBook, StoreSearch };
 
   // Home lists the current book, up to kHomeRows others, then these links.
   int home_item_count() const;
@@ -160,7 +160,8 @@ class App {
   int library_first_book() const;  // selection index of the first book
   // Buttons, books, then "Get free books" (library_has_store()).
   int library_item_count() const;
-  // The store link ends the All tab when there is a network and no search.
+  // The store link ends the All tab when there is a network; while
+  // searching it ends every tab and searches the store for the same words.
   bool library_has_store() const;
   int library_rows() const;  // books on one page
   int library_list_top() const;

@@ -2750,7 +2750,8 @@ void test_app_store() {
   const int full = panel.full;
   press(*app, Key::Power);  // the store: its catalogues
   CHECK(panel.full == full + 1 && net.gets == 0);
-  press(*app, Key::Power);  // Project Gutenberg: its lists
+  press(*app, Key::Power);  // Project Gutenberg: its lists, Search first
+  press(*app, Key::Next);
   press(*app, Key::Power);  // Most popular
   CHECK(net.gets == 1 && net.last_url.find("sort_order=downloads") != std::string::npos);
 
@@ -3141,6 +3142,74 @@ void test_app_library() {
   }
 }
 
+void test_app_store_search() {
+  std::filesystem::remove_all("test-card-store-search");
+  std::filesystem::create_directories("test-card-store-search/books");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer screen(buf.data(), kW, kH);
+  screen.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-store-search");
+  FakeNetwork net;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  board.network = &net;
+  auto* app = new App(board);
+  app->start();
+  Keyboard kb;
+  kb.open("", {.cancel = "Cancel"});
+  const auto type = [&](std::string_view letters) {
+    for (char c : letters) {
+      const Rect r = kb.key_rect(screen, kb.find(c == ' ' ? std::string_view("space") : std::string_view(&c, 1)));
+      tap(*app, r.x + r.w / 2, r.y + r.h / 2);
+    }
+  };
+  const auto tap_named = [&](const char* name) {
+    const Rect r = kb.key_rect(screen, kb.find(name));
+    tap(*app, r.x + r.w / 2, r.y + r.h / 2);
+  };
+
+  // Library › Get free books › Project Gutenberg › Search: the keyboard.
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);  // past the four built-in books
+  press(*app, Key::Power);
+  press(*app, Key::Power);
+  press(*app, Key::Power);
+  CHECK(net.gets == 0);
+  type("moby dick");
+  CHECK(net.gets == 0);  // nothing is fetched while typing
+  tap_named("ok");
+  CHECK(net.gets == 1 && net.last_url == "https://www.gutenberg.org/ebooks/search.opds/?query=moby+dick");
+  press(*app, Key::Power);  // the first book found opens
+  CHECK(net.gets == 2 && net.last_url.find(".opds") != std::string::npos);
+
+  // Cancel, or OK with nothing typed, fetches nothing.
+  press(*app, Key::Home);  // the results
+  press(*app, Key::Home);  // the lists, on Search
+  press(*app, Key::Power);
+  tap_named("ok");
+  CHECK(net.gets == 2);
+  press(*app, Key::Power);
+  type("x");
+  press(*app, Key::Home);
+  CHECK(net.gets == 2);
+  for (int i = 0; i < 2; ++i) press(*app, Key::Home);  // the catalogues, out of the store
+
+  // A library search that finds nothing offers the store's search for the same words.
+  for (int i = 0; i < 9; ++i) press(*app, Key::Prev);  // from Get free books, past the books and tabs, to Search
+  press(*app, Key::Power);
+  type("zzz");
+  tap_named("ok");  // nothing found: Search stays selected
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);  // wraps to the last row: "Search free books for “zzz”"
+  press(*app, Key::Power);
+  CHECK(net.gets == 3 && net.last_url == "https://www.gutenberg.org/ebooks/search.opds/?query=zzz");
+  delete app;
+  std::filesystem::remove_all("test-card-store-search");
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -3198,6 +3267,7 @@ int main() {
   test_opds_details();
   test_store_download();
   test_app_store();
+  test_app_store_search();
   test_keyboard();
   test_search_folding();
   test_library_sorting();

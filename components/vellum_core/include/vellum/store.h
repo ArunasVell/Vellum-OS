@@ -23,13 +23,14 @@ struct Source {
   uint8_t about;
   const List* lists;
   int list_count;
+  bool search;  // its lists page starts with Search (search_url())
 };
 
 int source_count();
 const Source& source(int i);
 
-// Project Gutenberg's search feed for `words` (any language), for a search
-// row once the on-screen keyboard exists. Returns false when it does not fit.
+// Project Gutenberg's search feed for `words` (any language). Returns false
+// when it does not fit.
 bool search_url(const char* words, char* out, size_t size);
 
 // Fetches one page of a list into feed (its entries are the caller's).

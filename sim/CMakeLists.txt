@@ -42,4 +42,4 @@ add_test(NAME sim-words COMMAND vellum-sim --headless --time 14:05 --keys "o[400
 # The free book store's demo catalogue: All books, the store link (Prev from the
 # top), Gutenberg, Most popular, a book, Download.
 add_test(NAME sim-store COMMAND vellum-sim --headless --demo-store --time 14:05 --card sim-store-card
-         --keys nnnopooooo --screenshot sim-store.png)
+         --keys nnnonnnnoonooo --screenshot sim-store.png)

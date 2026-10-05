@@ -8,9 +8,9 @@
 // progress) first. The radio stays on while the store is open and goes off
 // when it closes.
 //
-// Search: store_search() shows Gutenberg's results for some words, but
-// typing them needs the on-screen keyboard, which is not in yet. When it
-// is, a "Search" row on the lists page can call it.
+// Search: Gutenberg's lists page starts with Search, which opens the
+// on-screen keyboard; store_search() then shows the results like a list.
+// A library search can carry its words here too (the library's last row).
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -147,7 +147,7 @@ int App::store_row_count() const {
     case StorePage::Sources:
       return store::source_count();
     case StorePage::Lists:
-      return store::source(store_source_).list_count;
+      return (store::source(store_source_).search ? 1 : 0) + store::source(store_source_).list_count;
     case StorePage::Books:
       return (store_depth_ > 0 ? 1 : 0) + store_feed_.count + (store_feed_.next[0] != '\0' ? 1 : 0);
     case StorePage::Book:
@@ -176,7 +176,14 @@ void App::store_activate() {
       queue_.submit_full();
       return;
     case StorePage::Lists: {
-      const store::List& list = store::source(store_source_).lists[store_sel_];
+      const store::Source& source = store::source(store_source_);
+      if (source.search && store_sel_ == 0) {
+        open_keyboard(Typing::StoreSearch, "");
+        draw();
+        queue_.submit();
+        return;
+      }
+      const store::List& list = source.lists[store_sel_ - (source.search ? 1 : 0)];
       textfile::copy(text().store_lists[list.name], store_title_, sizeof(store_title_));
       store_depth_ = 0;
       return store_load(list.url);
@@ -425,14 +432,17 @@ void App::draw_store() {
         add_hit(r, i);
       }
       break;
-    case StorePage::Lists:
-      for (int i = 0; i < source.list_count; ++i) {
+    case StorePage::Lists: {
+      const int first_list = source.search ? 1 : 0;
+      for (int i = 0; i < store_row_count(); ++i) {
         const Rect r = row_rect(fb_, kListTop + 8 + i * kLinkHeight, kLinkHeight);
         if (i > 0 && i != store_sel_ && store_sel_ != i - 1) dotted_rule(fb_, r.y);
-        draw_link(fb_, r, t.store_lists[source.lists[i].name], i == store_sel_);
+        draw_link(fb_, r, i < first_list ? t.search : t.store_lists[source.lists[i - first_list].name],
+                  i == store_sel_);
         add_hit(r, i);
       }
       break;
+    }
     case StorePage::Books: {
       // A screen of rows: "Earlier books" first on a later page, the
       // books, "More books" last when the list goes on.
