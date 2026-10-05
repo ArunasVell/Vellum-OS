@@ -63,7 +63,14 @@ struct TextMark {
 
 class Reader {
  public:
-  static constexpr int kMaxPages = 1024;  // per chapter
+  // Pages per chapter, enough for about the largest chapter an Epub holds
+  // (2 MB) at the largest text size; pages past it cannot be reached.
+  static constexpr int kMaxPages = 8192;
+
+  Reader();
+  ~Reader();
+  Reader(const Reader&) = delete;
+  Reader& operator=(const Reader&) = delete;
 
   // Opens `doc` (`id` tells books apart when one Document object is reused)
   // at the page containing `pos`. Lays the chapter out again only when the
@@ -85,7 +92,9 @@ class Reader {
   int chapter() const { return chapter_; }
   int page() const { return page_; }
   int page_count() const { return page_count_; }
-  BookPos position() const { return {static_cast<uint16_t>(chapter_), page_starts_[page_]}; }
+  BookPos position() const {
+    return page_count_ > 0 ? BookPos{static_cast<uint16_t>(chapter_), page_starts_[page_]} : BookPos{};
+  }
   // Share of the whole book read, 0..100, weighting chapters by length.
   int percent() const;
   // Pages from this one to the end of the chapter, this one included.
@@ -119,7 +128,7 @@ class Reader {
   ReadingStyle style_{};
   int chapter_ = -1;
   Chapter chapter_info_{};
-  TextPos page_starts_[kMaxPages];
+  TextPos* page_starts_;  // kMaxPages of them, allocated once
   int page_count_ = 0;
   int page_ = 0;
   // The current page's words, for words(); valid while the key matches.

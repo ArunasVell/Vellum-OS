@@ -2601,6 +2601,55 @@ void test_reader_pages_left() {
   CHECK(reader.pages_left_in_chapter() == 1 && reader.pages_left_in_book() == 1);
 }
 
+// One chapter of `count` paragraphs, numbered so a page tells where it is.
+class LongDocument : public Document {
+ public:
+  explicit LongDocument(int count) {
+    for (int i = 0; i < count; ++i) {
+      text_.push_back("Paragraph " + std::to_string(i) +
+                      " of a chapter much longer than most, set over many pages to see that its end is reached.");
+    }
+    for (const std::string& t : text_) paragraphs_.push_back(t.c_str());
+  }
+  const char* language() const override { return "en"; }
+  int chapter_count() const override { return 1; }
+  uint32_t chapter_weight(int) const override { return static_cast<uint32_t>(paragraphs_.size()) * 100; }
+  bool load_chapter(int, Chapter& out) override {
+    out = {paragraphs_.data(), static_cast<uint32_t>(paragraphs_.size()), "", ""};
+    return true;
+  }
+  const TocEntry& toc(int) const override { return toc_; }
+
+ private:
+  std::vector<std::string> text_;
+  std::vector<const char*> paragraphs_;
+  TocEntry toc_;
+};
+
+void test_reader_long_chapter() {
+  // Over 1024 pages in one chapter (the old limit): every page is reached.
+  LongDocument doc(9000);
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  Settings large;
+  large.text_size = TextSize::ExtraLarge;
+  Reader reader;
+  CHECK(reader.open(doc, 1, reading_style(large), {}, f.fb));
+  CHECK(reader.page_count() > 1024);
+  int pages = 1;
+  while (reader.next()) ++pages;
+  CHECK(pages == reader.page_count());
+  CHECK(reader.position().text.paragraph > 8990);
+
+  // Opening another book forgets the first one's pages per length: the
+  // guess of pages left matches a fresh reader's.
+  SamplerDocument other;
+  CHECK(reader.open(other, 2, reading_style(large), {}, f.fb));
+  Reader fresh;
+  CHECK(fresh.open(other, 2, reading_style(large), {}, f.fb));
+  CHECK(reader.pages_left_in_book() == fresh.pages_left_in_book());
+}
+
 // Input with a steady count the test moves forward.
 class TimedInput : public InputSource {
  public:
@@ -2749,6 +2798,7 @@ int main() {
   test_dictionary_upload_names();
   test_reading_stats();
   test_reader_pages_left();
+  test_reader_long_chapter();
   test_app_reading_stats();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
