@@ -54,6 +54,8 @@ class Highlights {
   // Adds one (its id is filled in); returns its index, or -1 when full.
   int add(const Highlight& h);
   void remove(int k);
+  // A book's file moved: its highlights follow it to the new path.
+  void rename_book(const char* from, const char* to);
   // Sets a note (tabs and line breaks become spaces); false when there is no such id.
   bool set_note(uint32_t id, const char* note);
 

@@ -1,9 +1,11 @@
 // The books on the device and how far each one has been read: the built-in
-// samples plus every book in the card's "books" folder (and its root):
-// EPUB, plain text, FictionBook (also zipped) and single web pages.
+// samples plus every book in the card's "books" folder and its root, and in
+// their folders two levels down (Library::kMaxFolderDepth): EPUB, plain
+// text, FictionBook (also zipped) and single web pages.
 //
 // Book details are cached in vellum/library.txt so a restart does not reopen
-// every book; reading positions (and which books are finished) are kept in
+// every book, with the order books were first seen in (for "recently
+// added"); reading positions (and which books are finished) are kept in
 // vellum/progress.txt. Cover thumbnails are made when a book is first seen
 // (vellum/covers).
 #pragma once
@@ -25,6 +27,8 @@ namespace vellum {
 // Whether a file is a book by its name: .epub, .txt, .fb2, .fb2.zip,
 // .html or .htm (any case).
 bool is_book_file(const char* name);
+// Whether a file is a picture the viewer shows: .jpg, .jpeg, .png or .bmp.
+bool is_picture_file(const char* name);
 
 struct BookState {
   BookPos position;          // start of the page last shown
@@ -44,7 +48,8 @@ struct LibraryEntry {
   char author[96] = {};
   char language[16] = {};
   uint32_t file_size = 0;
-  int8_t cover = -1;  // -1 not looked at yet, 0 none, 1 thumbnails on the card (covers::path_for)
+  int8_t cover = -1;   // -1 not looked at yet, 0 none, 1 thumbnails on the card (covers::path_for)
+  uint32_t added = 0;  // order first seen on the card, larger = newer; 0 for the samples
   BookState state;
 };
 
@@ -63,6 +68,12 @@ class Library {
   static constexpr const char* kCachePath = "vellum/library.txt";
   static constexpr const char* kBookmarksPath = "vellum/bookmarks.txt";
   static constexpr int kMaxBookmarks = 256;
+  // Folders read below the root and below books/ ("books/Tolkien/Hobbit"
+  // is two down), and how many folders at most.
+  static constexpr int kMaxFolderDepth = 2;
+  static constexpr int kMaxFolders = 64;
+  // Where finished books go (Settings › Finished books).
+  static constexpr const char* kReadFolder = "books/Read";
 
   Library();
   ~Library();
@@ -76,6 +87,22 @@ class Library {
   void load(std::span<const Book* const> builtins, Storage* storage, Epub& epub, TextBook* text = nullptr);
   // Writes reading positions to the card.
   bool save_progress(Storage& storage) const;
+
+  // How deep a folder is: 0 for the root (".") and books/, 1 for a folder
+  // in either, and so on.
+  static int folder_depth(const char* dir);
+  // Whether books and pictures in this folder are shown: not hidden, not
+  // Vellum's own (vellum, fonts, dictionaries) and not too deep.
+  static bool shown_folder(const char* dir);
+  // Folders the last load() read besides books/ and the root.
+  int folder_count() const { return folder_count_; }
+  // The book with this card path, or -1.
+  int find(const char* path) const;
+  // Moves book i's file into `folder` (named "Name (2).epub" when the name
+  // is taken) with its cover thumbnails, cache line, reading position and
+  // bookmarks. Shelves, highlights and reading stats are the caller's.
+  // Returns false when the file could not be moved.
+  bool move_book(Storage& storage, int i, const char* folder);
 
   int count() const { return count_; }
   const LibraryEntry& entry(int i) const { return entries_[i]; }
@@ -99,13 +126,14 @@ class Library {
   // books after them in library order. Returns how many were written.
   int by_recent(int* out, int max) const;
   // Writes book indices to `out` in the given order: by_recent(); by title
-  // (library order); or by the author's surname, then title. Returns how
-  // many were written.
+  // (library order); by the author's surname, then title; or most recently
+  // added first (the samples last, by title). Returns how many were written.
   int sorted(LibrarySort order, int* out, int max) const;
 
  private:
   void scan_folder(Storage& storage, const char* dir, Epub& epub, TextBook* text);
   void load_cache(Storage& storage);
+  void save_cache(Storage& storage) const;
   void load_progress(Storage& storage);
   void load_bookmarks(Storage& storage);
 
@@ -114,6 +142,10 @@ class Library {
   LibraryEntry* cache_;  // details read from library.txt
   int cache_count_ = 0;
   bool cache_dirty_ = false;
+  // Folders still to read during load(), breadth first.
+  char (*folders_)[sizeof(LibraryEntry::path)];
+  int folders_queued_ = 0;
+  int folder_count_ = 0;
   uint32_t clock_ = 0;
   Bookmark* bookmarks_;
   int bookmark_count_ = 0;

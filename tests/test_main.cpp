@@ -1931,8 +1931,10 @@ void test_covers() {
   std::string cache = read_all("test-card/vellum/library.txt");
   const size_t at = cache.find("books/ncx.epub\t");
   CHECK(at != std::string::npos);
-  const size_t mark = cache.find("\t2\n", at);
-  CHECK(mark != std::string::npos && cache.find('\n', at) == mark + 2);
+  // The cover mark comes before the last field, the order the book was added in.
+  const size_t end = cache.find('\n', at);
+  const size_t mark = end == std::string::npos ? end : cache.rfind('\t', end) - 2;
+  CHECK(mark != std::string::npos && cache.compare(mark, 3, "\t2\t") == 0);
   if (mark == std::string::npos) return;
   cache[mark + 1] = '1';
   CHECK(card.write("vellum/library.txt", cache.data(), static_cast<uint32_t>(cache.size())));
@@ -1942,7 +1944,7 @@ void test_covers() {
   Library upgraded;
   upgraded.load(builtin_books(), &card, epub);
   CHECK(std::filesystem::exists(std::string("test-card/") + ncx_cover));
-  CHECK(read_all("test-card/vellum/library.txt").find("\t2\n", at) == mark);
+  CHECK(read_all("test-card/vellum/library.txt").find("\t2\t", at) == mark);
   std::remove("test-card/books/ncx.epub");
 
   // A picture drawn into a cover: light at the top, dark at the bottom,

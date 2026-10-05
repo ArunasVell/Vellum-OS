@@ -8,6 +8,7 @@ set(VELLUM_CORE_SRCS
   src/covers.cpp
   src/dictionary.cpp
   src/battery_log.cpp
+  src/bmp.cpp
   src/charset.cpp
   src/books/alice.cpp
   src/books/catalog.cpp
