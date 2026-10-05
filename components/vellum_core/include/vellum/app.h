@@ -9,11 +9,13 @@
 #include "vellum/font_library.h"
 #include "vellum/hal.h"
 #include "vellum/highlights.h"
+#include "vellum/keyboard.h"
 #include "vellum/library.h"
 #include "vellum/peer_transfer.h"
 #include "vellum/reader.h"
 #include "vellum/reading_stats.h"
 #include "vellum/settings.h"
+#include "vellum/shelves.h"
 #include "vellum/strings.h"
 #include "vellum/touch.h"
 #include "vellum/updates.h"
@@ -48,6 +50,15 @@ namespace vellum {
 // Reading stats shows it by day and by book, and the speed it gives tells
 // the time left in the chapter and the book (in Contents, and in the
 // footer when Settings › Reading › Footer asks for it).
+//
+// The library lists the books by recent reading, title or author (Sort,
+// kept in Settings) under tabs: All, Reading now, Finished and the reader's
+// own shelves (vellum/shelves.txt), then a tab that makes a new one. Search
+// opens an on-screen keyboard (Keyboard) and keeps the books whose title or
+// author holds the text, accents aside. Holding a book in the list, or
+// Contents › Add to shelf, opens its shelves screen: tick the shelves it is
+// on, make a new one, or mark the book finished (reaching the last page
+// does that too).
 //
 // Settings › Device check shows every button press and touch, and what the
 // board reports (battery, clock, card), for trying out new hardware.
@@ -97,7 +108,8 @@ class App {
     Check,
     Updates,
     Send,
-    Stats
+    Stats,
+    Shelve  // a book's shelves, and whether it is finished
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -106,6 +118,7 @@ class App {
     Light,
     LookUp,
     Send,
+    Shelves,  // opens the book's shelves screen
     BookmarksLabel,
     Bookmark,
     HighlightsLabel,
@@ -124,13 +137,47 @@ class App {
   };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
-  static constexpr int kHomeRows = 2;     // other books listed under the current one
-  static constexpr int kLibraryRows = 7;  // books per library page
+  static constexpr int kHomeRows = 2;  // other books listed under the current one
+  // What the on-screen keyboard is typing for.
+  enum class Typing : uint8_t { Off, Search, NewShelf, RenameShelf, NewShelfForBook };
 
   // Home lists the current book, up to kHomeRows others, then these links.
   int home_item_count() const;
   void home_activate();
-  void library_activate();
+  // The library: Sort and Search, the tabs, then (on a shelf of the
+  // reader's) Rename and Delete, then the books. library_sel_ counts
+  // through all of them in that order.
+  void open_library();
+  // Rebuilds library_view_ from the tab, the order and the search.
+  void build_library_view();
+  int library_tab_count() const;   // All, Reading now, Finished, the shelves, New shelf
+  bool library_on_shelf() const;   // a shelf of the reader's is the tab shown
+  int library_first_book() const;  // selection index of the first book
+  int library_item_count() const;
+  int library_rows() const;  // books on one page
+  int library_list_top() const;
+  void library_select_book(int view_index);
+  const char* tab_name(int tab) const;
+  int tab_width(int tab) const;  // px, with its padding
+  // Scrolls the tabs so that `tab` is drawn.
+  void library_show_tab(int tab);
+  // These return true when the screen needs a redraw (false: it changed
+  // screens, or drew itself).
+  bool library_activate();
+  bool library_key(Key key);
+  bool library_gesture(const Gesture& g);
+  // A book's shelves screen; `back` is where Done returns to.
+  void open_shelve(int book, Screen back);
+  int shelve_row_count() const;
+  int shelve_rows_per_page() const;
+  bool shelve_activate();
+  void draw_shelve();
+  void save_shelves();
+  // The keyboard: opens it over the current screen, and acts on what it
+  // reports. Both return true when the screen needs a redraw.
+  bool open_keyboard(Typing typing, std::string_view text);
+  bool keyboard_input(Keyboard::Result r);
+  bool finish_typing(bool ok);
   void settings_activate();
   // Settings has a general page and a reading page (with a text preview).
   void open_settings(bool reading);
@@ -198,6 +245,7 @@ class App {
   bool handle_gesture(const Gesture& g);
   // Turns a page in the reader; returns false at the start or end of the book.
   bool turn(int step);
+  bool at_last_page() const;
 
   // Battery history: a reading now (false when the time or level is
   // unknown), and readings while in use, every BatteryLog::kIntervalS.
@@ -274,6 +322,21 @@ class App {
   int reading_ = -1;  // library index of the book in reader_
   int home_sel_ = 0;
   int library_sel_ = 0;
+  int library_tab_ = 0;         // 0 All, 1 Reading now, 2 Finished, 3 + k shelf k
+  int library_tabs_first_ = 0;  // first tab drawn when they do not all fit
+  int library_tabs_last_ = 0;   // and the last one drawn
+  int library_page_ = 0;
+  bool delete_armed_ = false;                  // Delete shelf was pressed once
+  int library_view_[Library::kMaxBooks] = {};  // the books shown, in order
+  int library_view_count_ = 0;
+  char search_[Keyboard::kMaxBytes + 1] = {};         // the library's search, "" for none
+  char search_before_[Keyboard::kMaxBytes + 1] = {};  // put back by Cancel
+  Shelves shelves_;
+  Keyboard keyboard_;
+  Typing typing_ = Typing::Off;
+  int shelve_book_ = 0;  // the book on the shelves screen
+  int shelve_sel_ = 0;
+  Screen shelve_back_ = Screen::Library;
   int settings_sel_ = 0;
   bool settings_reading_ = false;  // the reading page of Settings
   FontLibrary fonts_;
@@ -342,7 +405,7 @@ class App {
     Rect r;
     int item;
   };
-  static constexpr int kMaxHits = 16;
+  static constexpr int kMaxHits = 32;
   Hit hits_[kMaxHits] = {};
   int hit_count_ = 0;
   TouchTracker touch_;

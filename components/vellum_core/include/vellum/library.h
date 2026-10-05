@@ -2,17 +2,21 @@
 // samples plus every EPUB in the card's "books" folder (and its root).
 //
 // Book details are cached in vellum/library.txt so a restart does not reopen
-// every EPUB; reading positions are kept in vellum/progress.txt. Cover
-// thumbnails are made when a book is first seen (vellum/covers).
+// every EPUB; reading positions (and which books are finished) are kept in
+// vellum/progress.txt. Cover thumbnails are made when a book is first seen
+// (vellum/covers).
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 #include "vellum/book.h"
 #include "vellum/epub.h"
 #include "vellum/hal.h"
 #include "vellum/reader.h"
+#include "vellum/settings.h"
 
 namespace vellum {
 
@@ -20,8 +24,11 @@ struct BookState {
   BookPos position;          // start of the page last shown
   uint8_t percent = 0;       // of the whole book, when last read
   uint32_t last_opened = 0;  // larger = more recent; 0 = never opened
+  bool finished = false;     // read to the last page, or marked so
 
   bool started() const { return last_opened != 0; }
+  // Opened and not finished: the library's "Reading now".
+  bool reading() const { return started() && !finished; }
 };
 
 struct LibraryEntry {
@@ -84,6 +91,10 @@ class Library {
   // Writes book indices to `out`, most recently opened first and unopened
   // books after them in library order. Returns how many were written.
   int by_recent(int* out, int max) const;
+  // Writes book indices to `out` in the given order: by_recent(); by title
+  // (library order); or by the author's surname, then title. Returns how
+  // many were written.
+  int sorted(LibrarySort order, int* out, int max) const;
 
  private:
   void scan_folder(Storage& storage, const char* dir, Epub& epub);
@@ -100,5 +111,16 @@ class Library {
   Bookmark* bookmarks_;
   int bookmark_count_ = 0;
 };
+
+// Search: text compared without case or accents, so "zemaite" finds
+// "Žemaitė". Latin letters (Latin-1 and Latin Extended-A) lose their marks;
+// other characters are kept as they are.
+//
+// Writes the folded form of `in` to out (NUL-terminated, cut to fit at a
+// whole character). Returns its length.
+size_t fold_for_search(std::string_view in, char* out, size_t size);
+// Whether `query` (any case and accents) appears in `text`. Spaces at the
+// ends of the query are ignored; an empty query matches everything.
+bool matches_search(std::string_view text, std::string_view query);
 
 }  // namespace vellum
