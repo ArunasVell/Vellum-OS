@@ -8,6 +8,16 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
+# Every wake from deep sleep is a fresh start: skip the PSRAM test (about
+# 8 MB written and read back) and the app image check on those starts.
+# Power-on starts and updates still check the image.
+# CONFIG_SPIRAM_MEMTEST is not set
+CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP=y
+# Only small blocks (under 4 KB) prefer internal RAM; the app's buffers go to
+# PSRAM. Internal RAM is kept for Wi-Fi, DMA and task stacks: with the 16 KB
+# default the app's font, cover and book buffers filled it before Wi-Fi
+# started (docs/checkup.md).
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
 
 # Speed: run fast when busy, let power management scale down when idle.
 CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
@@ -21,8 +31,13 @@ CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 # Logs and flashing over the built-in USB serial/JTAG port.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 
-# Room for text layout on the main task.
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# The app runs on the main task. Decoding a PNG cover alone takes about
+# 9 KB of stack (stb_image), so 8 KB overflowed; see docs/checkup.md.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+
+# A crash leaves a core dump in the "coredump" partition for
+# `idf.py coredump-info` (it already exists in partitions.csv).
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
 
 # SD card: long file names in UTF-8, so book files keep their real names.
 CONFIG_FATFS_LFN_HEAP=y
