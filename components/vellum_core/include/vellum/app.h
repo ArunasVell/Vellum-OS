@@ -15,6 +15,7 @@
 #include "vellum/reading_stats.h"
 #include "vellum/settings.h"
 #include "vellum/strings.h"
+#include "vellum/text_book.h"
 #include "vellum/touch.h"
 #include "vellum/updates.h"
 
@@ -256,6 +257,8 @@ class App {
   Settings settings_;
   Epub epub_;
   char epub_path_[160] = {};  // book open in epub_
+  TextBook text_book_;        // .txt, .fb2, .fb2.zip and .html books
+  char text_path_[160] = {};  // book open in text_book_
   BuiltinDocument builtin_;
   Reader reader_;
   int turns_since_save_ = 0;

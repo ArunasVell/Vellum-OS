@@ -1053,6 +1053,33 @@ void test_app_front_light() {
 
 // ---- Plain text, FictionBook and web-page books ------------------------------
 
+void test_app_opens_fb2() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  StdioStorage card("test-card-app-fb2");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.fb2");
+  CHECK(card.write("books/sample.fb2", book.data(), static_cast<uint32_t>(book.size())));
+  const char* progress = "books/sample.fb2\t0\t0\t0\t0\t1\n";  // the book read last
+  CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
+  std::remove("test-card-app-fb2/vellum/library.txt");
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the book
+  auto progress_has = [](const char* fields) {
+    return read_all("test-card-app-fb2/vellum/progress.txt").find(fields) != std::string::npos;
+  };
+  CHECK(progress_has("books/sample.fb2\t0\t0\t0\t"));
+  // Contents: back, bookmark, light, look up, CHAPTERS, then the book's five entries.
+  press(*app, Key::Power);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // "Antras skyrius", the fifth chapter
+  CHECK(progress_has("books/sample.fb2\t4\t0\t0\t"));
+  delete app;
+}
+
 void test_charset_detection() {
   using charset::Encoding;
   uint32_t bom = 0;
@@ -2880,6 +2907,7 @@ int main() {
   test_html_book();
   test_library_finds_other_formats();
   test_book_upload_names();
+  test_app_opens_fb2();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;
