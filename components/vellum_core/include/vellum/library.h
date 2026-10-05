@@ -1,8 +1,9 @@
 // The books on the device and how far each one has been read: the built-in
-// samples plus every EPUB in the card's "books" folder (and its root).
+// samples plus every book in the card's "books" folder (and its root):
+// EPUB, plain text, FictionBook (also zipped) and single web pages.
 //
 // Book details are cached in vellum/library.txt so a restart does not reopen
-// every EPUB; reading positions (and which books are finished) are kept in
+// every book; reading positions (and which books are finished) are kept in
 // vellum/progress.txt. Cover thumbnails are made when a book is first seen
 // (vellum/covers).
 #pragma once
@@ -17,8 +18,13 @@
 #include "vellum/hal.h"
 #include "vellum/reader.h"
 #include "vellum/settings.h"
+#include "vellum/text_book.h"
 
 namespace vellum {
+
+// Whether a file is a book by its name: .epub, .txt, .fb2, .fb2.zip,
+// .html or .htm (any case).
+bool is_book_file(const char* name);
 
 struct BookState {
   BookPos position;          // start of the page last shown
@@ -33,7 +39,7 @@ struct BookState {
 
 struct LibraryEntry {
   const Book* builtin = nullptr;  // set for samples compiled into the firmware
-  char path[160] = {};            // card path of an EPUB; "builtin:<title>" for samples
+  char path[160] = {};            // card path of the book file; "builtin:<title>" for samples
   char title[128] = {};
   char author[96] = {};
   char language[16] = {};
@@ -63,10 +69,11 @@ class Library {
   Library(const Library&) = delete;
   Library& operator=(const Library&) = delete;
 
-  // Rebuilds the list: built-in samples, then the card's EPUBs (opened with
-  // `epub` only when the cache does not know them), sorted by title. Reading
-  // positions are reloaded from the card.
-  void load(std::span<const Book* const> builtins, Storage* storage, Epub& epub);
+  // Rebuilds the list: built-in samples, then the card's books (opened with
+  // `epub` or `text` only when the cache does not know them; other formats
+  // are left out without `text`), sorted by title. Reading positions are
+  // reloaded from the card.
+  void load(std::span<const Book* const> builtins, Storage* storage, Epub& epub, TextBook* text = nullptr);
   // Writes reading positions to the card.
   bool save_progress(Storage& storage) const;
 
@@ -97,7 +104,7 @@ class Library {
   int sorted(LibrarySort order, int* out, int max) const;
 
  private:
-  void scan_folder(Storage& storage, const char* dir, Epub& epub);
+  void scan_folder(Storage& storage, const char* dir, Epub& epub, TextBook* text);
   void load_cache(Storage& storage);
   void load_progress(Storage& storage);
   void load_bookmarks(Storage& storage);

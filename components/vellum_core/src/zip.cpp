@@ -89,14 +89,20 @@ bool Zip::open(File* file) {
   return true;
 }
 
+uint32_t Zip::data_offset(int i) {
+  const Entry& e = entries_[i];
+  uint8_t h[kLocalSize];
+  if (file_->read_at(e.local_offset, h, kLocalSize) != static_cast<int32_t>(kLocalSize)) return 0;
+  if (le32(h) != kLocalSignature) return 0;
+  return e.local_offset + kLocalSize + le16(h + 26) + le16(h + 28);
+}
+
 int32_t Zip::extract(int i, uint8_t* out, uint32_t cap) {
   if (file_ == nullptr || i < 0 || i >= count_) return -1;
   const Entry& e = entries_[i];
   if (e.size > cap) return -1;
-  uint8_t h[kLocalSize];
-  if (file_->read_at(e.local_offset, h, kLocalSize) != static_cast<int32_t>(kLocalSize)) return -1;
-  if (le32(h) != kLocalSignature) return -1;
-  uint32_t pos = e.local_offset + kLocalSize + le16(h + 26) + le16(h + 28);
+  uint32_t pos = data_offset(i);
+  if (pos == 0) return -1;
 
   if (e.method == kStored) {
     return file_->read_at(pos, out, e.size) == static_cast<int32_t>(e.size) ? static_cast<int32_t>(e.size) : -1;
@@ -130,6 +136,56 @@ int32_t Zip::extract(int i, uint8_t* out, uint32_t cap) {
       }
       if (status < TINFL_STATUS_DONE || status == TINFL_STATUS_HAS_MORE_OUTPUT) return -1;
       if (want == 0) return -1;
+    }
+  }
+}
+
+bool Zip::extract_to(int i, Writer& out, uint8_t* window) {
+  if (file_ == nullptr || i < 0 || i >= count_) return false;
+  const Entry& e = entries_[i];
+  uint32_t pos = data_offset(i);
+  if (pos == 0) return false;
+  if (e.method == kStored) {
+    for (uint32_t done = 0; done < e.size;) {
+      const uint32_t want = std::min(e.size - done, kChunk);
+      if (file_->read_at(pos + done, chunk_, want) != static_cast<int32_t>(want) || !out.write(chunk_, want)) {
+        return false;
+      }
+      done += want;
+    }
+    return true;
+  }
+  if (e.method != kDeflated) return false;
+
+  // The window wraps: each time the inflater fills part of it, that part is
+  // written out and later overwritten.
+  auto* inflater = static_cast<tinfl_decompressor*>(inflater_);
+  tinfl_init(inflater);
+  uint32_t remaining = e.compressed;
+  size_t window_pos = 0;
+  uint32_t written = 0;
+  for (;;) {
+    const uint32_t want = std::min(remaining, kChunk);
+    if (want > 0 && file_->read_at(pos, chunk_, want) != static_cast<int32_t>(want)) return false;
+    pos += want;
+    remaining -= want;
+    size_t in_used = 0;
+    for (;;) {
+      size_t in_size = want - in_used;
+      size_t out_size = kWindowBytes - window_pos;
+      const mz_uint32 flags = remaining > 0 ? TINFL_FLAG_HAS_MORE_INPUT : 0;
+      const tinfl_status status =
+          tinfl_decompress(inflater, chunk_ + in_used, &in_size, window, window + window_pos, &out_size, flags);
+      in_used += in_size;
+      if (out_size > 0 && !out.write(window + window_pos, static_cast<uint32_t>(out_size))) return false;
+      written += static_cast<uint32_t>(out_size);
+      window_pos = (window_pos + out_size) & (kWindowBytes - 1);
+      if (status == TINFL_STATUS_DONE) return written == e.size;
+      if (status == TINFL_STATUS_NEEDS_MORE_INPUT) {
+        if (remaining == 0) return false;  // truncated
+        break;
+      }
+      if (status != TINFL_STATUS_HAS_MORE_OUTPUT) return false;
     }
   }
 }

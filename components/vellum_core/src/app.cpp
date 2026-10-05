@@ -417,7 +417,7 @@ App::App(Board& board)
     highlights_.load(*board_.storage);
     shelves_.load(*board_.storage);
   }
-  library_.load(builtin_books(), board_.storage, epub_);
+  library_.load(builtin_books(), board_.storage, epub_, &text_book_);
   fonts_.scan(board_.storage);
   apply_fonts();
 }
@@ -446,8 +446,10 @@ void App::reload_library() {
 void App::rescan_library() {
   epub_.close();
   epub_path_[0] = '\0';
+  text_book_.close();
+  text_path_[0] = '\0';
   reading_ = -1;
-  library_.load(builtin_books(), board_.storage, epub_);
+  library_.load(builtin_books(), board_.storage, epub_, &text_book_);
   fonts_.scan(board_.storage);  // fonts may have arrived with the books
   apply_fonts();
   dictionaries_scanned_ = false;  // and dictionaries
@@ -2394,12 +2396,17 @@ void App::open_book(int index) {
     builtin_.set(*entry.builtin);
   } else {
     if (board_.storage == nullptr) return;
-    if (!epub_.is_open() || std::strcmp(epub_path_, entry.path) != 0) {
-      epub_path_[0] = '\0';
-      if (!epub_.open(*board_.storage, entry.path)) return;  // unreadable: stay where we are
-      std::snprintf(epub_path_, sizeof(epub_path_), "%s", entry.path);
+    // Text, FictionBook and web pages in text_book_, the rest are EPUBs.
+    const bool text = TextBook::format_of(entry.path) != TextBook::Format::None;
+    char* open_path = text ? text_path_ : epub_path_;
+    const bool is_open = text ? text_book_.is_open() : epub_.is_open();
+    if (!is_open || std::strcmp(open_path, entry.path) != 0) {
+      open_path[0] = '\0';
+      const bool ok = text ? text_book_.open(*board_.storage, entry.path) : epub_.open(*board_.storage, entry.path);
+      if (!ok) return;  // unreadable: stay where we are
+      std::snprintf(open_path, sizeof(epub_path_), "%s", entry.path);
     }
-    doc = &epub_;
+    doc = text ? static_cast<Document*>(&text_book_) : &epub_;
   }
   BookState& state = library_.state(index);
   if (!reader_.open(*doc, static_cast<uint32_t>(index) + 1, reading_style(settings_, &book_fonts_), state.position,

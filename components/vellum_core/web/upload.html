@@ -48,11 +48,11 @@
     <div class="eyebrow">Vellum</div>
     <h1 data-t="title">Add books</h1>
   </div>
-  <p data-t="lead">Choose EPUB books on this phone or computer. They go straight onto the reader's SD card. Fonts (.ttf or .otf) work too: pick them in Settings › Menu font or Reading › Book font. So do StarDict dictionaries (.ifo, .idx and .dict or .dict.dz, all three): hold a word while reading to look it up.</p>
+  <p data-t="lead">Choose books on this phone or computer: EPUB, FB2, TXT or HTML. They go straight onto the reader's SD card. Word (.docx), Markdown (.md) and RTF files are converted here first. MOBI, AZW and PDF cannot be read: turn them into EPUB with Calibre (calibre-ebook.com) first. Fonts (.ttf or .otf) work too: pick them in Settings › Menu font or Reading › Book font. So do StarDict dictionaries (.ifo, .idx and .dict or .dict.dz, all three): hold a word while reading to look it up.</p>
   <div class="drop" id="drop">
     <button id="pick" type="button" data-t="pick">Choose books</button>
-    <p data-t="drop">or drop EPUB, font or dictionary files here</p>
-    <input id="file" type="file" accept=".epub,application/epub+zip,.ttf,.otf,font/ttf,font/otf,.ifo,.idx,.dict,.dz,.syn" multiple hidden>
+    <p data-t="drop">or drop books, fonts or dictionaries here</p>
+    <input id="file" type="file" accept=".epub,application/epub+zip,.fb2,.zip,.txt,.html,.htm,.docx,.md,.rtf,.ttf,.otf,font/ttf,font/otf,.ifo,.idx,.dict,.dz,.syn" multiple hidden>
   </div>
   <section id="sending" hidden>
     <h2 data-t="sending">Sending</h2>
@@ -78,15 +78,17 @@
   const lt = /^lt\b/i.test(navigator.language || "");
   const T = lt ? {
     title: "Įkelti knygas",
-    lead: "Pasirinkite EPUB knygas šiame telefone ar kompiuteryje. Jos įrašomos tiesiai į skaityklės SD kortelę. Tinka ir šriftai (.ttf ar .otf): juos pasirinkite Nustatymai › Meniu šriftas arba Skaitymas › Knygos šriftas. Tinka ir StarDict žodynai (.ifo, .idx ir .dict arba .dict.dz, visi trys): skaitydami palaikykite žodį ir pamatysite jo reikšmę.",
-    pick: "Pasirinkti knygas", drop: "arba įmeskite EPUB, šriftų ar žodynų failus čia", sending: "Siunčiama",
+    lead: "Pasirinkite knygas šiame telefone ar kompiuteryje: EPUB, FB2, TXT ar HTML. Jos įrašomos tiesiai į skaityklės SD kortelę. Word (.docx), Markdown (.md) ir RTF failai pirma paverčiami čia. MOBI, AZW ir PDF neskaitomi: pirma paverskite juos į EPUB su Calibre (calibre-ebook.com). Tinka ir šriftai (.ttf ar .otf): juos pasirinkite Nustatymai › Meniu šriftas arba Skaitymas › Knygos šriftas. Tinka ir StarDict žodynai (.ifo, .idx ir .dict arba .dict.dz, visi trys): skaitydami palaikykite žodį ir pamatysite jo reikšmę.",
+    pick: "Pasirinkti knygas", drop: "arba įmeskite knygas, šriftus ar žodynus čia", sending: "Siunčiama",
     onreader: "Skaityklėje", done: "Baigę paspauskite skaityklės Namų mygtuką. Naujos knygos atsiras bibliotekoje.",
     waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "netinka", none: "Knygų dar nėra.",
+    converting: "verčiama…", convfail: "nepavyko paversti", calibre: "paverskite su Calibre",
     highlights: "Pabraukimai", copyall: "Kopijuoti viską", dltxt: "Atsisiųsti .txt", dlmd: "Atsisiųsti .md",
     copied: "Nukopijuota", note: "Pastaba", addnote: "Pridėkite pastabą…", savenote: "Išsaugoti", saved: "išsaugota",
     remove: "Pašalinti", removeq: "Pašalinti šį pabraukimą?"
   } : {
     waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book, font or dictionary", none: "No books yet.",
+    converting: "converting…", convfail: "could not convert", calibre: "convert with Calibre",
     copied: "Copied", note: "Note", addnote: "Add a note…", savenote: "Save", saved: "saved",
     remove: "Remove", removeq: "Remove this highlight?"
   };
@@ -125,23 +127,149 @@
     } catch (_) {}
   }
 
+  // Books the reader cannot open as they are, converted on this phone: Word
+  // and Markdown into a web page (its headings become chapters), RTF into
+  // plain text. No internet is needed.
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const page = (title, author, body) => `<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>${esc(title)}</title>` +
+    (author ? `<meta name="author" content="${esc(author)}">` : "") + `</head><body>\n${body}</body></html>\n`;
+  const base = (name) => name.replace(/\.[^.]+$/, "");
+
+  // Reads a ZIP archive (a .docx is one); returns a function giving an entry's text.
+  async function unzip(buf) {
+    const v = new DataView(buf);
+    let e = buf.byteLength - 22;
+    while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+    if (e < 0) throw new Error("not a zip");
+    const files = {};
+    for (let i = 0, p = v.getUint32(e + 16, true); i < v.getUint16(e + 10, true); i++) {
+      const nl = v.getUint16(p + 28, true);
+      files[new TextDecoder().decode(new Uint8Array(buf, p + 46, nl))] =
+        { method: v.getUint16(p + 10, true), size: v.getUint32(p + 20, true), at: v.getUint32(p + 42, true) };
+      p += 46 + nl + v.getUint16(p + 30, true) + v.getUint16(p + 32, true);
+    }
+    return async (name) => {
+      const f = files[name];
+      if (!f) return null;
+      let data = new Uint8Array(buf, f.at + 30 + v.getUint16(f.at + 26, true) + v.getUint16(f.at + 28, true), f.size);
+      if (f.method === 8) data = await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer();
+      return new TextDecoder().decode(data);
+    };
+  }
+
+  async function fromDocx(f) {
+    const get = await unzip(await f.arrayBuffer());
+    const xml = (s) => new DOMParser().parseFromString(s, "application/xml");
+    const all = (el, name) => [...el.getElementsByTagNameNS("*", name)];
+    const doc = xml(await get("word/document.xml"));
+    const core = await get("docProps/core.xml");
+    const meta = (name) => (core && all(xml(core), name)[0]?.textContent.trim()) || "";
+    const val = (el) => el?.getAttributeNS(el.namespaceURI, "val") || el?.getAttribute("w:val") || "";
+    let body = "";
+    for (const p of all(doc, "p")) {
+      let text = "";
+      for (const r of all(p, "r")) {
+        let t = "";
+        for (const n of r.childNodes) t += n.localName === "t" ? esc(n.textContent) : n.localName === "tab" ? " " : n.localName === "br" ? "<br>" : "";
+        const b = all(r, "b").length && val(all(r, "b")[0]) !== "0", i = all(r, "i").length && val(all(r, "i")[0]) !== "0";
+        text += t && b ? `<b>${t}</b>` : t && i ? `<i>${t}</i>` : t;
+      }
+      if (!text.trim()) continue;
+      // Heading level: from the outline level, or a style named like "Heading 1" or "Title".
+      const style = val(all(p, "pStyle")[0]), outline = all(p, "outlineLvl")[0];
+      let level = outline && +val(outline) < 9 ? +val(outline) + 1 : /^(title|pavadinimas)$/i.test(style) ? 1 : +(/^(heading|antra\S*|\S*berschrift|titre)\s*(\d)$/i.exec(style)?.[2] || 0);
+      body += level ? `<h${Math.min(level, 3)}>${text}</h${Math.min(level, 3)}>\n` : `<p>${text}</p>\n`;
+    }
+    return new File([page(meta("title") || base(f.name), meta("creator"), body)], base(f.name) + ".html");
+  }
+
+  async function fromMarkdown(f) {
+    const inline = (s) => esc(s).replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>")
+      .replace(/`([^`]+)`/g, "$1").replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1");
+    let body = "", para = [], title = "";
+    const flush = () => { if (para.length) body += `<p>${inline(para.join(" "))}</p>\n`; para = []; };
+    for (const line of (await f.text()).split(/\r?\n/)) {
+      const h = /^(#{1,6})\s+(.*?)\s*#*$/.exec(line);
+      if (h) { flush(); const n = Math.min(h[1].length, 3); title ||= h[2]; body += `<h${n}>${inline(h[2])}</h${n}>\n`; }
+      else if (/^\s*([-*_]\s*){3,}$/.test(line)) { flush(); body += "<hr>\n"; }
+      else if (!line.trim()) flush();
+      else if (/^\s*([-*+]|\d+\.)\s+/.test(line)) { flush(); para.push(line.replace(/^\s*[-*+]\s+/, "• ").trim()); flush(); }
+      else para.push(line.replace(/^\s*>\s?/, "").trim());
+    }
+    flush();
+    return new File([page(title || base(f.name), "", body)], base(f.name) + ".html");
+  }
+
+  async function fromRtf(f) {
+    const s = new TextDecoder("latin1").decode(await f.arrayBuffer());
+    let dec;
+    try { dec = new TextDecoder("windows-" + (/\\ansicpg(\d+)/.exec(s)?.[1] || "1252")); } catch (_) { dec = new TextDecoder("windows-1252"); }
+    const hidden = /^(fonttbl|colortbl|stylesheet|info|pict|header[lrf]?|footer[lrf]?|listtable|listoverridetable|rsidtbl|generator|xmlnstbl|themedata|colorschememapping|latentstyles|datastore|object|fldinst)$/;
+    const named = { par: "\n\n", sect: "\n\n", page: "\n\n", line: "\n", tab: "\t", emdash: "\u2014", endash: "\u2013",
+      lquote: "\u2018", rquote: "\u2019", ldblquote: "\u201C", rdblquote: "\u201D", bullet: "\u2022" };
+    let out = "", bytes = [], skip = false, uc = 1, pending = 0;
+    const stack = [];
+    const flush = () => { if (bytes.length) { out += dec.decode(new Uint8Array(bytes)); bytes = []; } };
+    for (let i = 0; i < s.length;) {
+      const c = s[i];
+      if (c === "{" || c === "}") { if (c === "{") stack.push([skip, uc]); else [skip, uc] = stack.pop() || [false, 1]; i++; continue; }
+      if (c === "\\") {
+        const m = /^\\(?:([a-z]+)(-?\d+)? ?|'([0-9a-f]{2})|([\s\S]))/i.exec(s.slice(i, i + 40));
+        if (!m) break;
+        i += m[0].length;
+        if (skip) continue;
+        if (m[3]) { if (pending) pending--; else bytes.push(parseInt(m[3], 16)); continue; }
+        flush();
+        if (m[4]) { if (m[4] === "*") skip = true; else if ("\\{}".includes(m[4])) out += m[4]; else if (m[4] === "~") out += "\u00A0"; else if (m[4] === "\n" || m[4] === "\r") out += "\n\n"; continue; }
+        const n = m[2] === undefined ? 0 : +m[2];
+        if (hidden.test(m[1])) skip = true;
+        else if (m[1] === "uc") uc = n;
+        else if (m[1] === "u") { out += String.fromCharCode(n < 0 ? n + 65536 : n); pending = uc; }
+        else if (named[m[1]]) out += named[m[1]];
+        continue;
+      }
+      i++;
+      if (skip || c === "\r" || c === "\n") continue;
+      if (pending) { pending--; continue; }
+      flush();
+      out += c;
+    }
+    flush();
+    return new File([out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n"], base(f.name) + ".txt");
+  }
+
   function add(files) {
     for (const f of files) {
       const r = row(f.name, T.waiting);
       sendingEl.hidden = false;
       queueEl.append(r.li);
-      if (!/\.(epub|ttf|otf|ifo|idx|dict|dict\.dz|syn)$/i.test(f.name)) { r.state.textContent = T.notepub; r.state.classList.add("bad"); continue; }
+      const convert = /\.docx$/i.test(f.name) ? fromDocx : /\.(md|markdown)$/i.test(f.name) ? fromMarkdown : /\.rtf$/i.test(f.name) ? fromRtf : null;
+      const bad = (text) => { r.state.textContent = text; r.state.classList.add("bad"); };
+      if (/\.(mobi|azw\d?|kfx|pdf|doc|djvu|lit|pdb|cbz|cbr)$/i.test(f.name)) { bad(T.calibre); continue; }
+      if (!convert && !/\.(epub|fb2|fb2\.zip|txt|html?|ttf|otf|ifo|idx|dict|dict\.dz|syn)$/i.test(f.name)) { bad(T.notepub); continue; }
       const bar = document.createElement("div"); bar.className = "bar"; bar.innerHTML = "<i></i>";
       r.left.append(bar);
-      jobs.push({ f, r, bar: bar.firstChild });
+      jobs.push({ f, r, bar: bar.firstChild, convert });
     }
     next();
   }
 
-  function next() {
+  async function next() {
     if (running || !jobs.length) return;
     running = true;
-    const { f, r, bar } = jobs.shift();
+    let { f, r, bar, convert } = jobs.shift();
+    if (convert) {
+      r.state.textContent = T.converting;
+      try {
+        f = await convert(f);
+        r.left.firstChild.textContent = f.name;
+      } catch (_) {
+        r.state.textContent = T.convfail; r.state.classList.add("bad");
+        running = false;
+        next();
+        return;
+      }
+    }
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/upload?name=" + encodeURIComponent(f.name));
     xhr.upload.onprogress = (e) => {

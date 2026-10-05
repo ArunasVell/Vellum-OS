@@ -24,6 +24,7 @@
 #include "esp_vfs_fat.h"
 #include "esp_wifi.h"
 #include "vellum/highlights.h"
+#include "vellum/library.h"
 #include "vellum/stdio_storage.h"
 #include "vellum/upload_page.h"
 #include "wifi_common.h"
@@ -119,8 +120,7 @@ struct WifiTransfer::Impl {
     if (DIR* d = opendir(dir_path)) {
       bool first = true;
       while (dirent* e = readdir(d)) {
-        const size_t n = std::strlen(e->d_name);
-        if (e->d_name[0] == '.' || n < 5 || strcasecmp(e->d_name + n - 5, ".epub") != 0) continue;
+        if (e->d_name[0] == '.' || !vellum::is_book_file(e->d_name)) continue;
         char path[384];
         std::snprintf(path, sizeof(path), "%s/%s", dir_path, e->d_name);
         struct stat sb;
@@ -155,12 +155,12 @@ struct WifiTransfer::Impl {
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
         httpd_query_key_value(query, "name", raw, sizeof(raw)) != ESP_OK ||
         !vellum::url_decode(raw, std::strlen(raw), decoded, sizeof(decoded))) {
-      return fail(req, "400 Bad Request", "Only EPUB books, fonts and dictionaries can be added.");
+      return fail(req, "400 Bad Request", "Only books (EPUB, FB2, TXT, HTML), fonts and dictionaries can be added.");
     }
     const bool font = vellum::safe_font_name(decoded, name, sizeof(name));
     const bool dictionary = !font && vellum::safe_dictionary_name(decoded, name, sizeof(name));
     if (!font && !dictionary && !vellum::safe_book_name(decoded, name, sizeof(name))) {
-      return fail(req, "400 Bad Request", "Only EPUB books, fonts and dictionaries can be added.");
+      return fail(req, "400 Bad Request", "Only books (EPUB, FB2, TXT, HTML), fonts and dictionaries can be added.");
     }
 
     // Room on the card?

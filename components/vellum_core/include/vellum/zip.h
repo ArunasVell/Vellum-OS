@@ -37,7 +37,16 @@ class Zip {
   // entry, an unsupported method, or when it does not fit in cap.
   int32_t extract(int i, uint8_t* out, uint32_t cap);
 
+  // Extracts entry i piece by piece into `out`, for entries too large to
+  // hold in memory. `window` holds kWindowBytes: the inflater's history.
+  // Returns false on a damaged entry, an unsupported method or a failed write.
+  static constexpr uint32_t kWindowBytes = 32768;
+  bool extract_to(int i, Writer& out, uint8_t* window);
+
  private:
+  // Where entry i's data starts in the file, after its local header; 0 on error.
+  uint32_t data_offset(int i);
+
   struct Entry {
     uint32_t name_offset;
     uint32_t local_offset;

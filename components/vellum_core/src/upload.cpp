@@ -68,7 +68,7 @@ bool safe_name(const char* in, char* out, size_t size, const char* const* exts) 
   return ext != nullptr && n > std::strlen(ext);
 }
 
-constexpr const char* kBookExts[] = {".epub", nullptr};
+constexpr const char* kBookExts[] = {".epub", ".fb2.zip", ".fb2", ".txt", ".html", ".htm", nullptr};
 constexpr const char* kFontExts[] = {".ttf", ".otf", nullptr};
 constexpr const char* kDictionaryExts[] = {".ifo", ".idx", ".dict", ".dict.dz", ".syn", nullptr};
 
