@@ -51,8 +51,7 @@ constexpr int kSettingsTop = 116;
 constexpr int kSettingRowHeight = 36;
 
 // Sleep screen geometry.
-constexpr int kSleepCoverTop = 120;
-constexpr int kSleepCoverSide = 90;
+constexpr int kSleepBand = 120;  // the empty-battery message under the sleep cover
 
 constexpr uint32_t kHoldMs = 1000;  // holding Power this long sleeps
 // Battery levels, unless charging: at kEmptyPercent the reader sleeps with a
@@ -2639,20 +2638,25 @@ void App::draw_sleep(bool empty) {
   const int h = fb_.height();
   const Strings& t = text();
   fb_.clear(Color::White);
-  // The book being read, as a large cover: the screen keeps it while asleep.
-  if (library_.count() > 0) {
-    const LibraryEntry& book = library_.entry(library_.current());
-    const int cw = w - 2 * kSleepCoverSide;
-    const int ch = cw * 3 / 2;
-    ui::draw_cover(fb_, {kSleepCoverSide, kSleepCoverTop, cw, ch}, book.title, book.author,
-                   cover_of(library_.current(), true));
+  if (library_.count() == 0) {
+    ui::draw_centered(fb_, ui::label_font(), h / 2, empty ? t.battery_empty : t.sleeping);
+    ui::draw_hint(fb_, empty ? t.charge_hint : t.wake_hint);
+    return;
+  }
+  // The book being read fills the screen, which keeps it while asleep.
+  const LibraryEntry& book = library_.entry(library_.current());
+  const CoverImage* picture = cover_of(library_.current(), true);
+  if (picture != nullptr) {
+    ui::draw_picture(fb_, {0, 0, w, h}, *picture);  // edge to edge, cut to the screen's shape
+  } else {
+    ui::draw_cover(fb_, {0, 0, w, h}, book.title, book.author, nullptr);
   }
   if (empty) {
-    ui::draw_centered(fb_, ui::text_font(), h - 96, t.battery_empty);
+    // An empty battery says so in a white band along the bottom.
+    fb_.fill_rect({0, h - kSleepBand, w, kSleepBand}, Color::White);
+    fb_.hline(0, h - kSleepBand, w, Color::Black);
+    ui::draw_centered(fb_, ui::text_font(), h - kSleepBand + 44, t.battery_empty);
     ui::draw_hint(fb_, t.charge_hint);
-  } else {
-    ui::draw_centered(fb_, ui::label_font(), h - 96, t.sleeping);
-    ui::draw_hint(fb_, t.wake_hint);
   }
 }
 

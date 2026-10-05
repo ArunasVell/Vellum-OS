@@ -1927,6 +1927,22 @@ void test_covers() {
   for (int i = 0; i < again.count(); ++i) {
     if (std::string(again.entry(i).path) == "books/ncx.epub") CHECK(again.entry(i).cover == 1);
   }
+  // A cache from before the full-screen sleep cover ("1") makes the cover again, larger.
+  std::string cache = read_all("test-card/vellum/library.txt");
+  const size_t at = cache.find("books/ncx.epub\t");
+  CHECK(at != std::string::npos);
+  const size_t mark = cache.find("\t2\n", at);
+  CHECK(mark != std::string::npos && cache.find('\n', at) == mark + 2);
+  if (mark == std::string::npos) return;
+  cache[mark + 1] = '1';
+  CHECK(card.write("vellum/library.txt", cache.data(), static_cast<uint32_t>(cache.size())));
+  char ncx_cover[64];
+  covers::path_for("books/ncx.epub", static_cast<uint32_t>(book.size()), ncx_cover, sizeof(ncx_cover));
+  std::remove((std::string("test-card/") + ncx_cover).c_str());
+  Library upgraded;
+  upgraded.load(builtin_books(), &card, epub);
+  CHECK(std::filesystem::exists(std::string("test-card/") + ncx_cover));
+  CHECK(read_all("test-card/vellum/library.txt").find("\t2\n", at) == mark);
   std::remove("test-card/books/ncx.epub");
 
   // A picture drawn into a cover: light at the top, dark at the bottom,

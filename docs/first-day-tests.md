@@ -97,7 +97,7 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 **Do:** In a book, hold Power for about a second and let go. Wait a minute, then press Power once. Then leave the reader alone for longer than **Settings → Sleep after** (10 minutes unless changed).
 
-**Good:** Holding Power shows the book's cover with "Sleeping"; a short press brings you back to the same page within a few seconds. After the idle time it goes to sleep by itself. Overnight asleep the battery should drop only a little (a few percent at most).
+**Good:** Holding Power shows the book's cover across the whole screen; a short press brings you back to the same page within a few seconds. After the idle time it goes to sleep by itself. Overnight asleep the battery should drop only a little (a few percent at most).
 
 **If not, send:** whether it didn't sleep, didn't wake, or woke to a different place; the battery percentage before and after a night. (The log disconnects while the reader sleeps; the installer page reconnects by itself when it wakes.)
 

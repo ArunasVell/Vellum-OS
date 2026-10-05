@@ -119,7 +119,7 @@ upper bounds):
 | Use | Size | When |
 | --- | ---: | --- |
 | EPUB: 2 MB chapter buffer, paragraph, manifest and contents tables | about 2.7 MB | always |
-| Covers: thumbnail work buffers and the two thumbnails shown | about 1.1 MB | always |
+| Covers: thumbnail work buffers and the two thumbnails shown | about 1.5 MB | always (1.1 MB before the full-screen sleep cover) |
 | Library entries, cache, bookmarks and file buffer | about 0.6 MB | always |
 | Highlights and their file buffer | about 0.5 MB | always |
 | Battery log and reading stats | about 0.25 MB | always |

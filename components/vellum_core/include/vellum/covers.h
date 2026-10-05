@@ -21,10 +21,11 @@ struct CoverImage {
 
 namespace covers {
 
-// The large thumbnail fits the sleep screen's cover; the small one fits two
-// list-row covers, for sharper shrinking.
-constexpr int kLargeW = 300;
-constexpr int kLargeH = 450;
+// The large thumbnail fills the sleep screen (480 x 800, cut to its shape)
+// with little enlarging; the small one fits two list-row covers, for
+// sharper shrinking.
+constexpr int kLargeW = 400;
+constexpr int kLargeH = 640;
 constexpr int kSmallW = 84;
 constexpr int kSmallH = 120;
 constexpr const char* kFolder = "vellum/covers";
