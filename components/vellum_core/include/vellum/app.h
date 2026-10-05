@@ -124,9 +124,13 @@ class App {
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
     Back,
+    Return,  // back to the page left by a link or Go to
     Mark,
     Light,
+    Night,  // night mode on or off
+    GoTo,
     LookUp,
+    Links,  // the links on the page, when it has some
     Send,
     Shelves,  // opens the book's shelves screen
     BookmarksLabel,
@@ -137,13 +141,18 @@ class App {
     ChaptersLabel,
     Chapter
   };
-  // Choosing words on the page (the reader screen stays underneath).
+  // Choosing words on the page, and the other panels over it (the reader
+  // screen stays underneath).
   enum class WordMode : uint8_t {
     Off,
     PickLine,  // side buttons move between lines
     PickWord,  // then between words
     Look,      // a word's definition, with Highlight and Close
     Extend,    // a passage from that word: tap or move to its last word
+    PickLink,  // side buttons move between the page's links (app_reading.cpp)
+    Note,      // a footnote, shown like a definition
+    GoTo,      // a percent of the book to go to
+    Finish,    // at the end: mark the book as read?
   };
   enum class TransferState : uint8_t { Off, Running, NoCard, Failed };
 
@@ -235,6 +244,29 @@ class App {
   void jump_to(BookPos pos);
   // Rows that do nothing themselves: labels, and notes (their highlight opens).
   bool contents_skipped(int row) const;
+  // The rows before the bookmarks: Back, Mark... (some only when they apply).
+  int contents_actions(ContentsRow* out) const;
+
+  // Reading extras (app_reading.cpp): links and footnotes, Go to, the
+  // finish prompt. Those returning bool say whether the screen needs a redraw.
+  // The link holding word i of the page (an index into the chapter's links), or -1.
+  int link_at_word(int i) const;
+  // The chapter's links with words on this page; returns how many.
+  int page_links(int16_t* out, int max) const;
+  // A tap on a link follows it; false when there is no link there.
+  bool link_tap(int x, int y, bool& redraw);
+  // Goes where link i leads, or shows its footnote.
+  bool follow_link(int i);
+  void open_link_pick();
+  void open_go_to();
+  void go_to_percent();
+  // Asks whether the book is finished.
+  void open_finish();
+  bool reading_key(Key key);
+  bool reading_tap(int x, int y);
+  void draw_reading_panel();
+  // Moves word_sel_ to the first word of link i on the page.
+  void focus_link(int i);
 
   // Words on the page (app_words.cpp). Those returning bool say whether the
   // screen needs a redraw.
@@ -408,10 +440,20 @@ class App {
   Dictionaries dictionaries_;
   bool dictionaries_scanned_ = false;
   WordMode word_mode_ = WordMode::Off;
-  int word_sel_ = 0;    // the word in hand, as an index into the page's words
-  int word_end_ = 0;    // Extend: the passage's last word
-  int word_line_ = 0;   // PickLine: the line in hand
-  int word_mark_ = -1;  // the highlight under word_sel_, or -1
+  int16_t page_links_[32] = {};  // PickLink: the page's links
+  int page_link_count_ = 0;
+  int link_pick_ = 0;            // PickLink: its place in page_links_
+  int link_sel_ = 0;             // PickLink: the link in hand; Note: the link shown
+  bool contents_links_ = false;  // the page had links when the contents opened
+  BookPos link_back_;            // where a link or Go to left from
+  int link_back_book_ = -1;      // the book it is in, or -1 for none
+  int go_percent_ = 0;           // GoTo
+  bool go_fine_ = false;         // GoTo: steps of 1% rather than 10%
+  int finish_asked_ = -1;        // the book the finish prompt was shown for
+  int word_sel_ = 0;             // the word in hand, as an index into the page's words
+  int word_end_ = 0;             // Extend: the passage's last word
+  int word_line_ = 0;            // PickLine: the line in hand
+  int word_mark_ = -1;           // the highlight under word_sel_, or -1
   enum class Lookup : uint8_t { Found, NotFound, NoDictionary, Preparing };
   Lookup lookup_ = Lookup::NotFound;
   Dictionaries::Result lookup_result_;
