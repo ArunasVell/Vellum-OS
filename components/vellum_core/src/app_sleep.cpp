@@ -78,6 +78,8 @@ void draw_mark(Framebuffer& fb, int x, int y) {
 
 void App::draw_sleep(bool empty, bool preview) {
   hit_count_ = 0;
+  // Upright, as the menus are: only the page as left keeps the reader's way up.
+  if (settings_.sleep_screen != SleepScreen::Page || !drawn_) fb_.set_rotation(rotation_for(Screen::Home));
   const int w = fb_.width();
   const int h = fb_.height();
   const Strings& t = text();

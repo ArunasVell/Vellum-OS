@@ -4,6 +4,7 @@
 set(VELLUM_CORE_SRCS
   src/app.cpp
   src/app_reading.cpp
+  src/app_controls.cpp
   src/app_store.cpp
   src/app_sleep.cpp
   src/app_views.cpp
@@ -13,6 +14,7 @@ set(VELLUM_CORE_SRCS
   src/battery_log.cpp
   src/bmp.cpp
   src/charset.cpp
+  src/controls.cpp
   src/books/alice.cpp
   src/books/catalog.cpp
   src/books/father_brown.cpp
@@ -33,6 +35,7 @@ set(VELLUM_CORE_SRCS
   src/peer_transfer.cpp
   src/reader.cpp
   src/reading_stats.cpp
+  src/screenshot.cpp
   src/settings.cpp
   src/shelves.cpp
   src/sleep_pictures.cpp

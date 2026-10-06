@@ -191,6 +191,7 @@ int App::page_marks(TextMark* out, int max) const {
 }
 
 void App::open_word_pick() {
+  fb_.set_rotation(rotation_for(Screen::Reader));  // the page's words as the reader lays them out
   word_mode_ = reader_.words().count > 0 ? WordMode::PickLine : WordMode::Off;
   word_line_ = 0;
   show(Screen::Reader);
@@ -384,8 +385,22 @@ void App::draw_word_overlay() {
   }
   const int focus_y = words.count > 0 ? words.words[std::clamp(focus, 0, words.count - 1)].baseline : 0;
   const bool panel = word_mode_ == WordMode::Look || word_mode_ == WordMode::Note;
-  const int height = panel ? kPanelH : word_mode_ == WordMode::Extend ? kBarH : kHintBarH;
-  const bool at_top = focus_y > h - height - 40;
+  int height = panel ? kPanelH : word_mode_ == WordMode::Extend ? kBarH : kHintBarH;
+  bool at_top = focus_y > h - height - 40;
+  // The definition stays off the word's line: between the bottom of the
+  // line before it and the top of the line after it.
+  int line_above = 0;
+  int line_below = h;
+  for (int i = 0; i < words.count; ++i) {
+    const WordBox& b = words.words[i];
+    if (b.baseline < focus_y) line_above = std::max(line_above, b.y + b.h + 3);
+    if (b.baseline > focus_y) line_below = std::min(line_below, b.y - 3);
+  }
+  if (panel && height > (at_top ? line_above : h - line_below)) {
+    // A short (landscape) page: the side of the word with more room.
+    at_top = line_above > h - line_below;
+    height = std::max(at_top ? line_above : h - line_below, kBarH);
+  }
   // Grown to the edge of the nearest line, so no line shows cut in half.
   int top_edge = at_top ? 0 : h - height;
   int bottom_edge = at_top ? height : h;
@@ -407,6 +422,10 @@ void App::draw_word_overlay() {
       }
       bottom_edge = std::max(b.y + b.h, below - 3);
     }
+  }
+  if (word_mode_ == WordMode::Look) {
+    top_edge = at_top ? top_edge : std::max(top_edge, line_below);
+    bottom_edge = at_top ? std::min(bottom_edge, line_above) : bottom_edge;
   }
   const Rect area{0, top_edge, w, bottom_edge - top_edge};
   word_overlay_ = area;

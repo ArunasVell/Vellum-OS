@@ -90,12 +90,15 @@ Reader::~Reader() { delete[] page_starts_; }
 
 bool Reader::open(Document& doc, uint32_t id, const ReadingStyle& style, BookPos pos, const Framebuffer& fb) {
   if (page_starts_ == nullptr) return false;
-  const bool same_book = doc_ == &doc && id_ == id && style_ == style && fb_ == &fb;
+  const bool same_book =
+      doc_ == &doc && id_ == id && style_ == style && fb_ == &fb && width_ == fb.width() && height_ == fb.height();
   const bool same = same_book && chapter_ == pos.chapter;
   doc_ = &doc;
   id_ = id;
   style_ = style;
   fb_ = &fb;
+  width_ = fb.width();
+  height_ = fb.height();
   words_page_ = -1;  // the style or book may differ
   if (!same) {
     if (!same_book) sample_pages_ = 0;  // another book's pages say nothing about this one
@@ -231,12 +234,13 @@ void Reader::snippet(char* out, size_t size) const {
 }
 
 const PageWords& Reader::words() const {
-  if (words_page_ != page_ || words_chapter_ != chapter_ || words_doc_ != doc_) {
+  if (words_page_ != page_ || words_chapter_ != chapter_ || words_doc_ != doc_ || words_width_ != fb_->width()) {
     typeset_page(layout_style(*fb_, opening()), chapter_info_.paragraphs, chapter_info_.paragraph_count,
                  page_starts_[page_], nullptr, &words_);
     words_page_ = page_;
     words_chapter_ = chapter_;
     words_doc_ = doc_;
+    words_width_ = fb_->width();
   }
   return words_;
 }
