@@ -21,8 +21,11 @@ enum class SleepAfter : uint8_t { Min5, Min10, Min30, Never };
 enum class AutoUpdate : uint8_t { AtNight, AskFirst, Off };
 // What the middle of the reader's footer shows.
 enum class FooterInfo : uint8_t { PageNumber, ChapterTime, Percent };
-// The order of the library's books.
-enum class LibrarySort : uint8_t { Recent, Title, Author };
+// The order of the library's books: recently read, title, author, or
+// recently added to the card.
+enum class LibrarySort : uint8_t { Recent, Title, Author, Added };
+// How home and the library show books: rows, or a grid of covers.
+enum class LibraryView : uint8_t { List, Covers };
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 
 struct Settings {
@@ -36,6 +39,8 @@ struct Settings {
   // "Add books" opens the reader's own Wi-Fi network even when a home
   // Wi-Fi is set (else it serves the page there).
   bool own_network = false;
+  LibraryView library_view = LibraryView::List;
+  bool move_finished = false;  // finished books move to books/Read/
   // Reading
   TextSize text_size = TextSize::Medium;
   Spacing line_spacing = Spacing::Normal;

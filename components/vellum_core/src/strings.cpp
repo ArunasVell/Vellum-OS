@@ -232,7 +232,7 @@ constexpr Strings kEnglish = {
         "willows, while somewhere beyond the meadow a dog barked twice and then fell silent.",
     .preview_language = "en",
     .sort_by = "Sort: %s",
-    .sort_names = {"Recent", "Title", "Author"},
+    .sort_names = {"Recent", "Title", "Author", "Added"},
     .search = "Search",
     .search_prompt = "Title or author",
     .ok = "OK",
@@ -251,6 +251,17 @@ constexpr Strings kEnglish = {
     .shelves = "Shelves",
     .shelves_label = "SHELVES",
     .finished_reading = "Finished reading",
+    .library_view = "Home and library view",
+    .view_names = {"List", "Covers"},
+    .recent_label = "RECENTLY READ",
+    .move_finished = "Move finished books",
+    .move_names = {"Off", "To Read/"},
+    .folders = "Folders",
+    .card_root = "Memory card",
+    .folder_up = "Up one folder",
+    .folder_empty = "No books or pictures in this folder.",
+    .picture_failed = "This picture cannot be shown.",
+    .hint_picture = "Side buttons: next picture · Home back",
 };
 
 constexpr Strings kLithuanian = {
@@ -480,7 +491,7 @@ constexpr Strings kLithuanian = {
         "pro senus gluosnius, kol kažkur už pievos du kartus sulojęs šuo nutilo.",
     .preview_language = "lt",
     .sort_by = "Tvarka: %s",
-    .sort_names = {"Naujausios", "Pavadinimas", "Autorius"},
+    .sort_names = {"Naujausios", "Pavadinimas", "Autorius", "Pridėtos"},
     .search = "Ieškoti",
     .search_prompt = "Pavadinimas ar autorius",
     .ok = "Gerai",
@@ -500,6 +511,17 @@ constexpr Strings kLithuanian = {
     .shelves = "Lentynos",
     .shelves_label = "LENTYNOS",
     .finished_reading = "Perskaityta",
+    .library_view = "Knygų rodymas",
+    .view_names = {"Sąrašas", "Viršeliai"},
+    .recent_label = "NESENIAI SKAITYTOS",
+    .move_finished = "Perkelti perskaitytas",
+    .move_names = {"Ne", "Į Read/"},
+    .folders = "Aplankai",
+    .card_root = "Atminties kortelė",
+    .folder_up = "Aplanku aukščiau",
+    .folder_empty = "Šiame aplanke nėra knygų ar paveikslėlių.",
+    .picture_failed = "Šio paveikslėlio parodyti nepavyko.",
+    .hint_picture = "Šoniniai: kitas paveikslėlis · Namų: atgal",
 };
 
 }  // namespace

@@ -52,6 +52,8 @@ class Shelves {
   // Puts a book on a shelf or takes it off. Returns false when there is no
   // room for another book.
   bool set(int shelf, const char* path, bool on);
+  // A book's file moved: its shelves follow it to the new path.
+  void rename_book(const char* from, const char* to);
   // How many of the library's books are on the shelf.
   int books_on(int shelf, const Library& library) const;
 

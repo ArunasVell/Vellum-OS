@@ -139,6 +139,12 @@ void Highlights::remove(int k) {
   --count_;
 }
 
+void Highlights::rename_book(const char* from, const char* to) {
+  for (int k = 0; k < count_; ++k) {
+    if (std::strcmp(items_[k].path, from) == 0) std::snprintf(items_[k].path, sizeof(Highlight::path), "%s", to);
+  }
+}
+
 bool Highlights::set_note(uint32_t id, const char* note) {
   const int k = find(id);
   if (k < 0) return false;

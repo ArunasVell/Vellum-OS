@@ -155,12 +155,14 @@
     savedok: "Išsaugota", nocats: "Katalogų dar nėra.",
     labels: { language: "Kalba", clock: "Laikrodis", sleep_after: "Užmigti po", updates: "Atnaujinimai", own_network: "Knygų įkėlimo tinklas",
       menu_font: "Meniu šriftas", book_font: "Knygos šriftas", text_size: "Teksto dydis", line_spacing: "Eilučių tarpai",
-      word_spacing: "Tarpai tarp žodžių", margins: "Paraštės", justify: "Lygiuotė", hyphenate: "Žodžių kėlimas", footer: "Poraštė" },
+      word_spacing: "Tarpai tarp žodžių", margins: "Paraštės", justify: "Lygiuotė", hyphenate: "Žodžių kėlimas", footer: "Poraštė",
+      library_view: "Knygų rodymas", move_finished: "Perkelti perskaitytas" },
     values: { language: ["English", "Lietuvių"], clock: ["24 val.", "12 val."], sleep_after: ["5 min.", "10 min.", "30 min.", "Niekada"],
       updates: ["Naktį", "Paklausti", "Išjungta"], own_network: ["Namų Wi-Fi, jei nustatytas", "Skaityklės tinklas"],
       text_size: ["Mažas", "Vidutinis", "Didelis", "Labai didelis"], line_spacing: ["Siauri", "Įprasti", "Platūs"],
       word_spacing: ["Siauri", "Įprasti", "Platūs"], margins: ["Siauros", "Įprastos", "Plačios"], justify: ["Kairinė", "Abipusė"],
-      hyphenate: ["Išjungtas", "Įjungtas"], footer: ["Puslapio numeris", "Liko skyriuje", "Perskaityta %"] }
+      hyphenate: ["Išjungtas", "Įjungtas"], footer: ["Puslapio numeris", "Liko skyriuje", "Perskaityta %"],
+      library_view: ["Sąrašas", "Viršeliai"], move_finished: ["Ne", "Į Read/"] }
   } : {
     waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book, font or dictionary", none: "No books yet.",
     converting: "converting…", convfail: "could not convert", calibre: "convert with Calibre",
@@ -169,12 +171,14 @@
     full: "No room for more", bad: "That value cannot be used", savedok: "Saved", nocats: "No catalogues yet.",
     labels: { language: "Language", clock: "Clock", sleep_after: "Sleep after", updates: "Updates", own_network: "Add books over",
       menu_font: "Menu font", book_font: "Book font", text_size: "Text size", line_spacing: "Line spacing",
-      word_spacing: "Word spacing", margins: "Margins", justify: "Alignment", hyphenate: "Hyphenation", footer: "Footer" },
+      word_spacing: "Word spacing", margins: "Margins", justify: "Alignment", hyphenate: "Hyphenation", footer: "Footer",
+      library_view: "Home and library view", move_finished: "Move finished books" },
     values: { language: ["English", "Lietuvių"], clock: ["24-hour", "12-hour"], sleep_after: ["5 min", "10 min", "30 min", "Never"],
       updates: ["At night", "Ask first", "Off"], own_network: ["Home Wi-Fi, when set", "The reader's own network"],
       text_size: ["Small", "Medium", "Large", "Extra large"], line_spacing: ["Narrow", "Normal", "Wide"],
       word_spacing: ["Narrow", "Normal", "Wide"], margins: ["Narrow", "Normal", "Wide"], justify: ["Left", "Justified"],
-      hyphenate: ["Off", "On"], footer: ["Page number", "Time left in chapter", "Percent read"] }
+      hyphenate: ["Off", "On"], footer: ["Page number", "Time left in chapter", "Percent read"],
+      library_view: ["List", "Covers"], move_finished: ["Off", "To Read/"] }
   };
   if (lt) {
     document.documentElement.lang = "lt";
@@ -498,7 +502,7 @@
       return r.ok;
     } catch (_) { say(stateEl, false, T.failed); return false; }
   }
-  const order = ["language", "clock", "sleep_after", "updates", "own_network", "menu_font", "book_font", "text_size",
+  const order = ["language", "clock", "sleep_after", "updates", "own_network", "library_view", "move_finished", "menu_font", "book_font", "text_size",
     "line_spacing", "word_spacing", "margins", "justify", "hyphenate", "footer"];
   function renderSettings(info) {
     const grid = $("set-grid");

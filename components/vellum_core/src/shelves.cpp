@@ -125,6 +125,12 @@ bool Shelves::contains(int shelf, const char* path) const {
   return false;
 }
 
+void Shelves::rename_book(const char* from, const char* to) {
+  for (int k = 0; k < entry_count_; ++k) {
+    if (std::strcmp(entries_[k].path, from) == 0) std::snprintf(entries_[k].path, sizeof(Entry::path), "%s", to);
+  }
+}
+
 bool Shelves::set(int shelf, const char* path, bool on) {
   if (shelf < 0 || shelf >= count_ || entries_ == nullptr) return false;
   for (int k = 0; k < entry_count_; ++k) {

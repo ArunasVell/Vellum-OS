@@ -5,11 +5,13 @@ set(VELLUM_CORE_SRCS
   src/app.cpp
   src/app_store.cpp
   src/app_sync.cpp
+  src/app_views.cpp
   src/app_words.cpp
   src/covers.cpp
   src/dictionary.cpp
   src/battery_log.cpp
   src/catalogues.cpp
+  src/bmp.cpp
   src/charset.cpp
   src/books/alice.cpp
   src/books/catalog.cpp
