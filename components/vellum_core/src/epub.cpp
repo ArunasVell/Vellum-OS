@@ -707,7 +707,7 @@ void Epub::measure_pictures() {
     uint32_t room;
     uint8_t* at = spare(room);
     int w = 0, h = 0, found = -1;
-    for (uint32_t want : {4096u, 65536u, room}) {
+    for (uint32_t want : {uint32_t{4096}, uint32_t{65536}, room}) {
       want = std::min(want, room);
       const int32_t n = want > 0 ? zip_.extract_head(p.entry, at, want) : -1;
       if (n <= 0) break;
