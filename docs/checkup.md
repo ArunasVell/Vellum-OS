@@ -124,6 +124,7 @@ upper bounds):
 | Library: folders still to read during a scan (64 paths) | 10 KB | always (added with folders) |
 | Highlights and their file buffer | about 0.5 MB | always |
 | Battery log and reading stats | about 0.25 MB | always |
+| Sleep screen pictures: up to 64 names and the marks file buffer | about 15 KB | always |
 | Reader page table | 64 KB | always |
 | Text, FB2 and web-page books: chapter, paragraph and contents tables | about 0.8 MB | always (added with more book types) |
 | **Total at start** | **about 6.2 MB** | |
@@ -131,6 +132,7 @@ upper bounds):
 | Rendered fonts | 20–60 KB per size | with a font other than Literata |
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |
+| A sleep screen picture | none of its own: the cover work buffers (a PNG of at most 512 KB is read into them whole, and decodes like a cover) | while converting it, and while the sleep screen is drawn |
 | Folder browser: one folder's listing (256 items) | about 34 KB | from the first visit to Folders |
 | Picture viewer: a BMP row | 20 KB | from the first BMP shown |
 | Picture viewer: a PNG file, then its pixels | the file (up to 1 MB), then width × height | while decoding it (JPEGs are read as they decode; the picture itself goes into the large cover buffer) |

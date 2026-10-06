@@ -51,9 +51,6 @@ constexpr int kSettingsTitleBase = 104;
 constexpr int kSettingsTop = 116;
 constexpr int kSettingRowHeight = 36;
 
-// Sleep screen geometry.
-constexpr int kSleepBand = 120;  // the empty-battery message under the sleep cover
-
 constexpr uint32_t kHoldMs = 1000;   // holding Power this long sleeps
 constexpr uint32_t kToastMs = 2500;  // a notice at the bottom stays this long
 // Battery levels, unless charging: at kEmptyPercent the reader sleeps with a
@@ -209,11 +206,12 @@ enum class Row : uint8_t {
   ReadingPage,  // opens the reading settings
   Clock,
   SleepAfter,
-  Light,    // opens the front light screen
-  Battery,  // opens the battery screen
-  Updates,  // opens the updates screen
-  Check,    // opens the device check
-  Stats,    // opens the reading stats
+  SleepScreen,  // opens the sleep screen settings
+  Light,        // opens the front light screen
+  Battery,      // opens the battery screen
+  Updates,      // opens the updates screen
+  Check,        // opens the device check
+  Stats,        // opens the reading stats
   TextSize,
   LineSpacing,
   WordSpacing,
@@ -230,9 +228,10 @@ enum class Row : uint8_t {
 };
 // Settings has two pages: general, with a way to the reading page, and
 // reading, with a preview of the text below its rows.
-constexpr Row kGeneralRows[] = {Row::Language,     Row::MenuFont,    Row::Clock,   Row::SleepAfter, Row::Light,
-                                Row::Battery,      Row::Updates,     Row::Stats,   Row::Check,      Row::LibraryView,
-                                Row::MoveFinished, Row::ReadingPage, Row::Buttons, Row::Orientation};
+constexpr Row kGeneralRows[] = {Row::Language,    Row::MenuFont, Row::Clock,       Row::SleepAfter,
+                                Row::SleepScreen, Row::Light,    Row::Battery,     Row::Updates,
+                                Row::Stats,       Row::Check,    Row::LibraryView, Row::MoveFinished,
+                                Row::ReadingPage, Row::Buttons,  Row::Orientation};
 constexpr Row kReadingRows[] = {Row::BookFont,  Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins,
                                 Row::Alignment, Row::Hyphenation, Row::Footer,      Row::AutoTurn,    Row::FullRefresh};
 constexpr int kGeneralCount = sizeof(kGeneralRows) / sizeof(kGeneralRows[0]);
@@ -307,6 +306,7 @@ int get(const Settings& s, Row r) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::SleepScreen:
       break;
   }
   return 0;
@@ -368,6 +368,7 @@ void set(Settings& s, Row r, int v) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::SleepScreen:
       break;
   }
 }
@@ -402,6 +403,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.device_check;
     case Row::Stats:
       return t.reading_stats;
+    case Row::SleepScreen:
+      return t.sleep_screen;
     case Row::Footer:
       return t.footer;
     case Row::LibraryView:
@@ -465,6 +468,7 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::SleepScreen:
       break;
   }
   return "";
@@ -1271,6 +1275,8 @@ void App::draw_settings() {
       }
     } else if (row == Row::AutoTurn) {
       std::snprintf(value, sizeof(value), t.every_seconds, kAutoTurnSeconds[settings_.auto_turn]);
+    } else if (row == Row::SleepScreen) {
+      std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", t.sleep_kinds[static_cast<int>(settings_.sleep_screen)]);
     } else if (row == Row::Check || row == Row::ReadingPage || row == Row::Buttons) {
       std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
     } else if (row == Row::MenuFont || row == Row::BookFont) {
@@ -1312,6 +1318,13 @@ void App::open_settings(bool reading) {
   show(Screen::Settings);
 }
 
+void App::close_sleep_setup() {
+  settings_reading_ = false;
+  settings_sel_ =
+      static_cast<int>(std::find(kGeneralRows, kGeneralRows + kGeneralCount, Row::SleepScreen) - kGeneralRows);
+  show(Screen::Settings);
+}
+
 void App::settings_activate() {
   const Row row = (settings_reading_ ? kReadingRows : kGeneralRows)[settings_sel_];
   if (row == Row::Battery) return show(Screen::Battery);
@@ -1321,6 +1334,7 @@ void App::settings_activate() {
   if (row == Row::Updates) return open_updates();
   if (row == Row::ReadingPage) return open_settings(true);
   if (row == Row::Buttons) return open_buttons();
+  if (row == Row::SleepScreen) return open_sleep_setup();
   if (row == Row::MenuFont || row == Row::BookFont) {
     // The next typeface in the list, Literata after the last.
     char* name = row == Row::MenuFont ? settings_.menu_font : settings_.book_font;
@@ -2595,6 +2609,8 @@ void App::draw() {
     fb_.set_rotation(r);  // the whole screen turns: no ghost of the old one
     queue_.request_full();
   }
+  drawn_ = true;
+  if (screen_ == Screen::SleepPreview) return draw_sleep(false, true);
   char time[16];
   time_text(time, sizeof(time));
   const int battery = board_.power.battery_percent();
@@ -2660,10 +2676,17 @@ void App::draw() {
     case Screen::Buttons:
       draw_buttons();
       break;
+    case Screen::SleepSetup:
+      draw_sleep_setup();
+      break;
+    case Screen::Pictures:
+      draw_pictures();
+      break;
     case Screen::Folders:
       draw_folders();
       break;
     case Screen::Reader:
+    case Screen::SleepPreview:
     case Screen::Picture:
       break;
   }
@@ -2792,7 +2815,8 @@ void App::sleep(bool empty) {
   } else {
     schedule_night_check();
   }
-  before_sleep_ = screen_;
+  before_sleep_ = screen_ == Screen::SleepPreview ? Screen::SleepSetup : screen_;
+  ++sleeps_;
   asleep_ = true;
   draw_sleep(empty);
   queue_.submit_full();
@@ -2806,34 +2830,6 @@ void App::wake() {
   apply_light();
   record_battery(BatterySample::Kind::Wake);
   show(before_sleep_);
-}
-
-void App::draw_sleep(bool empty) {
-  hit_count_ = 0;
-  const int w = fb_.width();
-  const int h = fb_.height();
-  const Strings& t = text();
-  fb_.clear(Color::White);
-  if (library_.count() == 0) {
-    ui::draw_centered(fb_, ui::label_font(), h / 2, empty ? t.battery_empty : t.sleeping);
-    ui::draw_hint(fb_, empty ? t.charge_hint : t.wake_hint);
-    return;
-  }
-  // The book being read fills the screen, which keeps it while asleep.
-  const LibraryEntry& book = library_.entry(library_.current());
-  const CoverImage* picture = cover_of(library_.current(), true);
-  if (picture != nullptr) {
-    ui::draw_picture(fb_, {0, 0, w, h}, *picture);  // edge to edge, cut to the screen's shape
-  } else {
-    ui::draw_cover(fb_, {0, 0, w, h}, book.title, book.author, nullptr);
-  }
-  if (empty) {
-    // An empty battery says so in a white band along the bottom.
-    fb_.fill_rect({0, h - kSleepBand, w, kSleepBand}, Color::White);
-    fb_.hline(0, h - kSleepBand, w, Color::Black);
-    ui::draw_centered(fb_, ui::text_font(), h - kSleepBand + 44, t.battery_empty);
-    ui::draw_hint(fb_, t.charge_hint);
-  }
 }
 
 // ---- Device check ------------------------------------------------------------
@@ -3153,6 +3149,8 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Updates && update_busy_ != UpdateBusy::No) return false;
       if (screen_ == Screen::Send) close_send();
       if (screen_ == Screen::Store) return store_back(), false;  // up a level
+      if (screen_ == Screen::SleepSetup) return close_sleep_setup(), false;
+      if (screen_ == Screen::Pictures || screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;
       if (screen_ == Screen::Folders) return folder_up(), false;
       if (screen_ == Screen::Picture) return open_folder(folder_path_, folder_items_[picture_item_].name), false;
       show(Screen::Home);
@@ -3230,6 +3228,16 @@ bool App::handle_key(Key key) {
       buttons_sel_ = wrap_index(buttons_sel_ + step, kButtonInputs + 2);
       buttons_refused_ = false;
       return true;
+    case Screen::SleepSetup:
+      if (key == Key::Power) return sleep_setup_activate(), false;
+      sleep_sel_ = wrap_index(sleep_sel_ + step, kSleepSetupRows);
+      return true;
+    case Screen::Pictures:
+      if (key == Key::Power) return pictures_activate(), true;
+      pictures_sel_ = wrap_index(pictures_sel_ + step, sleep_pictures_.count());
+      return true;
+    case Screen::SleepPreview:
+      return show(Screen::SleepSetup), false;  // any button goes back
     case Screen::Folders:
       return folder_key(key);
     case Screen::Picture:
@@ -3306,7 +3314,16 @@ bool App::handle_gesture(const Gesture& g) {
   if (screen_ == Screen::Store && g.kind != K::Tap) {
     return store_swipe(g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1);
   }
+  if (screen_ == Screen::Pictures && g.kind != K::Tap) {
+    // Swipes page through the pictures.
+    const int pages = (sleep_pictures_.count() + kPicturesPerPage - 1) / kPicturesPerPage;
+    if (pages <= 1) return false;
+    const int forward = g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1;
+    pictures_sel_ = wrap_index(pictures_sel_ / kPicturesPerPage + forward, pages) * kPicturesPerPage;
+    return true;
+  }
   if (g.kind != K::Tap) return false;
+  if (screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;  // a tap anywhere goes back
   if (screen_ == Screen::Battery || screen_ == Screen::Stats)
     return show(Screen::Settings), false;  // a tap anywhere goes back
   if (screen_ == Screen::Light) return light_tap(g.x, g.y);
@@ -3352,6 +3369,14 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Buttons:
       buttons_sel_ = item;
       return buttons_activate();
+    case Screen::SleepSetup:
+      sleep_sel_ = item;
+      sleep_setup_activate();
+      return false;
+    case Screen::Pictures:
+      pictures_sel_ = item;
+      pictures_activate();
+      return true;
     case Screen::Reader:
     case Screen::Transfer:
     case Screen::Battery:
@@ -3360,6 +3385,7 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Check:
     case Screen::Send:
     case Screen::Stats:
+    case Screen::SleepPreview:
     case Screen::Folders:
     case Screen::Picture:
       break;

@@ -203,11 +203,11 @@
 
     <div class="block">
       <h2>Your own books, fonts and dictionaries</h2>
-      <p class="lead" style="margin:0">Add books (EPUB, FB2 or .fb2.zip, TXT, HTML) and they appear in the library, just as books copied to the reader's SD card will. Font files (.ttf or .otf, for example from Google Fonts) become choices in Settings › Menu font and Reading › Book font. StarDict dictionaries (the .ifo, .idx and .dict or .dict.dz files together) let you hold a word to look it up; a name starting with its language, such as <code>en-wordnet.ifo</code>, matches it to books in that language. Drag them onto the screen, or choose them here. Books, settings and your place in each book stay in this browser for your next visit.</p>
+      <p class="lead" style="margin:0">Add books (EPUB, FB2 or .fb2.zip, TXT, HTML) and they appear in the library, just as books copied to the reader's SD card will. Font files (.ttf or .otf, for example from Google Fonts) become choices in Settings › Menu font and Reading › Book font. StarDict dictionaries (the .ifo, .idx and .dict or .dict.dz files together) let you hold a word to look it up; a name starting with its language, such as <code>en-wordnet.ifo</code>, matches it to books in that language. Pictures (.jpg, .png or .bmp) go to the card's sleep folder, for Settings › Sleep screen › My pictures. Drag them onto the screen, or choose them here. Books, settings and your place in each book stay in this browser for your next visit.</p>
       <p class="lead" style="margin:0">On the reader, <b>Add books</b> on the home screen opens its own Wi-Fi network and shows two codes: scan the first to join, the second to open the upload page on your phone. Open it here too, then add books: they arrive on the reader's screen the way they would from a phone.</p>
       <div class="books">
         <button class="pick" id="pick" type="button">Add books, fonts or dictionaries</button>
-        <input type="file" id="file" accept=".epub,application/epub+zip,.fb2,.zip,.txt,.html,.htm,.ttf,.otf,.ifo,.idx,.dict,.dz,.syn" multiple hidden>
+        <input type="file" id="file" accept=".epub,application/epub+zip,.fb2,.zip,.txt,.html,.htm,.ttf,.otf,.ifo,.idx,.dict,.dz,.syn,.jpg,.jpeg,.png,.bmp" multiple hidden>
         <span class="book-status" id="book-status" aria-live="polite"></span>
       </div>
     </div>
@@ -412,11 +412,17 @@
     const epubs = [...files].filter((f) => /\.(epub|fb2|fb2\.zip|txt|html?)$/i.test(f.name));
     const fonts = [...files].filter((f) => /\.(ttf|otf)$/i.test(f.name));
     const dicts = [...files].filter((f) => /\.(ifo|idx|dict|dict\.dz|syn)$/i.test(f.name));
-    if (!epubs.length && !fonts.length && !dicts.length) { status.textContent = "Only books (.epub, .fb2, .fb2.zip, .txt, .html), .ttf or .otf fonts and StarDict dictionaries can be added."; return; }
+    const pics = [...files].filter((f) => /\.(jpe?g|png|bmp)$/i.test(f.name));
+    if (!epubs.length && !fonts.length && !dicts.length && !pics.length) { status.textContent = "Only books (.epub, .fb2, .fb2.zip, .txt, .html), .ttf or .otf fonts, StarDict dictionaries and pictures (.jpg, .png, .bmp) can be added."; return; }
     try { core.FS.mkdir("/card/books"); } catch (_) {}
     try { core.FS.mkdir("/card/fonts"); } catch (_) {}
     try { core.FS.mkdir("/card/dictionaries"); } catch (_) {}
+    try { core.FS.mkdir("/card/sleep"); } catch (_) {}
     let taken = true;
+    // Pictures for Settings › Sleep screen › My pictures, as if copied to the card's sleep folder.
+    for (const f of pics) {
+      core.FS.writeFile("/card/sleep/" + f.name.replace(/[\/\\]/g, "_"), new Uint8Array(await f.arrayBuffer()));
+    }
     for (const f of dicts) {
       core.FS.writeFile("/card/dictionaries/" + f.name.replace(/[\/\\]/g, "_"), new Uint8Array(await f.arrayBuffer()));
       taken = core.ccall("vellum_book_received", "number", ["string"], [f.name]) === 1 && taken;
@@ -434,7 +440,7 @@
     if (!taken) core._vellum_reload_library();
     render();
     saveSoon();
-    const all = [...epubs, ...fonts, ...dicts];
+    const all = [...epubs, ...fonts, ...dicts, ...pics];
     status.textContent = all.length === 1 ? "Added " + all[0].name : "Added " + all.length + " files";
   }
 

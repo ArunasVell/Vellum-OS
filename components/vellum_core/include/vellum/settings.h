@@ -37,6 +37,10 @@ enum class FullRefresh : uint8_t { EveryPage, Every5, Every12, Every20, NewChapt
 // Seconds between pages for automatic page turning, by Settings::auto_turn.
 constexpr uint8_t kAutoTurnSeconds[] = {5, 10, 15, 20, 30, 45, 60, 90, 120};
 constexpr int kAutoTurnSteps = sizeof(kAutoTurnSeconds);
+// What the screen shows while the reader sleeps (Settings › Sleep screen).
+enum class SleepScreen : uint8_t { Cover, Pictures, Stats, Minimal, Page };
+// Which of the reader's own pictures: a different one each time, or one kept.
+enum class SleepOrder : uint8_t { Shuffle, One };
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 
 struct Settings {
@@ -47,6 +51,8 @@ struct Settings {
   uint8_t warmth = 3;                          // 0 (coolest) to kLightSteps (warmest)
   AutoUpdate auto_update = AutoUpdate::AtNight;
   LibrarySort library_sort = LibrarySort::Recent;
+  SleepScreen sleep_screen = SleepScreen::Cover;
+  SleepOrder sleep_order = SleepOrder::Shuffle;
   LibraryView library_view = LibraryView::List;
   bool move_finished = false;  // finished books move to books/Read/
   // Reading

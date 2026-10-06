@@ -104,6 +104,8 @@ bool StdioStorage::finish(Writer* w, bool keep) {
   return std::rename(part, writer_.path) == 0;
 }
 
+bool StdioStorage::remove(const char* path) { return full_path(path) && std::remove(full_) == 0; }
+
 bool StdioStorage::rename(const char* from, const char* to) {
   if (!full_path(to)) return false;
   char dest[sizeof(full_)];
