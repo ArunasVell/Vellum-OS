@@ -4,13 +4,14 @@
 // refresh briefly flashes the screen inverted, like e-ink does.
 //
 // Keys: Right/Space/PageDown = next, Left/PageUp = prev, H = home,
-// Enter/P = power (opens the highlighted item), Esc/Q = quit. The mouse is
-// the touch screen: click to tap, drag to swipe, hold still to hold a word.
+// Enter/P = power (opens the highlighted item), Esc/Q = quit. Holding a key
+// is a held press. The mouse is the touch screen: click to tap, drag to
+// swipe, hold still to hold a word. The window turns with Settings › Screen.
 //
 // Headless (for CI and screenshots):
 //   vellum-sim --headless --keys onnp --time 14:05 --screenshot page.png
 // where n = next, p = prev, h = home, o = power, z = hold power (sleep),
-// [X,Y] taps the logical
+// N, P and H hold next, prev and home (a held press), [X,Y] taps the logical
 // point (X,Y), [X,Y~] holds a finger there (a long press) and [X,Y>X2,Y2]
 // swipes from one point to the other.
 // --time fixes the clock.
@@ -106,9 +107,13 @@ class SimDisplay : public vellum::DisplayPanel {
 
   bool save_screenshot(const std::string& path) const { return sim::write_gray_png(path, shot_w_, shot_h_, gray_); }
 
+  // The way up of the last picture: touches on the window are logical points on it.
+  vellum::Rotation rotation() const { return rotation_; }
+
  private:
   // Copies the logical (rotated) image the reader sees.
   void capture(const vellum::Framebuffer& fb) {
+    rotation_ = fb.rotation();
     shot_w_ = fb.width();
     shot_h_ = fb.height();
     gray_.resize(static_cast<size_t>(shot_w_) * shot_h_);
@@ -118,6 +123,15 @@ class SimDisplay : public vellum::DisplayPanel {
   }
 
   void show(bool inverted) {
+    int tw = 0, th = 0;
+    SDL_QueryTexture(texture_, nullptr, nullptr, &tw, &th);
+    if (tw != shot_w_ || th != shot_h_) {
+      // The screen turned: the window turns with it.
+      SDL_DestroyTexture(texture_);
+      texture_ = SDL_CreateTexture(renderer_, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING, shot_w_, shot_h_);
+      SDL_SetWindowSize(window_, shot_w_ * opt_.scale, shot_h_ * opt_.scale);
+      if (!texture_) return;
+    }
     void* pixels;
     int pitch;
     if (SDL_LockTexture(texture_, nullptr, &pixels, &pitch) != 0) return;
@@ -143,28 +157,30 @@ class SimDisplay : public vellum::DisplayPanel {
   int shot_w_ = 0;
   int shot_h_ = 0;
   int count_ = 0;
+  vellum::Rotation rotation_ = vellum::Rotation::R90;
 };
 
 class SimInput : public vellum::InputSource {
  public:
-  explicit SimInput(const Options& opt) : opt_(opt) {}
+  SimInput(const Options& opt, const SimDisplay& display) : opt_(opt), display_(display) {}
 
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
-    return opt_.headless ? next_scripted(out) : next_sdl(out, timeout_ms);
+    return opt_.headless ? next_scripted(out, timeout_ms) : next_sdl(out, timeout_ms);
   }
   uint32_t now_ms() override {
+    if (opt_.headless) return script_ms_;  // scripted time: each wait that times out lasts its whole length
     using namespace std::chrono;
     return static_cast<uint32_t>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
   }
 
  private:
-  // A touch event at logical point (x, y) on the portrait screen.
-  static vellum::InputEvent touch(vellum::InputEvent::Type type, int x, int y, uint32_t ms = 0) {
+  // A touch event at logical point (x, y) on the screen as last drawn.
+  vellum::InputEvent touch(vellum::InputEvent::Type type, int x, int y, uint32_t ms = 0) const {
     vellum::InputEvent ev;
     ev.type = type;
     ev.ms = ms;
     int px, py;
-    vellum::rotate_to_physical(vellum::Rotation::R90, kPanelW, kPanelH, x, y, px, py);
+    vellum::rotate_to_physical(display_.rotation(), kPanelW, kPanelH, x, y, px, py);
     ev.x = static_cast<int16_t>(std::clamp(px, 0, kPanelW - 1));
     ev.y = static_cast<int16_t>(std::clamp(py, 0, kPanelH - 1));
     return ev;
@@ -193,13 +209,16 @@ class SimInput : public vellum::InputSource {
     pending_.push_back(touch(T::TouchUp, x1, y1));
   }
 
-  bool next_scripted(vellum::InputEvent& out) {
+  bool next_scripted(vellum::InputEvent& out, uint32_t timeout_ms) {
     using T = vellum::InputEvent::Type;
     for (;;) {
       if (!pending_.empty()) {
         const std::optional<vellum::InputEvent> next = pending_.front();
         pending_.pop_front();
-        if (!next) return false;
+        if (!next) {
+          script_ms_ += timeout_ms;
+          return false;
+        }
         out = *next;
         return true;
       }
@@ -211,14 +230,26 @@ class SimInput : public vellum::InputSource {
           script_touch();
           break;
         case 'n':
-          out.key = vellum::Key::Next;
-          return true;
         case 'p':
-          out.key = vellum::Key::Prev;
+        case 'h': {
+          // A short press: down, then up.
+          out.key = c == 'n' ? vellum::Key::Next : c == 'p' ? vellum::Key::Prev : vellum::Key::Home;
+          vellum::InputEvent up = out;
+          up.type = T::KeyUp;
+          pending_.push_back(up);
           return true;
-        case 'h':
-          out.key = vellum::Key::Home;
+        }
+        case 'N':
+        case 'P':
+        case 'H': {
+          // Held: down, a wait that times out, then up.
+          out.key = c == 'N' ? vellum::Key::Next : c == 'P' ? vellum::Key::Prev : vellum::Key::Home;
+          vellum::InputEvent up = out;
+          up.type = T::KeyUp;
+          pending_.push_back(std::nullopt);
+          pending_.push_back(up);
           return true;
+        }
         case 'o':
         case 'z': {
           out.key = vellum::Key::Power;
@@ -261,8 +292,8 @@ class SimInput : public vellum::InputSource {
       out = touch(type, x, y, e.type == SDL_MOUSEMOTION ? e.motion.timestamp : e.button.timestamp);
       return true;
     }
-    if (e.type != SDL_KEYDOWN && e.type != SDL_KEYUP) {
-      out.type = T::None;
+    if ((e.type != SDL_KEYDOWN && e.type != SDL_KEYUP) || e.key.repeat != 0) {
+      out.type = T::None;  // a held key repeats nothing: holding is its own press
       return true;
     }
     out.type = e.type == SDL_KEYDOWN ? T::KeyDown : T::KeyUp;
@@ -295,7 +326,9 @@ class SimInput : public vellum::InputSource {
   }
 
   const Options& opt_;
+  const SimDisplay& display_;
   size_t pos_ = 0;
+  uint32_t script_ms_ = 1;
   std::deque<std::optional<vellum::InputEvent>> pending_;  // nullopt: a timeout
   bool mouse_down_ = false;
 };
@@ -409,7 +442,7 @@ int main(int argc, char** argv) {
 
   SimDisplay display(opt);
   if (!display.open()) return 1;
-  SimInput input(opt);
+  SimInput input(opt, display);
   SimPower power(opt.battery);
   SimClock clock(opt);
   SimFrontlight light;

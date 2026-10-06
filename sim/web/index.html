@@ -194,6 +194,7 @@
         <dt>Next / Prev</dt><dd>The X4 Pro's side buttons: turn pages, or move the highlight on the home, library and settings screens.</dd>
         <dt>OK</dt><dd>The power button: opens the highlighted book or screen. While reading, it opens the book's contents: jump to a chapter, bookmark the page, go back to a bookmark, or change the front light. Hold it for a second to put the reader to sleep; any button wakes it. The reader also sleeps by itself after 10 idle minutes (Settings › Sleep after).</dd>
         <dt>Square key</dt><dd>Home: back to the home screen from anywhere.</dd>
+        <dt>Your own buttons</dt><dd>Settings › Buttons gives each button, and each button held down, the action you like, while reading and in menus: a chapter at a time, a bookmark, the light, a screenshot and more. Settings › Screen turns the screen upside down, or the reader on its side. Contents › Turn pages lets the book turn its own pages until you press a button.</dd>
         <dt>Touch</dt><dd>The screen is a touch screen. Tap a book, link or setting to open or change it. While reading, tap the right third or swipe left to go forward, tap the left third or swipe right to go back, and tap the middle for the contents. Swipe the library or the contents to see more. With a mouse, click to tap and drag to swipe.</dd>
         <dt>Hold a word</dt><dd>Keep the mouse button down on a word for a moment: its meaning shows at the bottom, from a dictionary you added (below). <b>Highlight</b> underlines it; tap another word on the page to underline the whole passage up to it. Highlights are listed in the contents, and holding a highlighted word offers to remove it. Without touch: contents › <b>Look up a word</b>, then the side buttons pick a line and a word.</dd>
         <dt>Keyboard</dt><dd>Arrow keys, Space, Enter (OK), H (Home)</dd>
@@ -287,6 +288,12 @@
     if (frames === seen) return;
     seen = frames;
     const img = readFrame();
+    if (img.width !== canvas.width || img.height !== canvas.height) {
+      // Settings › Screen turned the reader on its side, or back.
+      canvas.width = img.width;
+      canvas.height = img.height;
+      screen.style.aspectRatio = img.width + " / " + img.height;
+    }
     const full = core._vellum_last_full() === 1;
     modeChip.classList.toggle("full", full);
     modeText.textContent = full ? "Full refresh" : "Fast refresh";
@@ -307,9 +314,28 @@
     saveSoon();
   }
 
-  document.getElementById("prev").addEventListener("click", () => press(KEY.prev));
-  document.getElementById("next").addEventListener("click", () => press(KEY.next));
-  document.getElementById("home").addEventListener("click", () => press(KEY.home));
+  // Prev, Next and Home go down and up as the pointer does, so they can be
+  // held (Settings › Buttons gives a held press its own action).
+  for (const [id, key] of [["prev", KEY.prev], ["next", KEY.next], ["home", KEY.home]]) {
+    const btn = document.getElementById(id);
+    let down = false;
+    btn.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || !core || busy) return;
+      down = true;
+      core._vellum_key_event(key, 1);
+      render();
+    });
+    const up = () => {
+      if (!down) return;
+      down = false;
+      core._vellum_key_event(key, 0);
+      render();
+      saveSoon();
+    };
+    btn.addEventListener("pointerup", up);
+    btn.addEventListener("pointerleave", up);
+    btn.addEventListener("keydown", (e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); press(key); } });
+  }
   // OK is the power button: a press opens, holding it for a second sleeps.
   const powerBtn = document.getElementById("power");
   let holdTimer = null, held = false;

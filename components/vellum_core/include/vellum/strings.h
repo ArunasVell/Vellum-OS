@@ -257,6 +257,24 @@ struct Strings {
   const char* shelves;           // screen title: a book's shelves
   const char* shelves_label;     // uppercase label
   const char* finished_reading;  // the toggle on that screen
+  // Buttons, screen orientation, automatic page turns, screenshots
+  const char* buttons;            // settings row and screen title
+  const char* button_pages[2];    // while reading, in menus
+  const char* input_names[7];     // ButtonInput: Prev, Next, Power, Home, then Prev, Next, Home held
+  const char* action_names[21];   // ButtonAction, in its order
+  const char* reset_default;      // a row on the buttons screen
+  const char* power_hold_note;    // holding Power always sleeps
+  const char* way_back_note;      // why some choices are passed over
+  const char* screen_names[4];    // Orientation (the row is `screen`)
+  const char* auto_turn;          // reading settings row
+  const char* every_seconds;      // printf: seconds ("Every 30 s")
+  const char* full_refresh;       // reading settings row
+  const char* refresh_names[5];   // FullRefresh
+  const char* start_auto_turn;    // contents row; printf: seconds
+  const char* auto_turn_on;       // notice; printf: seconds
+  const char* auto_turn_off;      // notice
+  const char* screenshot_saved;   // notice; printf: file name
+  const char* screenshot_failed;  // notice
   // Sleep screens
   const char* sleep_screen;           // settings row and screen title
   const char* sleep_kinds[5];         // book cover, my pictures, reading stats, minimal, page as left

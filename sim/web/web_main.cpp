@@ -1,7 +1,8 @@
 // Browser simulator glue: exposes the core app to JavaScript.
 //
 // The page owns the event loop. It calls vellum_start() once, vellum_key()
-// per button press, and after each call reads the latest frame when
+// per button press (or vellum_key_event() as a button goes down and up, so
+// it can be held), and after each call reads the latest frame when
 // vellum_frame_count() has changed. vellum_last_full() tells it to play the
 // e-ink flash for a full refresh.
 #include <emscripten/emscripten.h>
@@ -46,6 +47,7 @@ class WebDisplay : public vellum::DisplayPanel {
       }
     }
     last_full_ = mode == vellum::RefreshMode::Full;
+    rotation_ = fb.rotation();
     ++frames_;
   }
 
@@ -54,6 +56,7 @@ class WebDisplay : public vellum::DisplayPanel {
   int h_ = 0;
   int frames_ = 0;
   bool last_full_ = false;
+  vellum::Rotation rotation_ = vellum::Rotation::R90;  // touches are points on the last frame
 };
 
 class NoInput : public vellum::InputSource {
@@ -206,6 +209,16 @@ EMSCRIPTEN_KEEPALIVE void vellum_key(int key) {
   app->handle(ev);
 }
 
+// A button going down (down = 1) or up (0), for presses that can be held;
+// vellum_poll() tells the app when one has been held long enough.
+EMSCRIPTEN_KEEPALIVE void vellum_key_event(int key, int down) {
+  if (!app || key < 0 || key > 3) return;
+  vellum::InputEvent ev;
+  ev.type = down != 0 ? vellum::InputEvent::Type::KeyDown : vellum::InputEvent::Type::KeyUp;
+  ev.key = static_cast<vellum::Key>(key);
+  app->handle(ev);
+}
+
 // Power held down long enough to sleep.
 EMSCRIPTEN_KEEPALIVE void vellum_hold_power() {
   if (!app) return;
@@ -218,7 +231,7 @@ EMSCRIPTEN_KEEPALIVE void vellum_hold_power() {
   app->handle(ev);
 }
 
-// 0 = finger down, 1 = move, 2 = up; (x, y) in logical (portrait) pixels;
+// 0 = finger down, 1 = move, 2 = up; (x, y) in logical pixels of the last frame;
 // ms is when, in milliseconds (a finger held still is a long press).
 EMSCRIPTEN_KEEPALIVE void vellum_touch(int kind, int x, int y, int ms) {
   if (!app || kind < 0 || kind > 2) return;
@@ -227,7 +240,7 @@ EMSCRIPTEN_KEEPALIVE void vellum_touch(int kind, int x, int y, int ms) {
   vellum::InputEvent ev;
   ev.type = kTypes[kind];
   int px, py;
-  vellum::rotate_to_physical(board.rotation, kPanelW, kPanelH, x, y, px, py);
+  vellum::rotate_to_physical(display.rotation_, kPanelW, kPanelH, x, y, px, py);
   ev.x = static_cast<int16_t>(px < 0 ? 0 : px >= kPanelW ? kPanelW - 1 : px);
   ev.y = static_cast<int16_t>(py < 0 ? 0 : py >= kPanelH ? kPanelH - 1 : py);
   ev.ms = static_cast<uint32_t>(ms);
@@ -299,7 +312,8 @@ EMSCRIPTEN_KEEPALIVE void vellum_peer_packet(int len) {
 }
 
 // Called every few hundred milliseconds: stands in for the device's input
-// wait timing out, which keeps a transfer going when packets are lost.
+// wait timing out, which keeps a transfer going when packets are lost, and
+// tells held buttons, page turns and notices that their time has come.
 EMSCRIPTEN_KEEPALIVE void vellum_poll() {
   if (app && app->wait_ms() <= vellum::peer::kTickMs) app->timeout();
 }
