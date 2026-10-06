@@ -265,6 +265,32 @@ void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Stri
   draw_fitted(fb, label_font(), text_x, r.y + 58, right - text_x, book.author, fg);
 }
 
+void draw_book_tile(Framebuffer& fb, Rect r, const LibraryEntry& book, bool selected, const CoverImage* picture) {
+  const Color fg = selected ? Color::White : Color::Black;
+  if (selected) fb.fill_round_rect(r, 10, Color::Black);
+
+  const Rect cover{r.x + (r.w - covers::kSmallW) / 2, r.y + 6, covers::kSmallW, covers::kSmallH};
+  if (selected) fb.fill_rect({cover.x - 2, cover.y - 2, cover.w + 4, cover.h + 4}, Color::White);
+  draw_cover(fb, cover, book.title, book.author, picture);
+
+  // The title, centred when it fits.
+  const int x = r.x + 8;
+  const int w = r.w - 16;
+  const int base = cover.y + cover.h + 19;
+  const int title_w = text_width_px(label_font(), book.title);
+  if (title_w <= w) {
+    draw_text(fb, label_font(), (x + (w - title_w) / 2) * 64, base, book.title, fg);
+  } else {
+    draw_fitted(fb, label_font(), x, base, w, book.title, fg);
+  }
+  // How far it is read: a dotted track, solid as far as read (all of it when finished).
+  const BookState& state = book.state;
+  const int percent = state.finished ? 100 : state.started() ? state.percent : 0;
+  const int bar_y = base + 10;
+  for (int dx = 0; dx < w; dx += 4) fb.set_pixel(x + dx, bar_y, fg);
+  if (percent > 0) fb.fill_rect({x, bar_y - 1, w * std::min(percent, 100) / 100, 3}, fg);
+}
+
 bool draw_qr(Framebuffer& fb, int x, int y, int size, std::string_view text) {
   constexpr int kMaxVersion = 10;  // 57 modules: up to ~270 characters at low error correction
   constexpr int kQuiet = 2;        // white modules around the code; the screen's white adds more

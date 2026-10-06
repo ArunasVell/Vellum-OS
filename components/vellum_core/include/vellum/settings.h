@@ -23,8 +23,11 @@ enum class SleepAfter : uint8_t { Min5, Min10, Min30, Never };
 enum class AutoUpdate : uint8_t { AtNight, AskFirst, Off };
 // What the middle of the reader's footer shows.
 enum class FooterInfo : uint8_t { PageNumber, ChapterTime, Percent };
-// The order of the library's books.
-enum class LibrarySort : uint8_t { Recent, Title, Author };
+// The order of the library's books: recently read, title, author, or
+// recently added to the card.
+enum class LibrarySort : uint8_t { Recent, Title, Author, Added };
+// How home and the library show books: rows, or a grid of covers.
+enum class LibraryView : uint8_t { List, Covers };
 // Which way up the screen is. Upside down turns every screen; landscape
 // turns the reader only (menus stay upright, as they are laid out for it).
 enum class Orientation : uint8_t { Portrait, UpsideDown, LandscapeLeft, LandscapeRight };
@@ -44,6 +47,8 @@ struct Settings {
   uint8_t warmth = 3;                          // 0 (coolest) to kLightSteps (warmest)
   AutoUpdate auto_update = AutoUpdate::AtNight;
   LibrarySort library_sort = LibrarySort::Recent;
+  LibraryView library_view = LibraryView::List;
+  bool move_finished = false;  // finished books move to books/Read/
   // Reading
   TextSize text_size = TextSize::Medium;
   Spacing line_spacing = Spacing::Normal;

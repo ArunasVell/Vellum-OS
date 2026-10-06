@@ -104,6 +104,17 @@ bool StdioStorage::finish(Writer* w, bool keep) {
   return std::rename(part, writer_.path) == 0;
 }
 
+bool StdioStorage::rename(const char* from, const char* to) {
+  if (!full_path(to)) return false;
+  char dest[sizeof(full_)];
+  std::snprintf(dest, sizeof(dest), "%s", full_);
+  struct stat st;
+  if (stat(dest, &st) == 0) return false;  // never over another file
+  if (!full_path(from)) return false;
+  make_parents(dest);
+  return std::rename(full_, dest) == 0;
+}
+
 bool StdioStorage::list(const char* dir, ListFn fn, void* ctx) {
   if (!full_path(dir)) return false;
   DIR* d = opendir(full_);
