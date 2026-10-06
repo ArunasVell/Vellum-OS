@@ -66,7 +66,11 @@ struct Settings {
   bool justify = true;
   bool hyphenate = true;
   FooterInfo footer = FooterInfo::PageNumber;
-  uint8_t auto_turn = 4;  // index into kAutoTurnSeconds: 30 s
+  bool night = false;            // the reader's page white on black
+  bool focus_reading = false;    // the first part of each word in bold
+  bool publisher_styles = true;  // the book's own alignment, indents and emphasis
+  uint8_t paragraph_indent = 0;  // IndentRule: 0 as the book has it, 1 always, 2 never
+  uint8_t auto_turn = 4;         // index into kAutoTurnSeconds: 30 s
   FullRefresh full_refresh = FullRefresh::Every12;
   // Controls
   Orientation orientation = Orientation::Portrait;

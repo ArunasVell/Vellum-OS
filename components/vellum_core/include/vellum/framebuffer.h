@@ -101,6 +101,8 @@ class Framebuffer {
   void fill_round_rect(Rect r, int radius, Color c);
   void hline(int x, int y, int w, Color c) { fill_rect({x, y, w, 1}, c); }
   void vline(int x, int y, int h, Color c) { fill_rect({x, y, 1, h}, c); }
+  // Swaps black and white inside r.
+  void invert(Rect r);
 
   // Draws a 2-bit coverage mask (4 pixels per byte, MSB first, rows packed
   // back to back) with its top-left corner at (x, y). Pixels whose coverage

@@ -6,6 +6,7 @@
 #include <new>
 
 #include "vellum/bmp.h"
+#include "vellum/ui.h"
 
 extern "C" {
 #include "tjpgd.h"
@@ -258,6 +259,104 @@ bool load(Storage& storage, const char* cover_path, bool large, CoverImage& out)
   storage.close(f);
   if (!ok) out.w = out.h = 0;
   return ok;
+}
+
+// ---- Pictures inside books ----------------------------------------------------
+
+namespace {
+
+constexpr char kPictureMagic[4] = {'V', 'P', 'C', '1'};
+constexpr size_t kPictureHeader = 8;  // magic, then w and h as 16-bit little-endian
+
+uint32_t row_bytes(int w) { return static_cast<uint32_t>((w + 7) / 8); }
+
+}  // namespace
+
+int picture_size(const uint8_t* d, uint32_t len, int& w, int& h) {
+  w = h = 0;
+  if (len < 4) return -1;
+  if (std::memcmp(d, "\x89PNG", 4) == 0) {
+    if (len < 24) return -1;
+    const uint32_t pw = (uint32_t{d[16]} << 24) | (d[17] << 16) | (d[18] << 8) | d[19];
+    const uint32_t ph = (uint32_t{d[20]} << 24) | (d[21] << 16) | (d[22] << 8) | d[23];
+    if (pw == 0 || ph == 0 || pw > 0xFFFF || ph > 0xFFFF) return 0;
+    w = static_cast<int>(pw);
+    h = static_cast<int>(ph);
+    return uint64_t{pw} * ph <= kMaxPngPixels ? 1 : 0;
+  }
+  if (d[0] != 0xFF || d[1] != 0xD8) return 0;
+  // JPEG: segments up to the frame header, which has the size.
+  uint32_t i = 2;
+  for (;;) {
+    while (i < len && d[i] != 0xFF) ++i;
+    while (i < len && d[i] == 0xFF) ++i;
+    if (i >= len) return -1;
+    const uint8_t m = d[i++];
+    if (m == 0xD8 || m == 0x01 || (m >= 0xD0 && m <= 0xD7)) continue;  // no length
+    if (m == 0xD9 || m == 0xDA) return 0;                              // no frame before the data
+    if (i + 2 > len) return -1;
+    const uint32_t seg = (uint32_t{d[i]} << 8) | d[i + 1];
+    if (m >= 0xC0 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC) {
+      if (i + 7 > len) return -1;
+      h = (d[i + 3] << 8) | d[i + 4];
+      w = (d[i + 5] << 8) | d[i + 6];
+      return m == 0xC0 && w > 0 && h > 0 ? 1 : 0;  // the decoder reads baseline JPEGs only
+    }
+    if (seg < 2) return 0;
+    i += seg;
+  }
+}
+
+void picture_path(uint32_t book_key, int entry, int w, int h, char* out, size_t size) {
+  std::snprintf(out, size, "%s/%08lx-%d-%dx%d.pic", kPictureFolder, static_cast<unsigned long>(book_key), entry, w, h);
+}
+
+bool draw_kept(Storage& storage, const char* path, Framebuffer& fb, Rect r, uint8_t* scratch, uint32_t scratch_size) {
+  const uint32_t stride = row_bytes(r.w);
+  const uint32_t bytes = stride * static_cast<uint32_t>(r.h);
+  if (r.empty() || bytes > scratch_size) return false;
+  File* f = storage.open(path);
+  if (f == nullptr) return false;
+  uint8_t head[kPictureHeader];
+  const bool ok = f->read_at(0, head, kPictureHeader) == static_cast<int32_t>(kPictureHeader) &&
+                  std::memcmp(head, kPictureMagic, 4) == 0 && get16(head + 4) == r.w && get16(head + 6) == r.h &&
+                  f->read_at(kPictureHeader, scratch, bytes) == static_cast<int32_t>(bytes);
+  storage.close(f);
+  if (!ok) return false;
+  for (int y = 0; y < r.h; ++y) {
+    const uint8_t* row = scratch + static_cast<size_t>(y) * stride;
+    for (int x = 0; x < r.w; ++x) {
+      const bool white = (row[x >> 3] & (0x80 >> (x & 7))) != 0;
+      fb.set_pixel(r.x + x, r.y + y, white ? Color::White : Color::Black);
+    }
+  }
+  return true;
+}
+
+bool draw_new(Storage* storage, const char* path, Framebuffer& fb, Rect r, const uint8_t* data, uint32_t len,
+              uint8_t* scratch, uint32_t scratch_size) {
+  Work& wk = work();
+  int w, h;
+  if (!wk.ok() || len == 0 || r.empty() || !decode_large(data, len, wk, w, h)) return false;
+  const CoverImage picture{w, h, wk.large};
+  ui::draw_picture(fb, r, picture);
+  // Keep it as drawn: one bit a pixel, rows top to bottom. The data was
+  // decoded and its buffer is free again.
+  const uint32_t stride = row_bytes(r.w);
+  const uint32_t bytes = stride * static_cast<uint32_t>(r.h);
+  if (storage == nullptr || kPictureHeader + bytes > scratch_size) return true;
+  std::memcpy(scratch, kPictureMagic, 4);
+  put16(scratch + 4, r.w);
+  put16(scratch + 6, r.h);
+  uint8_t* bits = scratch + kPictureHeader;
+  std::memset(bits, 0, bytes);
+  for (int y = 0; y < r.h; ++y) {
+    for (int x = 0; x < r.w; ++x) {
+      if (fb.pixel(r.x + x, r.y + y) == Color::White) bits[y * stride + (x >> 3)] |= 0x80 >> (x & 7);
+    }
+  }
+  storage->write(path, scratch, static_cast<uint32_t>(kPictureHeader + bytes));
+  return true;
 }
 
 // ---- Full-screen pictures ----------------------------------------------------

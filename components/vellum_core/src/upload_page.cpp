@@ -177,7 +177,8 @@ const char kUploadPage[] = R"page(<!doctype html>
       word_spacing: "Tarpai tarp žodžių", margins: "Paraštės", justify: "Lygiuotė", hyphenate: "Žodžių kėlimas", footer: "Poraštė",
       library_view: "Knygų rodymas", move_finished: "Perkelti perskaitytas",
       sleep_screen: "Miego ekranas", sleep_order: "Paveikslėliai",
-      orientation: "Ekranas", auto_turn: "Automatinis vertimas", full_refresh: "Pilnas atnaujinimas" },
+      orientation: "Ekranas", auto_turn: "Automatinis vertimas", full_refresh: "Pilnas atnaujinimas",
+      indent: "Pastraipų įtrauka", book_styles: "Leidėjo stiliai", focus: "Fokusuotas skaitymas", night: "Naktinis režimas" },
     values: { language: ["English", "Lietuvių"], clock: ["24 val.", "12 val."], sleep_after: ["5 min.", "10 min.", "30 min.", "Niekada"],
       updates: ["Naktį", "Paklausti", "Išjungta"], own_network: ["Namų Wi-Fi, jei nustatytas", "Skaityklės tinklas"],
       text_size: ["Mažas", "Vidutinis", "Didelis", "Labai didelis"], line_spacing: ["Siauri", "Įprasti", "Platūs"],
@@ -188,7 +189,9 @@ const char kUploadPage[] = R"page(<!doctype html>
       sleep_order: ["Maišyti", "Vienas"],
       orientation: ["Stačias", "Apverstas", "Gulsčias, mygt. kairėje", "Gulsčias, mygt. dešinėje"],
       auto_turn: ["Kas 5 s", "Kas 10 s", "Kas 15 s", "Kas 20 s", "Kas 30 s", "Kas 45 s", "Kas 60 s", "Kas 90 s", "Kas 120 s"],
-      full_refresh: ["Kas puslapį", "Kas 5 psl.", "Kas 12 psl.", "Kas 20 psl.", "Naujas skyrius"] }
+      full_refresh: ["Kas puslapį", "Kas 5 psl.", "Kas 12 psl.", "Kas 20 psl.", "Naujas skyrius"],
+      indent: ["Kaip knygoje", "Visada", "Niekada"], book_styles: ["Išjungti", "Įjungti"], focus: ["Išjungtas", "Įjungtas"],
+      night: ["Išjungtas", "Įjungtas"] }
   } : {
     waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book, font, dictionary or picture", none: "No books yet.",
     nopics: "No pictures yet.", removepicq: "Remove this picture?",
@@ -201,7 +204,8 @@ const char kUploadPage[] = R"page(<!doctype html>
       word_spacing: "Word spacing", margins: "Margins", justify: "Alignment", hyphenate: "Hyphenation", footer: "Footer",
       library_view: "Home and library view", move_finished: "Move finished books",
       sleep_screen: "Sleep screen", sleep_order: "Sleep pictures",
-      orientation: "Screen", auto_turn: "Auto page turn", full_refresh: "Full refresh" },
+      orientation: "Screen", auto_turn: "Auto page turn", full_refresh: "Full refresh",
+      indent: "Paragraph indent", book_styles: "Publisher styles", focus: "Focus reading", night: "Night mode" },
     values: { language: ["English", "Lietuvių"], clock: ["24-hour", "12-hour"], sleep_after: ["5 min", "10 min", "30 min", "Never"],
       updates: ["At night", "Ask first", "Off"], own_network: ["Home Wi-Fi, when set", "The reader's own network"],
       text_size: ["Small", "Medium", "Large", "Extra large"], line_spacing: ["Narrow", "Normal", "Wide"],
@@ -212,7 +216,8 @@ const char kUploadPage[] = R"page(<!doctype html>
       sleep_order: ["Shuffle", "One picture"],
       orientation: ["Portrait", "Upside down", "Landscape, keys left", "Landscape, keys right"],
       auto_turn: ["Every 5 s", "Every 10 s", "Every 15 s", "Every 20 s", "Every 30 s", "Every 45 s", "Every 60 s", "Every 90 s", "Every 120 s"],
-      full_refresh: ["Every page", "Every 5 pages", "Every 12 pages", "Every 20 pages", "New chapter"] }
+      full_refresh: ["Every page", "Every 5 pages", "Every 12 pages", "Every 20 pages", "New chapter"],
+      indent: ["As in book", "Always", "Never"], book_styles: ["Off", "On"], focus: ["Off", "On"], night: ["Off", "On"] }
   };
   if (lt) {
     document.documentElement.lang = "lt";
@@ -595,7 +600,7 @@ const char kUploadPage[] = R"page(<!doctype html>
     } catch (_) { say(stateEl, false, T.failed); return false; }
   }
   const order = ["language", "clock", "sleep_after", "sleep_screen", "sleep_order", "updates", "own_network", "library_view", "move_finished", "orientation", "menu_font", "book_font", "text_size",
-    "line_spacing", "word_spacing", "margins", "justify", "hyphenate", "footer", "auto_turn", "full_refresh"];
+    "line_spacing", "word_spacing", "margins", "justify", "hyphenate", "footer", "indent", "book_styles", "focus", "night", "auto_turn", "full_refresh"];
   function renderSettings(info) {
     const grid = $("set-grid");
     grid.replaceChildren();

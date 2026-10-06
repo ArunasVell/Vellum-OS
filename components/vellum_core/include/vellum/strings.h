@@ -308,6 +308,23 @@ struct Strings {
   const char* folder_empty;    // a folder with nothing to show
   const char* picture_failed;  // a picture the viewer cannot decode
   const char* hint_picture;
+  // Reading extras: night mode, focus reading, book styles, links, go to
+  const char* night_mode;         // reading settings row and contents row
+  const char* focus_reading;      // reading settings row: the start of each word in bold
+  const char* book_styles;        // reading settings row: the book's own alignment and emphasis
+  const char* paragraph_indent;   // reading settings row
+  const char* indent_names[3];    // as in the book, always, never
+  const char* go_to;              // contents row and the panel's title
+  const char* go;                 // button: go there
+  const char* hint_go_coarse;     // side buttons move 10%
+  const char* hint_go_fine;       // then 1%
+  const char* links_on_page;      // contents row
+  const char* hint_pick_link;     // choosing a link with the side buttons
+  const char* back_to_page;       // contents row after following a link or going to a page
+  const char* note;               // title of a footnote shown over the page
+  const char* finished_question;  // at the end of a book
+  const char* mark_read;          // its buttons
+  const char* not_yet;
 };
 
 const Strings& strings(Language lang);

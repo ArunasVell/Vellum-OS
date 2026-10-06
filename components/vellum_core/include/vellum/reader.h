@@ -28,6 +28,9 @@ struct ReadingStyle {
   bool hyphenate;
   // BookFonts::generation: the same font pointers may hold new glyphs.
   uint32_t font_generation = 0;
+  bool publisher = true;  // the book's own alignment, indents and emphasis
+  IndentRule indent_rule = IndentRule::Book;
+  bool focus = false;  // focus reading: the start of each word in bold
 
   bool operator==(const ReadingStyle&) const = default;
 };
@@ -88,6 +91,13 @@ class Reader {
             std::string_view middle = {}, std::span<const TextMark> marks = {}) const;
   bool next();  // false at the end of the book
   bool prev();  // false at the start of the book
+  // Moves to the page at `percent` of the whole book (as percent() counts).
+  bool go_to_percent(int percent);
+  // The chapter that page is in, without laying it out.
+  int chapter_at(int percent) const;
+  // Night: the page drawn white on black (pictures stay as they are).
+  void set_night(bool on) { night_ = on; }
+  bool night() const { return night_; }
 
   uint32_t id() const { return id_; }
   Document* document() const { return doc_; }
@@ -123,6 +133,10 @@ class Reader {
   bool load(int chapter);
   void paginate();
   bool opening() const { return page_ == 0 && chapter_info_.label[0] != '\0'; }
+  // The page style for this book and chapter: its emphasis and pictures too.
+  PageStyle layout_style(const Framebuffer& fb, bool opening_page) const;
+  // PageStyle::draw_picture: asks the document, noting where pictures went.
+  static bool draw_picture(void* ctx, Framebuffer& fb, const Picture& p, Rect r);
 
   Document* doc_ = nullptr;
   uint32_t id_ = 0;
@@ -144,6 +158,11 @@ class Reader {
   // Pages per length, from the longest chapter laid out in this book and style.
   int sample_pages_ = 0;
   uint32_t sample_weight_ = 0;
+  bool night_ = false;
+  // Where pictures were drawn on the page, kept upright in night mode.
+  static constexpr int kMaxShown = 4;
+  mutable Rect shown_[kMaxShown];
+  mutable int shown_count_ = 0;
 };
 
 }  // namespace vellum

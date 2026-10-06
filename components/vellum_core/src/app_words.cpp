@@ -144,6 +144,18 @@ int App::page_marks(TextMark* out, int max) const {
     }
   }
   if (word_mode_ == WordMode::Off) return n;
+  if (word_mode_ == WordMode::PickLink || word_mode_ == WordMode::Note) {
+    // The link in hand, inverted.
+    const ChapterMarkup m = reader_.document()->markup();
+    if (n < max && link_sel_ >= 0 && static_cast<uint32_t>(link_sel_) < m.link_count) {
+      // From the start of its first word: a note's number may end one.
+      const PageWords& w = reader_.words();
+      TextPos begin = m.links[link_sel_].begin;
+      if (word_sel_ < w.count && w.words[word_sel_].begin < begin) begin = w.words[word_sel_].begin;
+      out[n++] = {begin, m.links[link_sel_].end, TextMark::Style::Selected};
+    }
+    return n;
+  }
   const PageWords& w = reader_.words();
   if (w.count == 0 || n >= max) return n;
   switch (word_mode_) {
@@ -169,6 +181,10 @@ int App::page_marks(TextMark* out, int max) const {
       break;
     }
     case WordMode::Off:
+    case WordMode::PickLink:
+    case WordMode::Note:
+    case WordMode::GoTo:
+    case WordMode::Finish:
       break;
   }
   return n;
@@ -184,6 +200,7 @@ void App::open_word_pick() {
 void App::close_words() { word_mode_ = WordMode::Off; }
 
 bool App::word_hold(int x, int y) {
+  if (word_mode_ >= WordMode::PickLink) return reading_tap(x, y);  // a panel: as a tap
   const int i = reader_.words().at(x, y);
   if (i < 0) return false;
   select_word(i);
@@ -265,6 +282,7 @@ void App::save_highlight() {
 }
 
 bool App::word_key(Key key) {
+  if (word_mode_ >= WordMode::PickLink) return reading_key(key);
   const PageWords& w = reader_.words();
   if (w.count == 0) return close_words(), true;
   const int step = key == Key::Next ? 1 : key == Key::Prev ? -1 : 0;
@@ -317,13 +335,14 @@ bool App::word_key(Key key) {
         word_end_ = move(word_end_);
       }
       return true;
-    case WordMode::Off:
+    default:
       break;
   }
   return false;
 }
 
 bool App::word_tap(int x, int y) {
+  if (word_mode_ >= WordMode::PickLink) return reading_tap(x, y);
   const int item = hit_at(x, y);
   const Rect& r = word_overlay_;
   const bool on_overlay = x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
@@ -345,13 +364,14 @@ bool App::word_tap(int x, int y) {
     case WordMode::PickWord:
       if (word >= 0) return select_word(word), true;
       return close_words(), true;
-    case WordMode::Off:
+    default:
       break;
   }
   return false;
 }
 
 void App::draw_word_overlay() {
+  if (word_mode_ == WordMode::GoTo || word_mode_ == WordMode::Finish) return draw_reading_panel();
   const int w = fb_.width();
   const int h = fb_.height();
   const Strings& t = text();
@@ -364,7 +384,8 @@ void App::draw_word_overlay() {
     focus = lines > 0 ? starts[std::min(word_line_, lines - 1)] : 0;
   }
   const int focus_y = words.count > 0 ? words.words[std::clamp(focus, 0, words.count - 1)].baseline : 0;
-  int height = word_mode_ == WordMode::Look ? kPanelH : word_mode_ == WordMode::Extend ? kBarH : kHintBarH;
+  const bool panel = word_mode_ == WordMode::Look || word_mode_ == WordMode::Note;
+  int height = panel ? kPanelH : word_mode_ == WordMode::Extend ? kBarH : kHintBarH;
   bool at_top = focus_y > h - height - 40;
   // The definition stays off the word's line: between the bottom of the
   // line before it and the top of the line after it.
@@ -375,7 +396,7 @@ void App::draw_word_overlay() {
     if (b.baseline < focus_y) line_above = std::max(line_above, b.y + b.h + 3);
     if (b.baseline > focus_y) line_below = std::min(line_below, b.y - 3);
   }
-  if (word_mode_ == WordMode::Look && height > (at_top ? line_above : h - line_below)) {
+  if (panel && height > (at_top ? line_above : h - line_below)) {
     // A short (landscape) page: the side of the word with more room.
     at_top = line_above > h - line_below;
     height = std::max(at_top ? line_above : h - line_below, kBarH);
@@ -413,9 +434,11 @@ void App::draw_word_overlay() {
   const int top = area.y + (at_top ? 0 : 2);
   const int bottom = area.y + area.h - (at_top ? 2 : 0);
 
-  if (word_mode_ == WordMode::PickLine || word_mode_ == WordMode::PickWord) {
+  if (word_mode_ == WordMode::PickLine || word_mode_ == WordMode::PickWord || word_mode_ == WordMode::PickLink) {
     ui::draw_centered(fb_, ui::label_font(), (top + bottom) / 2 + 6,
-                      word_mode_ == WordMode::PickLine ? t.hint_pick_line : t.hint_pick_word);
+                      word_mode_ == WordMode::PickLine   ? t.hint_pick_line
+                      : word_mode_ == WordMode::PickWord ? t.hint_pick_word
+                                                         : t.hint_pick_link);
     return;
   }
 
@@ -475,6 +498,10 @@ void App::draw_word_overlay() {
       std::snprintf(where, sizeof(where), "%d/%d", page, pages);
       ui::draw_right(fb_, ui::label_font(), w - kSide, button_y + 28, where);
     }
+  }
+  if (word_mode_ == WordMode::Note) {
+    add_hit(draw_button(fb_, kSide, button_y, t.close, true), kHitClose);  // a footnote: read, then close
+    return;
   }
   const Rect primary = draw_button(fb_, kSide, button_y, word_mark_ >= 0 ? t.remove_highlight : t.highlight, true);
   add_hit(primary, kHitPrimary);

@@ -43,7 +43,10 @@ ReadingStyle reading_style(const Settings& s, const BookFonts* fonts) {
           kMargins[static_cast<int>(s.margins)],
           s.justify,
           s.hyphenate,
-          f.generation};
+          f.generation,
+          s.publisher_styles,
+          static_cast<IndentRule>(s.paragraph_indent),
+          s.focus_reading};
 }
 
 PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const char* language, bool opening) {
@@ -56,7 +59,29 @@ PageStyle page_style(const ReadingStyle& style, const Framebuffer& fb, const cha
   p.line_height = font.line_height * style.line_percent / 100;
   p.word_space = style.word_space;
   p.justify = style.justify;
+  p.publisher = style.publisher;
+  p.indent_rule = style.indent_rule;
+  p.focus = style.focus;
   return p;
+}
+
+PageStyle Reader::layout_style(const Framebuffer& fb, bool opening_page) const {
+  PageStyle p = page_style(style_, fb, doc_->language(), opening_page);
+  const ChapterMarkup m = doc_->markup();
+  p.runs = m.runs;
+  p.run_count = m.run_count;
+  p.pictures = m.pictures;
+  p.picture_count = m.picture_count;
+  p.draw_picture = &Reader::draw_picture;
+  p.picture_ctx = const_cast<Reader*>(this);
+  return p;
+}
+
+bool Reader::draw_picture(void* ctx, Framebuffer& fb, const Picture& p, Rect r) {
+  auto* reader = static_cast<Reader*>(ctx);
+  if (!reader->doc_->draw_picture(fb, p, r)) return false;
+  if (reader->shown_count_ < kMaxShown) reader->shown_[reader->shown_count_++] = r;
+  return true;
 }
 
 Reader::Reader() : page_starts_(new(std::nothrow) TextPos[kMaxPages]) {}
@@ -101,8 +126,7 @@ void Reader::paginate() {
   while (pos.paragraph < ch.paragraph_count && page_count_ < kMaxPages) {
     page_starts_[page_count_] = pos;
     const bool opening = page_count_ == 0 && ch.label[0] != '\0';
-    const TextPos next = typeset_page(page_style(style_, *fb_, doc_->language(), opening), ch.paragraphs,
-                                      ch.paragraph_count, pos, nullptr);
+    const TextPos next = typeset_page(layout_style(*fb_, opening), ch.paragraphs, ch.paragraph_count, pos, nullptr);
     ++page_count_;
     if (next == pos) break;  // nothing fits; avoid looping forever
     pos = next;
@@ -120,6 +144,38 @@ bool Reader::next() {
     return true;
   }
   return chapter_ + 1 < doc_->chapter_count() && load(chapter_ + 1);
+}
+
+bool Reader::go_to_percent(int percent) {
+  percent = std::clamp(percent, 0, 100);
+  uint64_t total = 0;
+  for (int i = 0; i < doc_->chapter_count(); ++i) total += doc_->chapter_weight(i);
+  const int c = chapter_at(percent);
+  if (total == 0 || (c != chapter_ && !load(c))) return false;
+  uint64_t before = 0;
+  for (int i = 0; i < c; ++i) before += doc_->chapter_weight(i);
+  // The page whose percent() is the one asked for (the reverse of it).
+  const uint64_t want = total * static_cast<uint64_t>(percent) / 100;
+  const uint64_t into = want > before ? want - before : 0;
+  const uint64_t weight = doc_->chapter_weight(c);
+  const int64_t p = static_cast<int64_t>((into * static_cast<uint64_t>(page_count_) + weight - 1) / weight) - 1;
+  page_ = static_cast<int>(std::clamp<int64_t>(p, 0, page_count_ - 1));
+  words_page_ = -1;
+  return true;
+}
+
+int Reader::chapter_at(int percent) const {
+  uint64_t total = 0;
+  for (int i = 0; i < doc_->chapter_count(); ++i) total += doc_->chapter_weight(i);
+  const uint64_t want = total * static_cast<uint64_t>(std::clamp(percent, 0, 100)) / 100;
+  uint64_t before = 0;
+  int c = 0;
+  for (; c + 1 < doc_->chapter_count(); ++c) {
+    const uint32_t w = doc_->chapter_weight(c);
+    if (before + w > want) break;
+    before += w;
+  }
+  return c;
 }
 
 bool Reader::prev() {
@@ -154,11 +210,11 @@ void Reader::snippet(char* out, size_t size) const {
   for (int pass = 0; pass < 2 && n == 0; ++pass) {
     for (uint32_t i = start.paragraph; i < ch.paragraph_count && !cut; ++i) {
       const char* p = ch.paragraphs[i];
-      if (*p == kHeadingMark) {
-        if (pass == 0) continue;
-        ++p;
-      }
+      const ParagraphMarks marks = read_marks(p);
+      if (marks.picture || marks.rule) continue;
+      if (marks.heading && pass == 0) continue;
       if (i == start.paragraph && start.offset <= std::strlen(p)) p += start.offset;
+      if (static_cast<size_t>(p - ch.paragraphs[i]) < marks.length) p = ch.paragraphs[i] + marks.length;
       if (*p == '\0') continue;
       if (n > 0) out[n++] = ' ';
       while (*p != '\0' && n < size - 1) out[n++] = *p++;
@@ -179,8 +235,8 @@ void Reader::snippet(char* out, size_t size) const {
 
 const PageWords& Reader::words() const {
   if (words_page_ != page_ || words_chapter_ != chapter_ || words_doc_ != doc_ || words_width_ != fb_->width()) {
-    typeset_page(page_style(style_, *fb_, doc_->language(), opening()), chapter_info_.paragraphs,
-                 chapter_info_.paragraph_count, page_starts_[page_], nullptr, &words_);
+    typeset_page(layout_style(*fb_, opening()), chapter_info_.paragraphs, chapter_info_.paragraph_count,
+                 page_starts_[page_], nullptr, &words_);
     words_page_ = page_;
     words_chapter_ = chapter_;
     words_doc_ = doc_;
@@ -217,7 +273,9 @@ void Reader::passage(TextPos begin, TextPos end, char* out, size_t size) const {
     const uint32_t len = static_cast<uint32_t>(std::strlen(p));
     uint32_t from = i == begin.paragraph ? std::min(begin.offset, len) : 0;
     const uint32_t to = i == end.paragraph ? std::min(end.offset, len) : len;
-    if (from == 0 && *p == kHeadingMark) from = 1;
+    const ParagraphMarks marks = read_marks(p);
+    if (marks.picture || marks.rule) continue;
+    from = std::max(from, marks.length);
     if (from >= to) continue;
     if (n > 0) out[n++] = ' ';
     for (uint32_t k = from; k < to; ++k) {
@@ -286,8 +344,9 @@ void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, i
     }
   }
 
-  typeset_page(page_style(style_, fb, doc_->language(), opening()), ch.paragraphs, ch.paragraph_count,
-               page_starts_[page_], &fb, marks.empty() ? nullptr : &words_);
+  shown_count_ = 0;
+  typeset_page(layout_style(fb, opening()), ch.paragraphs, ch.paragraph_count, page_starts_[page_], &fb,
+               marks.empty() ? nullptr : &words_);
   if (!marks.empty()) {
     words_page_ = page_;
     words_chapter_ = chapter_;
@@ -348,6 +407,12 @@ void Reader::draw(Framebuffer& fb, const Strings& text, std::string_view time, i
       const int half = r + 1;
       fb.hline(x + kRibbonW / 2 - half, kRibbonH - kRibbonW / 2 + r, 2 * half, Color::White);
     }
+  }
+
+  // Night: white on black, all but the pictures.
+  if (night_) {
+    fb.invert({0, 0, w, h});
+    for (int i = 0; i < shown_count_; ++i) fb.invert(shown_[i]);
   }
 }
 

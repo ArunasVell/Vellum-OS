@@ -222,6 +222,10 @@ enum class Row : uint8_t {
   Footer,
   LibraryView,   // list or cover grid
   MoveFinished,  // finished books to books/Read/
+  Indent,        // paragraph indents: as in the book, always, never
+  BookStyles,    // the book's own alignment, indents and emphasis
+  Focus,         // focus reading
+  Night,         // night mode
   Buttons,       // opens the buttons screen
   Orientation,   // which way up the screen is
   AutoTurn,      // seconds between pages turned by themselves
@@ -234,7 +238,8 @@ constexpr Row kGeneralRows[] = {Row::Language,    Row::MenuFont, Row::Clock,    
                                 Row::Stats,       Row::Check,    Row::LibraryView, Row::MoveFinished,
                                 Row::ReadingPage, Row::Buttons,  Row::Orientation};
 constexpr Row kReadingRows[] = {Row::BookFont,  Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins,
-                                Row::Alignment, Row::Hyphenation, Row::Footer,      Row::AutoTurn,    Row::FullRefresh};
+                                Row::Alignment, Row::Hyphenation, Row::Footer,      Row::Indent,      Row::BookStyles,
+                                Row::Focus,     Row::Night,       Row::AutoTurn,    Row::FullRefresh};
 constexpr int kGeneralCount = sizeof(kGeneralRows) / sizeof(kGeneralRows[0]);
 constexpr int kReadingCount = sizeof(kReadingRows) / sizeof(kReadingRows[0]);
 
@@ -260,6 +265,7 @@ int value_count(Row r) {
     case Row::WordSpacing:
     case Row::Margins:
     case Row::Footer:
+    case Row::Indent:
       return 3;
     default:
       return 2;
@@ -292,6 +298,14 @@ int get(const Settings& s, Row r) {
       return static_cast<int>(s.library_view);
     case Row::MoveFinished:
       return s.move_finished ? 1 : 0;
+    case Row::Indent:
+      return s.paragraph_indent;
+    case Row::BookStyles:
+      return s.publisher_styles ? 0 : 1;
+    case Row::Focus:
+      return s.focus_reading ? 0 : 1;
+    case Row::Night:
+      return s.night ? 0 : 1;
     case Row::Orientation:
       return static_cast<int>(s.orientation);
     case Row::AutoTurn:
@@ -350,6 +364,18 @@ void set(Settings& s, Row r, int v) {
       break;
     case Row::MoveFinished:
       s.move_finished = v != 0;
+      break;
+    case Row::Indent:
+      s.paragraph_indent = static_cast<uint8_t>(v);
+      break;
+    case Row::BookStyles:
+      s.publisher_styles = v == 0;
+      break;
+    case Row::Focus:
+      s.focus_reading = v == 0;
+      break;
+    case Row::Night:
+      s.night = v == 0;
       break;
     case Row::Orientation:
       s.orientation = static_cast<Orientation>(v);
@@ -412,6 +438,14 @@ const char* row_name(const Strings& t, Row r) {
       return t.library_view;
     case Row::MoveFinished:
       return t.move_finished;
+    case Row::Indent:
+      return t.paragraph_indent;
+    case Row::BookStyles:
+      return t.book_styles;
+    case Row::Focus:
+      return t.focus_reading;
+    case Row::Night:
+      return t.night_mode;
     case Row::MenuFont:
       return t.menu_font;
     case Row::BookFont:
@@ -448,7 +482,12 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::Alignment:
       return v == 0 ? t.justified : t.left;
     case Row::Hyphenation:
+    case Row::BookStyles:
+    case Row::Focus:
+    case Row::Night:
       return v == 0 ? t.on : t.off;
+    case Row::Indent:
+      return t.indent_names[v];
     case Row::Footer:
       return t.footer_names[v];
     case Row::LibraryView:
@@ -2035,6 +2074,8 @@ void App::open_contents() {
       contents_hl_rows_[contents_hl_row_count_++] = static_cast<int16_t>(marked[k] * 2 + 1);
     }
   }
+  int16_t links[1];
+  contents_links_ = page_links(links, 1) > 0;
   contents_sel_ = 0;
   sync_state_ = SyncState::Idle;
   show(Screen::Contents);
@@ -2045,7 +2086,8 @@ int App::contents_rows_per_page() const { return (fb_.height() - kContentsTop - 
 int App::contents_row_count() const {
   const Document& doc = *reader_.document();
   const int chapters = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
-  return (can_send() ? 7 : 6) + (can_sync() ? 1 : 0) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) +
+  ContentsRow actions[16];
+  return contents_actions(actions) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) +
          (contents_hl_row_count_ > 0 ? 1 + contents_hl_row_count_ : 0) + 1 + chapters;
 }
 
@@ -2056,24 +2098,29 @@ bool App::contents_skipped(int row) const {
          kind == ContentsRow::ChaptersLabel || kind == ContentsRow::Note;
 }
 
+int App::contents_actions(ContentsRow* out) const {
+  int n = 0;
+  out[n++] = ContentsRow::Back;
+  if (link_back_book_ == reading_) out[n++] = ContentsRow::Return;
+  out[n++] = ContentsRow::Mark;
+  out[n++] = ContentsRow::Light;
+  out[n++] = ContentsRow::LookUp;
+  out[n++] = ContentsRow::AutoTurn;
+  if (can_send()) out[n++] = ContentsRow::Send;
+  out[n++] = ContentsRow::Shelves;
+  if (can_sync()) out[n++] = ContentsRow::Sync;
+  out[n++] = ContentsRow::GoTo;
+  out[n++] = ContentsRow::Night;
+  if (contents_links_) out[n++] = ContentsRow::Links;
+  return n;
+}
+
 App::ContentsRow App::contents_row(int i, int& index) const {
   index = 0;
-  if (i == 0) return ContentsRow::Back;
-  if (i == 1) return ContentsRow::Mark;
-  if (i == 2) return ContentsRow::Light;
-  if (i == 3) return ContentsRow::LookUp;
-  if (i == 4) return ContentsRow::AutoTurn;
-  --i;
-  if (can_send()) {
-    if (i == 4) return ContentsRow::Send;
-    --i;
-  }
-  if (i == 4) return ContentsRow::Shelves;
-  if (can_sync()) {
-    if (i == 5) return ContentsRow::Sync;
-    --i;
-  }
-  i -= 5;
+  ContentsRow actions[16];
+  const int action_count = contents_actions(actions);
+  if (i < action_count) return actions[i];
+  i -= action_count;
   if (contents_mark_count_ > 0) {
     if (i == 0) return ContentsRow::BookmarksLabel;
     if (i <= contents_mark_count_) {
@@ -2155,6 +2202,19 @@ void App::contents_activate() {
       return show(Screen::Reader);
     case ContentsRow::Light:
       return open_light(Screen::Reader);
+    case ContentsRow::Return: {
+      const BookPos back = link_back_;
+      link_back_book_ = -1;
+      return jump_to(back);
+    }
+    case ContentsRow::Night:
+      settings_.night = !settings_.night;
+      if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
+      return show(Screen::Reader);
+    case ContentsRow::GoTo:
+      return open_go_to();
+    case ContentsRow::Links:
+      return open_link_pick();
     case ContentsRow::LookUp:
       return open_word_pick();
     case ContentsRow::Send:
@@ -2247,6 +2307,23 @@ void App::draw_contents() {
                                                  : t.look_up_word,
                   selected);
         break;
+      case ContentsRow::Return:
+      case ContentsRow::GoTo:
+      case ContentsRow::Links:
+        draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight},
+                  kind == ContentsRow::Return ? t.back_to_page
+                  : kind == ContentsRow::GoTo ? t.go_to
+                                              : t.links_on_page,
+                  selected);
+        break;
+      case ContentsRow::Night: {
+        // Its state on the right, where the other rows have their ›.
+        const Rect link{r.x, r.y + 2, r.w, kLinkHeight};
+        const Color fg = highlight(fb_, link, selected);
+        draw_text(fb_, ui::text_font(), (link.x + kPad) * 64, link.y + 30, t.night_mode, fg);
+        ui::draw_right(fb_, ui::text_font(), link.x + link.w - kPad, link.y + 30, settings_.night ? t.on : t.off, fg);
+        break;
+      }
       case ContentsRow::Sync: {
         // How the last sync went, at the right.
         char status[48] = "";
@@ -2704,6 +2781,10 @@ void App::open_book(int index) {
     return;
   }
   library_.touch(index);
+  if (reading_ != index) {
+    finish_asked_ = -1;
+    link_back_book_ = -1;
+  }
   reading_ = index;
   state.position = reader_.position();
   state.percent = static_cast<uint8_t>(reader_.percent());
@@ -2768,6 +2849,7 @@ void App::draw() {
     }
     TextMark marks[48];
     const int n = page_marks(marks, 48);
+    reader_.set_night(settings_.night);
     reader_.draw(fb_, text(), time, battery, page_bookmark() >= 0, middle, {marks, static_cast<size_t>(n)});
     if (word_mode_ != WordMode::Off) draw_word_overlay();
     draw_toast();
@@ -3251,18 +3333,22 @@ bool App::at_last_page() const {
 }
 
 bool App::turn(int step) {
+  if (step == 0) return false;
   const int chapter = reader_.chapter();
-  if (step == 0 || !(step > 0 ? reader_.next() : reader_.prev())) return false;
-  if (settings_.full_refresh == FullRefresh::NewChapter && reader_.chapter() != chapter) queue_.request_full();
   BookState& state = library_.state(reading_);
+  if (!(step > 0 ? reader_.next() : reader_.prev())) {
+    // Next on the last page asks again whether the book is finished.
+    if (step < 0 || state.finished) return false;
+    open_finish();
+    return true;
+  }
+  if (settings_.full_refresh == FullRefresh::NewChapter && reader_.chapter() != chapter) queue_.request_full();
   state.position = reader_.position();
   state.percent = static_cast<uint8_t>(reader_.percent());
   // Save now and then, not on every turn: card writes cost power. Reaching
-  // the last page marks the book finished, saved at once.
-  if (step > 0 && !state.finished && at_last_page()) {
-    state.finished = true;
-    book_finished(reading_);
-    save_progress();
+  // the end asks whether the book is finished, once.
+  if (step > 0 && !state.finished && finish_asked_ != reading_ && (at_last_page() || reader_.percent() >= 99)) {
+    open_finish();
   }
   if (++turns_since_save_ >= 10) save_progress();
   const uint32_t now = steady_ms();
@@ -3444,9 +3530,12 @@ bool App::handle_gesture(const Gesture& g) {
     switch (g.kind) {
       case K::LongPress:
         return word_hold(g.x, g.y);
-      case K::Tap:
+      case K::Tap: {
+        bool redraw = false;
+        if (link_tap(g.x, g.y, redraw)) return redraw;  // links before page turns
         if (g.x >= fb_.width() / 3 && g.x < fb_.width() * 2 / 3) return open_contents(), false;
         return turn(g.x < fb_.width() / 3 ? -1 : 1);
+      }
       case K::SwipeLeft:
       case K::SwipeUp:
         return turn(1);
