@@ -61,9 +61,50 @@ constexpr SettingKey kKeys[] = {
      [](Settings& s, int v) { s.hyphenate = v != 0; }},
     {"footer", 3, [](const Settings& s) { return static_cast<int>(s.footer); },
      [](Settings& s, int v) { s.footer = static_cast<FooterInfo>(v); }},
+    {"auto_turn", kAutoTurnSteps, [](const Settings& s) { return int{s.auto_turn}; },
+     [](Settings& s, int v) { s.auto_turn = static_cast<uint8_t>(v); }},
+    {"full_refresh", 5, [](const Settings& s) { return static_cast<int>(s.full_refresh); },
+     [](Settings& s, int v) { s.full_refresh = static_cast<FullRefresh>(v); }},
+    {"orientation", 4, [](const Settings& s) { return static_cast<int>(s.orientation); },
+     [](Settings& s, int v) { s.orientation = static_cast<Orientation>(v); }},
 };
 
+// The buttons, one line per set: an action number for each ButtonInput.
+constexpr const char* kButtonKeys[] = {"buttons_reading", "buttons_menus"};
+
+// "1,2,5,6,0,0,0" into `out`, when every press is there and the set is
+// offered and safe; otherwise out stays as it was.
+void parse_buttons(std::string_view value, bool reading, ButtonAction (&out)[kButtonInputs]) {
+  ButtonAction set[kButtonInputs];
+  for (int i = 0; i < kButtonInputs; ++i) {
+    const size_t comma = value.find(',');
+    const uint32_t v = textfile::to_uint(value.substr(0, comma), UINT32_MAX);
+    if (v >= static_cast<uint32_t>(kButtonActions)) return;
+    set[i] = static_cast<ButtonAction>(v);
+    if ((comma == std::string_view::npos) != (i == kButtonInputs - 1)) return;
+    if (comma != std::string_view::npos) value.remove_prefix(comma + 1);
+  }
+  if (!buttons_safe(set, reading)) return;
+  for (int i = 0; i < kButtonInputs; ++i) out[i] = set[i];
+}
+
 }  // namespace
+
+RefreshPolicy refresh_policy(FullRefresh f) {
+  switch (f) {
+    case FullRefresh::EveryPage:
+      return {0, true};
+    case FullRefresh::Every5:
+      return {5};
+    case FullRefresh::Every12:
+      break;
+    case FullRefresh::Every20:
+      return {20};
+    case FullRefresh::NewChapter:
+      return {0};
+  }
+  return {};
+}
 
 uint32_t sleep_after_ms(SleepAfter s) {
   switch (s) {
@@ -80,7 +121,7 @@ uint32_t sleep_after_ms(SleepAfter s) {
 }
 
 void load_settings(Storage& storage, Settings& out) {
-  char buf[1024];
+  char buf[2048];
   const int32_t n = textfile::read(storage, kSettingsPath, buf, sizeof(buf));
   if (n <= 0) return;
   std::string_view text(buf, static_cast<size_t>(n));
@@ -95,6 +136,8 @@ void load_settings(Storage& storage, Settings& out) {
     if (!value.empty() && value.back() == '\r') value.remove_suffix(1);
     if (key == "book_font" && !value.empty()) textfile::copy(value, out.book_font, sizeof(out.book_font));
     if (key == "menu_font" && !value.empty()) textfile::copy(value, out.menu_font, sizeof(out.menu_font));
+    if (key == kButtonKeys[0]) parse_buttons(value, true, out.buttons.reader);
+    if (key == kButtonKeys[1]) parse_buttons(value, false, out.buttons.menu);
     for (const SettingKey& k : kKeys) {
       const uint32_t v = textfile::to_uint(value, UINT32_MAX);
       if (key == k.name && v < static_cast<uint32_t>(k.count)) k.set(out, static_cast<int>(v));
@@ -103,10 +146,18 @@ void load_settings(Storage& storage, Settings& out) {
 }
 
 bool save_settings(Storage& storage, const Settings& s) {
-  char buf[512];
+  char buf[1024];
   int n = 0;
   for (const SettingKey& k : kKeys) {
     n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "%s=%d\n", k.name, k.get(s));
+  }
+  for (int page = 0; page < 2; ++page) {
+    const ButtonAction* set = page == 0 ? s.buttons.reader : s.buttons.menu;
+    n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "%s=", kButtonKeys[page]);
+    for (int i = 0; i < kButtonInputs; ++i) {
+      n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), i + 1 < kButtonInputs ? "%d," : "%d\n",
+                         static_cast<int>(set[i]));
+    }
   }
   n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "book_font=%s\nmenu_font=%s\n", s.book_font,
                      s.menu_font);

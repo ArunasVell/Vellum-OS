@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <cstring>
 #include <new>
+#include <utility>
 
 #include "vellum/text.h"
 #include "vellum/textfile.h"
@@ -50,7 +51,8 @@ constexpr int kSettingsTitleBase = 104;
 constexpr int kSettingsTop = 116;
 constexpr int kSettingRowHeight = 36;
 
-constexpr uint32_t kHoldMs = 1000;  // holding Power this long sleeps
+constexpr uint32_t kHoldMs = 1000;   // holding Power this long sleeps
+constexpr uint32_t kToastMs = 2500;  // a notice at the bottom stays this long
 // Battery levels, unless charging: at kEmptyPercent the reader sleeps with a
 // "charge it" screen before the voltage sags too low for a refresh; under
 // kNightUpdatePercent the night's update check is skipped.
@@ -219,21 +221,39 @@ enum class Row : uint8_t {
   Footer,
   LibraryView,   // list or cover grid
   MoveFinished,  // finished books to books/Read/
+  Buttons,       // opens the buttons screen
+  Orientation,   // which way up the screen is
+  AutoTurn,      // seconds between pages turned by themselves
+  FullRefresh    // how often the reader clears ghosting
 };
-// Settings has two pages: general, ending in a way to the reading page, and
+// Settings has two pages: general, with a way to the reading page, and
 // reading, with a preview of the text below its rows.
-constexpr Row kGeneralRows[] = {Row::Language,    Row::MenuFont,     Row::Clock,      Row::SleepAfter, Row::SleepScreen,
-                                Row::Light,       Row::Battery,      Row::Updates,    Row::Stats,      Row::Check,
-                                Row::LibraryView, Row::MoveFinished, Row::ReadingPage};
-constexpr Row kReadingRows[] = {Row::BookFont, Row::TextSize,  Row::LineSpacing, Row::WordSpacing,
-                                Row::Margins,  Row::Alignment, Row::Hyphenation, Row::Footer};
+constexpr Row kGeneralRows[] = {Row::Language,    Row::MenuFont, Row::Clock,       Row::SleepAfter,
+                                Row::SleepScreen, Row::Light,    Row::Battery,     Row::Updates,
+                                Row::Stats,       Row::Check,    Row::LibraryView, Row::MoveFinished,
+                                Row::ReadingPage, Row::Buttons,  Row::Orientation};
+constexpr Row kReadingRows[] = {Row::BookFont,  Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins,
+                                Row::Alignment, Row::Hyphenation, Row::Footer,      Row::AutoTurn,    Row::FullRefresh};
 constexpr int kGeneralCount = sizeof(kGeneralRows) / sizeof(kGeneralRows[0]);
 constexpr int kReadingCount = sizeof(kReadingRows) / sizeof(kReadingRows[0]);
 
+// Where a row is on the general page.
+constexpr int general_row(Row r) {
+  for (int i = 0; i < kGeneralCount; ++i) {
+    if (kGeneralRows[i] == r) return i;
+  }
+  return 0;
+}
+
 int value_count(Row r) {
   switch (r) {
+    case Row::AutoTurn:
+      return kAutoTurnSteps;
+    case Row::FullRefresh:
+      return 5;
     case Row::TextSize:
     case Row::SleepAfter:
+    case Row::Orientation:
       return 4;
     case Row::LineSpacing:
     case Row::WordSpacing:
@@ -271,6 +291,13 @@ int get(const Settings& s, Row r) {
       return static_cast<int>(s.library_view);
     case Row::MoveFinished:
       return s.move_finished ? 1 : 0;
+    case Row::Orientation:
+      return static_cast<int>(s.orientation);
+    case Row::AutoTurn:
+      return s.auto_turn;
+    case Row::FullRefresh:
+      return static_cast<int>(s.full_refresh);
+    case Row::Buttons:
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -323,6 +350,16 @@ void set(Settings& s, Row r, int v) {
     case Row::MoveFinished:
       s.move_finished = v != 0;
       break;
+    case Row::Orientation:
+      s.orientation = static_cast<Orientation>(v);
+      break;
+    case Row::AutoTurn:
+      s.auto_turn = static_cast<uint8_t>(v);
+      break;
+    case Row::FullRefresh:
+      s.full_refresh = static_cast<FullRefresh>(v);
+      break;
+    case Row::Buttons:
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -380,6 +417,14 @@ const char* row_name(const Strings& t, Row r) {
       return t.book_font;
     case Row::ReadingPage:
       return t.reading;
+    case Row::Buttons:
+      return t.buttons;
+    case Row::Orientation:
+      return t.screen;
+    case Row::AutoTurn:
+      return t.auto_turn;
+    case Row::FullRefresh:
+      return t.full_refresh;
   }
   return "";
 }
@@ -409,6 +454,12 @@ const char* value_name(const Strings& t, Row r, int v) {
       return t.view_names[v];
     case Row::MoveFinished:
       return t.move_names[v];
+    case Row::Orientation:
+      return t.screen_names[v];
+    case Row::FullRefresh:
+      return t.refresh_names[v];
+    case Row::AutoTurn:  // formatted by draw_settings()
+    case Row::Buttons:
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -447,6 +498,7 @@ App::App(Board& board)
     highlights_.load(*board_.storage);
     shelves_.load(*board_.storage);
   }
+  fb_.set_rotation(rotation_for(screen_));  // Settings › Screen
   library_.load(builtin_books(), board_.storage, epub_, &text_book_);
   fonts_.scan(board_.storage);
   apply_fonts();
@@ -1221,9 +1273,11 @@ void App::draw_settings() {
                         sizeof(value) - 4);
         std::strcat(value, " \xE2\x80\xBA");
       }
+    } else if (row == Row::AutoTurn) {
+      std::snprintf(value, sizeof(value), t.every_seconds, kAutoTurnSeconds[settings_.auto_turn]);
     } else if (row == Row::SleepScreen) {
       std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", t.sleep_kinds[static_cast<int>(settings_.sleep_screen)]);
-    } else if (row == Row::Check || row == Row::ReadingPage) {
+    } else if (row == Row::Check || row == Row::ReadingPage || row == Row::Buttons) {
       std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
     } else if (row == Row::MenuFont || row == Row::BookFont) {
       std::snprintf(value, sizeof(value), "%s", row == Row::MenuFont ? settings_.menu_font : settings_.book_font);
@@ -1279,6 +1333,7 @@ void App::settings_activate() {
   if (row == Row::Check) return open_check();
   if (row == Row::Updates) return open_updates();
   if (row == Row::ReadingPage) return open_settings(true);
+  if (row == Row::Buttons) return open_buttons();
   if (row == Row::SleepScreen) return open_sleep_setup();
   if (row == Row::MenuFont || row == Row::BookFont) {
     // The next typeface in the list, Literata after the last.
@@ -1889,7 +1944,7 @@ int App::contents_rows_per_page() const { return (fb_.height() - kContentsTop - 
 int App::contents_row_count() const {
   const Document& doc = *reader_.document();
   const int chapters = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
-  return (can_send() ? 6 : 5) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) +
+  return (can_send() ? 7 : 6) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) +
          (contents_hl_row_count_ > 0 ? 1 + contents_hl_row_count_ : 0) + 1 + chapters;
 }
 
@@ -1906,6 +1961,8 @@ App::ContentsRow App::contents_row(int i, int& index) const {
   if (i == 1) return ContentsRow::Mark;
   if (i == 2) return ContentsRow::Light;
   if (i == 3) return ContentsRow::LookUp;
+  if (i == 4) return ContentsRow::AutoTurn;
+  --i;
   if (can_send()) {
     if (i == 4) return ContentsRow::Send;
     --i;
@@ -1959,6 +2016,7 @@ int App::page_bookmark() const {
 void App::jump_to(BookPos pos) {
   Document& doc = *reader_.document();
   const BookPos before = reader_.position();
+  fb_.set_rotation(rotation_for(Screen::Reader));  // pages laid out for the reader's way up
   const ReadingStyle style = reading_style(settings_, &book_fonts());
   if (!reader_.open(doc, reader_.id(), style, pos, fb_)) reader_.open(doc, reader_.id(), style, before, fb_);
   BookState& state = library_.state(reading_);
@@ -1968,23 +2026,28 @@ void App::jump_to(BookPos pos) {
   show(Screen::Reader);
 }
 
+BookPos App::chapter_start(int index) const {
+  Document& doc = *reader_.document();
+  if (doc.toc_count() == 0) return {static_cast<uint16_t>(index), {}};
+  const TocEntry& e = doc.toc(index);
+  if (e.paragraph == TocEntry::kUnknown) {
+    Chapter ch;
+    doc.load_chapter(e.chapter, ch);  // finds where the entry points
+  }
+  return {e.chapter, {e.paragraph == TocEntry::kUnknown ? 0 : e.paragraph, 0}};
+}
+
 void App::contents_activate() {
   int index;
   switch (contents_row(contents_sel_, index)) {
     case ContentsRow::Back:
       return show(Screen::Reader);
-    case ContentsRow::Mark: {
-      const int mark = page_bookmark();
-      if (mark >= 0) {
-        library_.remove_bookmark(mark);
-      } else {
-        char snippet[sizeof(Bookmark::snippet)];
-        reader_.snippet(snippet, sizeof(snippet));
-        library_.add_bookmark(reading_, reader_.position(), static_cast<uint8_t>(reader_.percent()), snippet);
-      }
-      if (board_.storage != nullptr) library_.save_bookmarks(*board_.storage);
+    case ContentsRow::Mark:
+      toggle_bookmark();
       return show(Screen::Reader);
-    }
+    case ContentsRow::AutoTurn:
+      start_auto_turn();  // until a button or a touch stops it
+      return show(Screen::Reader);
     case ContentsRow::Light:
       return open_light(Screen::Reader);
     case ContentsRow::LookUp:
@@ -1998,16 +2061,8 @@ void App::contents_activate() {
     case ContentsRow::Highlight:
     case ContentsRow::Note:
       return jump_to(highlights_.at(index).begin);
-    case ContentsRow::Chapter: {
-      Document& doc = *reader_.document();
-      if (doc.toc_count() == 0) return jump_to({static_cast<uint16_t>(index), {}});
-      const TocEntry& e = doc.toc(index);
-      if (e.paragraph == TocEntry::kUnknown) {
-        Chapter ch;
-        doc.load_chapter(e.chapter, ch);  // finds where the entry points
-      }
-      return jump_to({e.chapter, {e.paragraph == TocEntry::kUnknown ? 0 : e.paragraph, 0}});
-    }
+    case ContentsRow::Chapter:
+      return jump_to(chapter_start(index));
     case ContentsRow::BookmarksLabel:
     case ContentsRow::HighlightsLabel:
     case ContentsRow::ChaptersLabel:
@@ -2085,6 +2140,12 @@ void App::draw_contents() {
                                                  : t.look_up_word,
                   selected);
         break;
+      case ContentsRow::AutoTurn: {
+        char label[64];
+        std::snprintf(label, sizeof(label), t.start_auto_turn, kAutoTurnSeconds[settings_.auto_turn]);
+        draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight}, label, selected);
+        break;
+      }
       case ContentsRow::Highlight: {
         const Highlight& h = highlights_.at(index);
         const Color fg = highlight(fb_, r, selected);
@@ -2492,9 +2553,13 @@ void App::open_book(int index) {
     doc = text ? static_cast<Document*>(&text_book_) : &epub_;
   }
   BookState& state = library_.state(index);
+  const Rotation before = fb_.rotation();
+  fb_.set_rotation(rotation_for(Screen::Reader));  // pages laid out for the reader's way up
   if (!reader_.open(*doc, static_cast<uint32_t>(index) + 1, reading_style(settings_, &book_fonts()), state.position,
-                    fb_))
+                    fb_)) {
+    fb_.set_rotation(before);
     return;
+  }
   library_.touch(index);
   reading_ = index;
   state.position = reader_.position();
@@ -2504,7 +2569,12 @@ void App::open_book(int index) {
 }
 
 void App::show(Screen s) {
-  if (s != Screen::Reader) word_mode_ = WordMode::Off;
+  if (s != Screen::Reader) {
+    word_mode_ = WordMode::Off;
+    auto_turn_ = false;
+  }
+  // The reader's refresh cadence is Settings › Reading › Full refresh; menus keep the usual one.
+  queue_.set_policy(s == Screen::Reader ? refresh_policy(settings_.full_refresh) : RefreshPolicy{});
   // Reading time runs in the book and its contents, and stops elsewhere.
   if (s == Screen::Reader && reading_ >= 0) {
     stats_.start(library_.entry(reading_).path, steady_ms());
@@ -2535,6 +2605,10 @@ int App::hit_at(int x, int y) const {
 
 void App::draw() {
   hit_count_ = 0;
+  if (const Rotation r = rotation_for(screen_); r != fb_.rotation()) {
+    fb_.set_rotation(r);  // the whole screen turns: no ghost of the old one
+    queue_.request_full();
+  }
   drawn_ = true;
   if (screen_ == Screen::SleepPreview) return draw_sleep(false, true);
   char time[16];
@@ -2553,6 +2627,7 @@ void App::draw() {
     const int n = page_marks(marks, 48);
     reader_.draw(fb_, text(), time, battery, page_bookmark() >= 0, middle, {marks, static_cast<size_t>(n)});
     if (word_mode_ != WordMode::Off) draw_word_overlay();
+    draw_toast();
     return;
   }
   if (screen_ == Screen::Picture) return draw_picture_screen();  // the whole screen
@@ -2598,6 +2673,9 @@ void App::draw() {
     case Screen::Shelve:
       draw_shelve();
       break;
+    case Screen::Buttons:
+      draw_buttons();
+      break;
     case Screen::SleepSetup:
       draw_sleep_setup();
       break;
@@ -2613,6 +2691,7 @@ void App::draw() {
       break;
   }
   if (keyboard_.is_open()) keyboard_.draw(fb_);  // over the bottom of the screen
+  draw_toast();
 }
 
 void App::start() {
@@ -2637,18 +2716,41 @@ uint32_t App::wait_ms() const {
   constexpr uint32_t kForever = 60 * 60 * 1000;
   if (asleep_) return kForever;
   if (power_held_) return kHoldMs;
+  // Time left until a moment `ms` long from `since` (all of it without a steady count).
+  const uint32_t now = steady_ms();
+  const auto left = [now](uint32_t since, uint32_t ms) {
+    const uint32_t gone = now != 0 ? now - since : 0;
+    return gone >= ms ? 1 : ms - gone;
+  };
+  if (key_waiting_) return left(key_down_at_, kHoldKeyMs);
   if (touch_.holding()) return TouchTracker::kLongPressMs;
   if (peers_ticking()) return peer::kTickMs;
-  const uint32_t idle = sleep_after_ms(settings_.sleep_after);
-  if (idle == 0 || screen_ == Screen::Transfer) return kForever;  // books may still be arriving
-  return idle;
+  uint32_t wait = sleep_after_ms(settings_.sleep_after);
+  if (wait == 0 || screen_ == Screen::Transfer) wait = kForever;  // books may still be arriving
+  if (auto_turn_) {
+    // Turning pages counts as use: no idle sleep until it stops.
+    const int32_t until = static_cast<int32_t>(auto_turn_at_ - now);
+    wait = now == 0 ? kAutoTurnSeconds[settings_.auto_turn] * 1000u : until > 0 ? static_cast<uint32_t>(until) : 1;
+  }
+  if (toast_[0] != '\0') wait = std::min(wait, left(toast_at_, kToastMs));
+  return wait;
 }
 
 void App::timeout() {
   if (asleep_) return;
   if (power_held_) {
-    power_held_ = false;  // the release that follows does nothing
+    power_held_ = power_quiet_ = false;  // the release that follows does nothing
     sleep();
+    return;
+  }
+  const uint32_t now = steady_ms();
+  if (key_waiting_) {
+    if (now != 0 && now - key_down_at_ < kHoldKeyMs) return;  // not yet
+    key_waiting_ = false;                                     // held: the release that follows does nothing
+    if (press(key_held_)) {
+      draw();
+      queue_.submit();
+    }
     return;
   }
   if (touch_.holding()) {
@@ -2666,6 +2768,19 @@ void App::timeout() {
     }
     return;
   }
+  if (auto_turn_ || toast_[0] != '\0') {
+    // Whichever is due (without a steady count: the notice first, as it is shorter).
+    const bool toast_due = toast_[0] != '\0' && (now == 0 || now - toast_at_ >= kToastMs);
+    const bool turn_due = auto_turn_ && (now != 0 ? static_cast<int32_t>(now - auto_turn_at_) >= 0 : !toast_due);
+    if (toast_due) toast_[0] = '\0';
+    if (turn_due) {
+      auto_turn_step();
+    } else if (toast_due) {
+      draw();
+      queue_.submit();
+    }
+    return;
+  }
   if (sleep_after_ms(settings_.sleep_after) != 0 && screen_ != Screen::Transfer) sleep();
 }
 
@@ -2675,6 +2790,9 @@ bool App::battery_below(int percent) {
 }
 
 void App::sleep(bool empty) {
+  auto_turn_ = false;
+  key_waiting_ = false;
+  toast_[0] = '\0';
   if (screen_ == Screen::Transfer) close_transfer();  // radio off first
   if (screen_ == Screen::Store) close_store();
   word_mode_ = WordMode::Off;
@@ -2914,6 +3032,20 @@ bool App::handle(const InputEvent& ev) {
     }
     return true;
   }
+  if (auto_turn_ && (ev.type == InputEvent::Type::KeyDown || ev.type == InputEvent::Type::TouchDown)) {
+    // Any press stops the pages turning, and does nothing else (holding
+    // Power still sleeps).
+    swallow_touch_ = ev.type == InputEvent::Type::TouchDown;
+    if (ev.type == InputEvent::Type::KeyDown && ev.key == Key::Power) power_held_ = power_quiet_ = true;
+    stop_auto_turn();
+    draw();
+    queue_.submit();
+    return true;
+  }
+  if (swallow_touch_ && (ev.type == InputEvent::Type::TouchMove || ev.type == InputEvent::Type::TouchUp)) {
+    swallow_touch_ = ev.type != InputEvent::Type::TouchUp;
+    return true;
+  }
   switch (ev.type) {
     case InputEvent::Type::Quit:
       return false;
@@ -2923,12 +3055,17 @@ bool App::handle(const InputEvent& ev) {
         power_held_ = true;
         return true;
       }
-      if (!handle_key(ev.key)) return true;
+      if (!key_down(ev.key)) return true;
       break;
     case InputEvent::Type::KeyUp:
-      if (ev.key != Key::Power || !power_held_) return true;
+      if (ev.key != Key::Power) {
+        if (!key_up(ev.key)) return true;
+        break;
+      }
+      if (!power_held_) return true;
       power_held_ = false;
-      if (!handle_key(Key::Power)) return true;
+      if (std::exchange(power_quiet_, false)) return true;
+      if (!press(static_cast<int>(ButtonInput::Power))) return true;
       break;
     case InputEvent::Type::TouchDown:
     case InputEvent::Type::TouchMove:
@@ -2962,7 +3099,9 @@ bool App::at_last_page() const {
 }
 
 bool App::turn(int step) {
+  const int chapter = reader_.chapter();
   if (step == 0 || !(step > 0 ? reader_.next() : reader_.prev())) return false;
+  if (settings_.full_refresh == FullRefresh::NewChapter && reader_.chapter() != chapter) queue_.request_full();
   BookState& state = library_.state(reading_);
   state.position = reader_.position();
   state.percent = static_cast<uint8_t>(reader_.percent());
@@ -2996,9 +3135,15 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Transfer) return close_transfer(), false;
       if (screen_ == Screen::Settings && settings_reading_) {
         open_settings(false);  // back to the general page, on the way in
-        settings_sel_ = kGeneralCount - 1;
+        settings_sel_ = general_row(Row::ReadingPage);
         draw();
         queue_.submit();
+        return false;
+      }
+      if (screen_ == Screen::Buttons) {
+        settings_reading_ = false;  // back to Settings, on the Buttons row
+        settings_sel_ = general_row(Row::Buttons);
+        show(Screen::Settings);
         return false;
       }
       if (screen_ == Screen::Updates && update_busy_ != UpdateBusy::No) return false;
@@ -3078,6 +3223,11 @@ bool App::handle_key(Key key) {
       return false;
     case Screen::Store:
       return store_key(key);
+    case Screen::Buttons:
+      if (key == Key::Power) return buttons_activate();
+      buttons_sel_ = wrap_index(buttons_sel_ + step, kButtonInputs + 2);
+      buttons_refused_ = false;
+      return true;
     case Screen::SleepSetup:
       if (key == Key::Power) return sleep_setup_activate(), false;
       sleep_sel_ = wrap_index(sleep_sel_ + step, kSleepSetupRows);
@@ -3216,6 +3366,9 @@ bool App::handle_gesture(const Gesture& g) {
       store_sel_ = item;
       store_activate();
       return false;
+    case Screen::Buttons:
+      buttons_sel_ = item;
+      return buttons_activate();
     case Screen::SleepSetup:
       sleep_sel_ = item;
       sleep_setup_activate();
