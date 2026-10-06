@@ -1,5 +1,7 @@
 #include "vellum/bmp.h"
 
+#include <new>
+
 namespace vellum::bmp {
 namespace {
 
@@ -113,6 +115,22 @@ bool read_row(File& f, const Info& info, int y, uint8_t* raw, uint8_t* out) {
       break;
     default:
       return false;
+  }
+  return true;
+}
+
+bool read(File& file, const Sink& sink) {
+  Info info;
+  if (!read_info(file, info) || info.w > kMaxWidth || info.row_bytes > kMaxWidth * 4u) return false;
+  if (sink.size != nullptr && !sink.size(sink.ctx, info.w, info.h)) return false;
+  // One buffer for the life of the program: a stored row and its grey copy.
+  static uint8_t* row = new (std::nothrow) uint8_t[kMaxWidth * 4 + kMaxWidth];
+  if (row == nullptr) return false;
+  uint8_t* out = row + kMaxWidth * 4;
+  for (int stored = 0; stored < info.h; ++stored) {
+    const int y = info.top_down ? stored : info.h - 1 - stored;
+    if (!read_row(file, info, y, row, out)) return false;
+    if (sink.row != nullptr) sink.row(sink.ctx, y, out);
   }
   return true;
 }

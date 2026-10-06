@@ -35,11 +35,6 @@ void cache_name(const char* name, uint32_t size, char* out, size_t out_size) {
 
 }  // namespace
 
-bool is_picture_file(const char* name) {
-  if (name[0] == '.') return false;
-  return ends_with(name, ".jpg") || ends_with(name, ".jpeg") || ends_with(name, ".png") || ends_with(name, ".bmp");
-}
-
 SleepPictures::SleepPictures()
     : pictures_(new(std::nothrow) Picture[kMax]), file_(new(std::nothrow) char[kStateBytes]) {}
 

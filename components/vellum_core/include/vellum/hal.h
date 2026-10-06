@@ -159,6 +159,9 @@ class Storage {
   virtual bool finish(Writer*, bool) { return false; }
   // Deletes a file. Returns false when it is missing or cannot be deleted.
   virtual bool remove(const char*) { return false; }
+  // Moves a file to another path, creating parent directories as needed.
+  // Returns false when `to` already exists or the move failed.
+  virtual bool rename(const char*, const char*) { return false; }
 };
 
 // Receiving books from a phone or computer over Wi-Fi. The device opens its

@@ -216,12 +216,15 @@ enum class Row : uint8_t {
   Margins,
   Alignment,
   Hyphenation,
-  Footer
+  Footer,
+  LibraryView,   // list or cover grid
+  MoveFinished,  // finished books to books/Read/
 };
 // Settings has two pages: general, ending in a way to the reading page, and
 // reading, with a preview of the text below its rows.
-constexpr Row kGeneralRows[] = {Row::Language, Row::MenuFont, Row::Clock, Row::SleepAfter, Row::SleepScreen, Row::Light,
-                                Row::Battery,  Row::Updates,  Row::Stats, Row::Check,      Row::ReadingPage};
+constexpr Row kGeneralRows[] = {Row::Language,    Row::MenuFont,     Row::Clock,      Row::SleepAfter, Row::SleepScreen,
+                                Row::Light,       Row::Battery,      Row::Updates,    Row::Stats,      Row::Check,
+                                Row::LibraryView, Row::MoveFinished, Row::ReadingPage};
 constexpr Row kReadingRows[] = {Row::BookFont, Row::TextSize,  Row::LineSpacing, Row::WordSpacing,
                                 Row::Margins,  Row::Alignment, Row::Hyphenation, Row::Footer};
 constexpr int kGeneralCount = sizeof(kGeneralRows) / sizeof(kGeneralRows[0]);
@@ -264,6 +267,10 @@ int get(const Settings& s, Row r) {
       return s.hyphenate ? 0 : 1;
     case Row::Footer:
       return static_cast<int>(s.footer);
+    case Row::LibraryView:
+      return static_cast<int>(s.library_view);
+    case Row::MoveFinished:
+      return s.move_finished ? 1 : 0;
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -309,6 +316,12 @@ void set(Settings& s, Row r, int v) {
       break;
     case Row::Footer:
       s.footer = static_cast<FooterInfo>(v);
+      break;
+    case Row::LibraryView:
+      s.library_view = static_cast<LibraryView>(v);
+      break;
+    case Row::MoveFinished:
+      s.move_finished = v != 0;
       break;
     case Row::MenuFont:
     case Row::BookFont:
@@ -357,6 +370,10 @@ const char* row_name(const Strings& t, Row r) {
       return t.sleep_screen;
     case Row::Footer:
       return t.footer;
+    case Row::LibraryView:
+      return t.library_view;
+    case Row::MoveFinished:
+      return t.move_finished;
     case Row::MenuFont:
       return t.menu_font;
     case Row::BookFont:
@@ -388,6 +405,10 @@ const char* value_name(const Strings& t, Row r, int v) {
       return v == 0 ? t.on : t.off;
     case Row::Footer:
       return t.footer_names[v];
+    case Row::LibraryView:
+      return t.view_names[v];
+    case Row::MoveFinished:
+      return t.move_names[v];
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -436,11 +457,13 @@ App::~App() {
   delete[] small_cover_.px;
   delete[] definition_;
   delete store_;
+  delete[] folder_items_;
 }
 
 const CoverImage* App::cover_of(int book, bool large) {
   const LibraryEntry& e = library_.entry(book);
   CoverImage& img = large ? large_cover_ : small_cover_;
+  if (large) picture_ready_ = false;  // the picture viewer shares the buffer
   if (e.cover <= 0 || board_.storage == nullptr || img.px == nullptr) return nullptr;
   char path[64];
   covers::path_for(e.path, e.file_size, path, sizeof(path));
@@ -458,7 +481,11 @@ void App::rescan_library() {
   text_book_.close();
   text_path_[0] = '\0';
   reading_ = -1;
+  finished_count_ = 0;
+  // The Folders tab may come or go: keep the same shelf shown.
+  const int shelf = library_on_shelf() ? library_tab_ - library_first_shelf() : -1;
   library_.load(builtin_books(), board_.storage, epub_, &text_book_);
+  if (shelf >= 0) library_tab_ = library_first_shelf() + shelf;
   fonts_.scan(board_.storage);  // fonts may have arrived with the books
   apply_fonts();
   dictionaries_scanned_ = false;  // and dictionaries
@@ -481,10 +508,24 @@ void App::time_text(char* out, size_t size) const {
 // ---- Home ------------------------------------------------------------------
 
 int App::home_item_count() const {
-  return 1 + std::min(kHomeRows, library_.count() - 1) + 3;  // current book, others, three links
+  if (grid()) return std::min(kHomeTiles, library_.count()) + 3;  // the covers, three links
+  return 1 + std::min(kHomeRows, library_.count() - 1) + 3;       // current book, others, three links
+}
+
+void App::draw_update_notice() {
+  // A small notice: a new version is ready. Tapping it opens Updates.
+  const int w = fb_.width();
+  char notice[64];
+  std::snprintf(notice, sizeof(notice), text().update_notice, update_state_.latest);
+  const int tw = text_width(ui::label_font(), notice) / 64;
+  const Rect pill{w - kSide - tw - 24, kHeroLabelBase - 22, tw + 24, 30};
+  fb_.fill_round_rect(pill, 15, Color::Black);
+  draw_text(fb_, ui::label_font(), (pill.x + 12) * 64, kHeroLabelBase - 1, notice, Color::White);
+  add_hit({pill.x - 8, pill.y - 8, pill.w + 16, pill.h + 16}, kUpdateNoticeItem);
 }
 
 void App::draw_home() {
+  if (grid()) return draw_home_grid();
   const int w = fb_.width();
   const int current = library_.current();
   const LibraryEntry& book = library_.entry(current);
@@ -492,16 +533,7 @@ void App::draw_home() {
   const Strings& t = text();
 
   ui::draw_label(fb_, kSide, kHeroLabelBase, state.started() ? t.continue_reading : t.start_reading);
-  if (update_available()) {
-    // A small notice: a new version is ready. Tapping it opens Updates.
-    char notice[64];
-    std::snprintf(notice, sizeof(notice), t.update_notice, update_state_.latest);
-    const int tw = text_width(ui::label_font(), notice) / 64;
-    const Rect pill{w - kSide - tw - 24, kHeroLabelBase - 22, tw + 24, 30};
-    fb_.fill_round_rect(pill, 15, Color::Black);
-    draw_text(fb_, ui::label_font(), (pill.x + 12) * 64, kHeroLabelBase - 1, notice, Color::White);
-    add_hit({pill.x - 8, pill.y - 8, pill.w + 16, pill.h + 16}, kUpdateNoticeItem);
-  }
+  if (update_available()) draw_update_notice();
 
   // The current book: cover, title, author, chapter and progress.
   const Rect hero = row_rect(fb_, kHeroTop, kHeroHeight);
@@ -593,9 +625,17 @@ void App::home_activate() {
 // Rename and Delete when a shelf of the reader's is shown; then the books.
 // library_sel_ counts through the buttons and books in that order.
 
-int App::library_tab_count() const { return 3 + shelves_.count() + (shelves_.count() < Shelves::kMax ? 1 : 0); }
+int App::library_tab_count() const {
+  return library_first_shelf() + shelves_.count() + (shelves_.count() < Shelves::kMax ? 1 : 0);
+}
 
-bool App::library_on_shelf() const { return library_tab_ >= 3 && library_tab_ - 3 < shelves_.count(); }
+bool App::library_has_folders() const { return library_.folder_count() > 0; }
+
+int App::library_first_shelf() const { return library_has_folders() ? 4 : 3; }
+
+bool App::library_on_shelf() const {
+  return library_tab_ >= library_first_shelf() && library_tab_ - library_first_shelf() < shelves_.count();
+}
 
 int App::library_first_book() const { return 2 + library_tab_count() + (library_on_shelf() ? 2 : 0); }
 
@@ -607,7 +647,10 @@ bool App::library_has_store() const { return board_.network != nullptr && (libra
 
 int App::library_list_top() const { return library_on_shelf() ? kShelfActionsTop + kButtonHeight + 10 : kLibListTop; }
 
-int App::library_rows() const { return std::max(1, (fb_.height() - kHintRoom - library_list_top()) / ui::kRowHeight); }
+int App::library_rows() const {
+  if (grid()) return library_grid_rows() * kGridCols;
+  return std::max(1, (fb_.height() - kHintRoom - library_list_top()) / ui::kRowHeight);
+}
 
 void App::build_library_view() {
   int order[Library::kMaxBooks];
@@ -618,7 +661,7 @@ void App::build_library_view() {
     bool shown = true;
     if (library_tab_ == 1) shown = e.state.reading();
     if (library_tab_ == 2) shown = e.state.finished;
-    if (library_on_shelf()) shown = shelves_.contains(library_tab_ - 3, e.path);
+    if (library_on_shelf()) shown = shelves_.contains(library_tab_ - library_first_shelf(), e.path);
     if (shown && search_[0] != '\0') shown = matches_search(e.title, search_) || matches_search(e.author, search_);
     if (shown) library_view_[library_view_count_++] = order[k];
   }
@@ -649,12 +692,13 @@ const char* App::tab_name(int tab) const {
   if (tab == 0) return t.tab_all;
   if (tab == 1) return t.tab_reading;
   if (tab == 2) return t.tab_finished;
-  if (tab - 3 < shelves_.count()) return shelves_.name(tab - 3);
+  if (tab == 3 && library_has_folders()) return t.folders;
+  if (tab - library_first_shelf() < shelves_.count()) return shelves_.name(tab - library_first_shelf());
   return t.new_shelf;
 }
 
 int App::tab_width(int tab) const {
-  const bool add = tab - 3 >= shelves_.count();
+  const bool add = tab - library_first_shelf() >= shelves_.count();
   return std::min(text_width_px(ui::text_font(), tab_name(tab)), kMaxTabText) + 2 * kTabPad + (add ? kPlusRoom : 0);
 }
 
@@ -701,7 +745,7 @@ void App::draw_library() {
     const Rect r{x, kTabsTop, tw, kButtonHeight};
     const bool current = k == library_tab_;
     const bool cursor = library_sel_ == 2 + k;
-    const bool add = k - 3 >= shelves_.count();
+    const bool add = k - library_first_shelf() >= shelves_.count();
     if (current || cursor) fb_.fill_round_rect(r, kButtonHeight / 2, Color::Black);
     if (cursor && !current) {
       fb_.fill_round_rect({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, kButtonHeight / 2 - 2, Color::White);
@@ -787,6 +831,10 @@ void App::draw_library() {
   const int first = library_page_ * rows;
   const int last = std::min(library_view_count_, first + rows);
   const int bottom = keyboard_.is_open() ? keyboard_.area(fb_).y : fb_.height();  // whole rows above the keys
+  if (grid()) {
+    draw_library_grid(top, bottom);
+    return ui::draw_hint(fb_, t.hint_list);
+  }
   for (int k = first; k < last; ++k) {
     const int y = top + (k - first) * ui::kRowHeight;
     if (y + ui::kRowHeight > bottom) break;
@@ -823,7 +871,7 @@ bool App::library_activate() {
   if (library_sel_ != first_book - 1) delete_armed_ = false;
   if (library_sel_ == 0) {
     // The next order, kept in Settings.
-    settings_.library_sort = static_cast<LibrarySort>((static_cast<int>(settings_.library_sort) + 1) % 3);
+    settings_.library_sort = static_cast<LibrarySort>((static_cast<int>(settings_.library_sort) + 1) % 4);
     if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
     library_page_ = 0;
     build_library_view();
@@ -835,7 +883,8 @@ bool App::library_activate() {
   }
   if (library_sel_ < 2 + tabs) {
     const int tab = library_sel_ - 2;
-    if (tab - 3 >= shelves_.count()) return open_keyboard(Typing::NewShelf, "");
+    if (tab == 3 && library_has_folders()) return open_folder(""), false;
+    if (tab - library_first_shelf() >= shelves_.count()) return open_keyboard(Typing::NewShelf, "");
     library_tab_ = tab;
     library_page_ = 0;
     build_library_view();
@@ -845,7 +894,7 @@ bool App::library_activate() {
     return true;
   }
   if (library_sel_ < first_book) {
-    const int shelf = library_tab_ - 3;
+    const int shelf = library_tab_ - library_first_shelf();
     if (library_sel_ == 2 + tabs) return open_keyboard(Typing::RenameShelf, shelves_.name(shelf));
     if (!delete_armed_) {
       delete_armed_ = true;
@@ -891,7 +940,7 @@ bool App::library_gesture(const Gesture& g) {
   using K = Gesture::Kind;
   const int item = hit_at(g.x, g.y);
   const int first_book = library_first_book();
-  if (g.kind == K::LongPress && item >= first_book) {
+  if (g.kind == K::LongPress && item >= first_book && item - first_book < library_view_count_) {
     // Holding a book: its shelves.
     library_sel_ = item;
     open_shelve(library_view_[item - first_book], Screen::Library);
@@ -955,6 +1004,7 @@ bool App::shelve_activate() {
   if (row == 1) {
     BookState& state = library_.state(shelve_book_);
     state.finished = !state.finished;
+    if (state.finished) book_finished(shelve_book_);
     save_progress();
     return true;
   }
@@ -1096,7 +1146,7 @@ bool App::finish_typing(bool ok) {
       if (ok && shelf < 0) shelf = shelves_.add(s);
       if (shelf < 0) break;
       save_shelves();
-      library_tab_ = 3 + shelf;
+      library_tab_ = library_first_shelf() + shelf;
       library_page_ = 0;
       build_library_view();
       library_show_tab(library_tab_);
@@ -1104,7 +1154,7 @@ bool App::finish_typing(bool ok) {
       break;
     }
     case Typing::RenameShelf:
-      if (ok && shelves_.rename(library_tab_ - 3, s)) save_shelves();
+      if (ok && shelves_.rename(library_tab_ - library_first_shelf(), s)) save_shelves();
       break;
     case Typing::NewShelfForBook: {
       int shelf = ok ? shelves_.find(s) : -1;
@@ -2461,6 +2511,10 @@ void App::show(Screen s) {
   } else if (s != Screen::Contents) {
     stop_reading();
   }
+  // Leaving the books for home or the lists: finished ones may move now.
+  if (finished_count_ > 0 && (s == Screen::Home || s == Screen::Library || s == Screen::Folders)) {
+    move_finished_books();
+  }
   screen_ = s;
   if (s == Screen::Home) home_sel_ = 0;
   draw();
@@ -2501,6 +2555,7 @@ void App::draw() {
     if (word_mode_ != WordMode::Off) draw_word_overlay();
     return;
   }
+  if (screen_ == Screen::Picture) return draw_picture_screen();  // the whole screen
   fb_.clear(Color::White);
   ui::draw_status_bar(fb_, time, battery);
   switch (screen_) {
@@ -2549,8 +2604,12 @@ void App::draw() {
     case Screen::Pictures:
       draw_pictures();
       break;
+    case Screen::Folders:
+      draw_folders();
+      break;
     case Screen::Reader:
     case Screen::SleepPreview:
+    case Screen::Picture:
       break;
   }
   if (keyboard_.is_open()) keyboard_.draw(fb_);  // over the bottom of the screen
@@ -2911,6 +2970,7 @@ bool App::turn(int step) {
   // the last page marks the book finished, saved at once.
   if (step > 0 && !state.finished && at_last_page()) {
     state.finished = true;
+    book_finished(reading_);
     save_progress();
   }
   if (++turns_since_save_ >= 10) save_progress();
@@ -2946,6 +3006,8 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Store) return store_back(), false;  // up a level
       if (screen_ == Screen::SleepSetup) return close_sleep_setup(), false;
       if (screen_ == Screen::Pictures || screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;
+      if (screen_ == Screen::Folders) return folder_up(), false;
+      if (screen_ == Screen::Picture) return open_folder(folder_path_, folder_items_[picture_item_].name), false;
       show(Screen::Home);
     }
     return false;
@@ -3026,6 +3088,11 @@ bool App::handle_key(Key key) {
       return true;
     case Screen::SleepPreview:
       return show(Screen::SleepSetup), false;  // any button goes back
+    case Screen::Folders:
+      return folder_key(key);
+    case Screen::Picture:
+      if (key == Key::Power) return open_folder(folder_path_, folder_items_[picture_item_].name), false;
+      return picture_step(step);
     case Screen::Transfer:
       break;  // only Home leaves it
   }
@@ -3043,6 +3110,16 @@ bool App::handle_gesture(const Gesture& g) {
     return keyboard_input(keyboard_.tap(fb_, g.x, g.y));
   }
   if (screen_ == Screen::Library) return library_gesture(g);
+  if (screen_ == Screen::Folders) return folder_gesture(g);
+  if (screen_ == Screen::Picture) {
+    // Like the reader: the left third or a swipe right goes back, the right
+    // third or a swipe left on, the middle back to the folder.
+    if (g.kind == K::SwipeLeft || g.kind == K::SwipeUp) return picture_step(1);
+    if (g.kind == K::SwipeRight || g.kind == K::SwipeDown) return picture_step(-1);
+    if (g.x < fb_.width() / 3) return picture_step(-1);
+    if (g.x >= fb_.width() * 2 / 3) return picture_step(1);
+    return open_folder(folder_path_, folder_items_[picture_item_].name), false;
+  }
   if (g.kind == K::LongPress && screen_ != Screen::Reader) {
     Gesture tap = g;  // holding a row or button is the same as tapping it
     tap.kind = K::Tap;
@@ -3156,6 +3233,8 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Send:
     case Screen::Stats:
     case Screen::SleepPreview:
+    case Screen::Folders:
+    case Screen::Picture:
       break;
   }
   return false;

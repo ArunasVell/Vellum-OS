@@ -21,6 +21,7 @@ class StdioStorage : public Storage {
   Writer* create(const char* path) override;
   bool finish(Writer* w, bool keep) override;
   bool remove(const char* path) override;
+  bool rename(const char* from, const char* to) override;
 
  private:
   class StdioWriter : public Writer {

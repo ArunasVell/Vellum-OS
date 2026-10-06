@@ -23,6 +23,21 @@ bool ends_with_epub(const char* name) {
          (ext[4] | 32) == 'b';
 }
 
+// ASCII letters in any case: the card's file system does not tell them apart.
+bool same_name(std::string_view a, std::string_view b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i) {
+    const char x = a[i] >= 'A' && a[i] <= 'Z' ? static_cast<char>(a[i] + 32) : a[i];
+    const char y = b[i] >= 'A' && b[i] <= 'Z' ? static_cast<char>(b[i] + 32) : b[i];
+    if (x != y) return false;
+  }
+  return true;
+}
+
+bool ends_with(std::string_view name, std::string_view ext) {
+  return name.size() > ext.size() && same_name(name.substr(name.size() - ext.size()), ext);
+}
+
 // Base letters of Latin-1 (from U+00C0) and Latin Extended-A (U+0100 to
 // U+017F), lowercase; '*' keeps the character (× and ÷).
 constexpr char kLatin1[] = "aaaaaaaceeeeiiiidnooooo*ouuuuytsaaaaaaaceeeeiiiidnooooo*ouuuuyty";
@@ -124,14 +139,21 @@ bool is_book_file(const char* name) {
   return ends_with_epub(name) || TextBook::format_of(name) != TextBook::Format::None;
 }
 
+bool is_picture_file(const char* name) {
+  if (name[0] == '.') return false;  // hidden, such as a Mac's "._" copies
+  return ends_with(name, ".jpg") || ends_with(name, ".jpeg") || ends_with(name, ".png") || ends_with(name, ".bmp");
+}
+
 Library::Library()
     : entries_(new(std::nothrow) LibraryEntry[kMaxBooks]),
       cache_(new(std::nothrow) LibraryEntry[kMaxBooks]),
+      folders_(new(std::nothrow) char[kMaxFolders][sizeof(LibraryEntry::path)]),
       bookmarks_(new(std::nothrow) Bookmark[kMaxBookmarks]) {}
 
 Library::~Library() {
   delete[] entries_;
   delete[] cache_;
+  delete[] folders_;
   delete[] bookmarks_;
 }
 
@@ -151,24 +173,33 @@ void Library::load(std::span<const Book* const> builtins, Storage* storage, Epub
   if (storage != nullptr && cache_ != nullptr) {
     load_cache(*storage);
     cache_dirty_ = false;
-    scan_folder(*storage, "books", epub, text);
-    scan_folder(*storage, ".", epub, text);
-    if (cache_dirty_) {
-      // Rewrite the cache from what is on the card now.
-      char* buf = file_buffer();
-      size_t n = 0;
-      for (int i = 0; buf != nullptr && i < count_; ++i) {
-        const LibraryEntry& e = entries_[i];
-        if (e.builtin != nullptr) continue;
-        n = put_number(buf, n, kFileBytes, e.file_size, '\t');
-        n = put(buf, n, kFileBytes, e.path, '\t');
-        n = put(buf, n, kFileBytes, e.title, '\t');
-        n = put(buf, n, kFileBytes, e.author, '\t');
-        n = put(buf, n, kFileBytes, e.language, '\t');
-        n = put(buf, n, kFileBytes, e.cover > 0 ? "2" : "0", '\n');
+    folder_count_ = 0;
+    if (folders_ == nullptr) {
+      scan_folder(*storage, "books", epub, text);
+      scan_folder(*storage, ".", epub, text);
+    } else {
+      // books/ and the root, then the folders found in them, breadth first.
+      std::snprintf(folders_[0], sizeof(folders_[0]), "books");
+      std::snprintf(folders_[1], sizeof(folders_[1]), ".");
+      folders_queued_ = 2;
+      for (int k = 0; k < folders_queued_; ++k) {
+        folder_count_ += k >= 2 ? 1 : 0;
+        scan_folder(*storage, folders_[k], epub, text);
       }
-      if (buf != nullptr) storage->write(kCachePath, buf, static_cast<uint32_t>(n));
     }
+    // A book that left the card also makes the cache stale.
+    int on_card = 0;
+    for (int i = 0; i < count_; ++i) on_card += entries_[i].builtin == nullptr;
+    if (cache_count_ > 0 && on_card != cache_count_) cache_dirty_ = true;
+    // Books not seen before are numbered on from the newest, in the order found.
+    uint32_t newest = 0;
+    for (int i = 0; i < count_; ++i) newest = std::max(newest, entries_[i].added);
+    for (int i = 0; i < count_; ++i) {
+      if (entries_[i].builtin != nullptr || entries_[i].added != 0) continue;
+      entries_[i].added = ++newest;
+      cache_dirty_ = true;
+    }
+    if (cache_dirty_) save_cache(*storage);
   }
   std::stable_sort(entries_, entries_ + count_, title_less);
   clock_ = 0;
@@ -197,7 +228,27 @@ void Library::load_cache(Storage& storage) {
     // "2": a cover made at the size the full-screen sleep cover wants. Older
     // caches, and "1" (smaller thumbnails), look again.
     e.cover = count > 5 && f[5] == "2" ? 1 : count > 5 && f[5] == "0" ? 0 : -1;
+    e.added = count > 6 ? textfile::to_uint(f[6]) : 0;  // older caches number their books again
   });
+}
+
+void Library::save_cache(Storage& storage) const {
+  // Rewritten whole from what is on the card now.
+  char* buf = file_buffer();
+  if (buf == nullptr) return;
+  size_t n = 0;
+  for (int i = 0; i < count_; ++i) {
+    const LibraryEntry& e = entries_[i];
+    if (e.builtin != nullptr) continue;
+    n = put_number(buf, n, kFileBytes, e.file_size, '\t');
+    n = put(buf, n, kFileBytes, e.path, '\t');
+    n = put(buf, n, kFileBytes, e.title, '\t');
+    n = put(buf, n, kFileBytes, e.author, '\t');
+    n = put(buf, n, kFileBytes, e.language, '\t');
+    n = put(buf, n, kFileBytes, e.cover > 0 ? "2" : e.cover == 0 ? "0" : "-", '\t');  // "-": look again
+    n = put_number(buf, n, kFileBytes, e.added, '\n');
+  }
+  storage.write(kCachePath, buf, static_cast<uint32_t>(n));
 }
 
 void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBook* text) {
@@ -212,12 +263,26 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBoo
   struct Ctx {
     Found* found;
     int n;
-  } ctx{found, 0};
+    Library* library;
+    const char* dir;
+  } ctx{found, 0, this, dir};
   storage.list(
       dir,
       [](void* p, const char* name, bool is_dir, uint32_t size) {
         auto* c = static_cast<Ctx*>(p);
-        if (is_dir || !is_book_file(name) || c->n >= kMaxBooks || std::strlen(name) >= sizeof(Found::name)) return;
+        if (is_dir) {
+          // A folder to read later, unless it is too deep, Vellum's own or books/ again.
+          Library& lib = *c->library;
+          const bool root = std::strcmp(c->dir, ".") == 0;
+          if (lib.folders_ == nullptr || lib.folders_queued_ >= kMaxFolders || (root && same_name(name, "books")))
+            return;
+          char* out = lib.folders_[lib.folders_queued_];
+          const int len = root ? std::snprintf(out, sizeof(lib.folders_[0]), "%s", name)
+                               : std::snprintf(out, sizeof(lib.folders_[0]), "%s/%s", c->dir, name);
+          if (len > 0 && len < static_cast<int>(sizeof(Found::name)) && shown_folder(out)) ++lib.folders_queued_;
+          return;
+        }
+        if (!is_book_file(name) || c->n >= kMaxBooks || std::strlen(name) >= sizeof(Found::name)) return;
         std::snprintf(c->found[c->n].name, sizeof(Found::name), "%s", name);
         c->found[c->n++].size = size;
       },
@@ -228,8 +293,8 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBoo
     e = {};
     if (std::strcmp(dir, ".") == 0) {
       std::snprintf(e.path, sizeof(e.path), "%s", found[k].name);
-    } else {
-      std::snprintf(e.path, sizeof(e.path), "%s/%s", dir, found[k].name);
+    } else if (std::snprintf(e.path, sizeof(e.path), "%s/%s", dir, found[k].name) >= static_cast<int>(sizeof(e.path))) {
+      continue;  // a path too long to keep
     }
     e.file_size = found[k].size;
     bool cached = false;
@@ -239,6 +304,7 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBoo
         std::memcpy(e.author, cache_[c].author, sizeof(e.author));
         std::memcpy(e.language, cache_[c].language, sizeof(e.language));
         e.cover = cache_[c].cover;
+        e.added = cache_[c].added;
         cached = true;
         break;
       }
@@ -264,12 +330,75 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBoo
     }
     ++count_;
   }
-  // A book that left the card also makes the cache stale.
-  if (cache_count_ > 0 && std::strcmp(dir, ".") == 0) {
-    int on_card = 0;
-    for (int i = 0; i < count_; ++i) on_card += entries_[i].builtin == nullptr;
-    if (on_card != cache_count_) cache_dirty_ = true;
+}
+
+int Library::folder_depth(const char* dir) {
+  if (dir[0] == '\0' || std::strcmp(dir, ".") == 0) return 0;
+  int depth = 1;
+  for (const char* p = dir; *p; ++p) depth += *p == '/' ? 1 : 0;
+  // books/ counts as the root.
+  const bool in_books = std::strncmp(dir, "books", 5) == 0 && (dir[5] == '\0' || dir[5] == '/');
+  return in_books ? depth - 1 : depth;
+}
+
+bool Library::shown_folder(const char* dir) {
+  if (folder_depth(dir) > kMaxFolderDepth) return false;
+  // Vellum's own folders and the card's system ones hold no books.
+  const char* slash = std::strchr(dir, '/');
+  const std::string_view top(dir, slash != nullptr ? static_cast<size_t>(slash - dir) : std::strlen(dir));
+  for (const char* own : {"vellum", "fonts", "dictionaries", "System Volume Information", "LOST.DIR"}) {
+    if (same_name(top, own)) return false;
   }
+  // Nor do hidden ones.
+  for (const char* p = dir; p != nullptr; p = std::strchr(p, '/')) {
+    if (*p == '/') ++p;
+    if (p[0] == '.' && p[1] != '\0') return false;
+  }
+  return true;
+}
+
+int Library::find(const char* path) const {
+  for (int i = 0; i < count_; ++i) {
+    if (std::strcmp(entries_[i].path, path) == 0) return i;
+  }
+  return -1;
+}
+
+bool Library::move_book(Storage& storage, int i, const char* folder) {
+  LibraryEntry& e = entries_[i];
+  if (e.builtin != nullptr) return false;
+  // The same name in the new folder, or "Name (2).epub" and on when it is taken.
+  const char* slash = std::strrchr(e.path, '/');
+  const char* name = slash != nullptr ? slash + 1 : e.path;
+  const char* dot = std::strchr(name, '.');
+  const int stem = dot != nullptr ? static_cast<int>(dot - name) : static_cast<int>(std::strlen(name));
+  char to[sizeof(e.path)];
+  bool moved = false;
+  for (int n = 1; n < 10 && !moved; ++n) {
+    const int len = n == 1 ? std::snprintf(to, sizeof(to), "%s/%s", folder, name)
+                           : std::snprintf(to, sizeof(to), "%s/%.*s (%d)%s", folder, stem, name, n, name + stem);
+    if (len <= 0 || len >= static_cast<int>(sizeof(to))) return false;
+    if (std::strcmp(to, e.path) == 0) return false;  // already there
+    moved = storage.rename(e.path, to);
+  }
+  if (!moved) return false;
+  // The thumbnails are named after the path: they move too, or are made again.
+  char old_cover[64], new_cover[64];
+  covers::path_for(e.path, e.file_size, old_cover, sizeof(old_cover));
+  covers::path_for(to, e.file_size, new_cover, sizeof(new_cover));
+  if (e.cover > 0 && !storage.rename(old_cover, new_cover)) e.cover = -1;
+  for (int k = 0; k < bookmark_count_; ++k) {
+    if (std::strcmp(bookmarks_[k].path, e.path) == 0)
+      std::snprintf(bookmarks_[k].path, sizeof(Bookmark::path), "%s", to);
+  }
+  for (int c = 0; c < cache_count_; ++c) {
+    if (std::strcmp(cache_[c].path, e.path) == 0) std::snprintf(cache_[c].path, sizeof(cache_[c].path), "%s", to);
+  }
+  std::snprintf(e.path, sizeof(e.path), "%s", to);
+  save_cache(storage);
+  save_progress(storage);
+  save_bookmarks(storage);
+  return true;
 }
 
 void Library::load_progress(Storage& storage) {
@@ -409,6 +538,8 @@ int Library::sorted(LibrarySort order, int* out, int max) const {
       if (const int c = compare_folded(surname(x), surname(y)); c != 0) return c < 0;
       return compare_folded(x, y) < 0;
     });
+  } else if (order == LibrarySort::Added) {
+    std::stable_sort(all, all + count_, [&](int a, int b) { return entries_[a].added > entries_[b].added; });
   }
   std::copy_n(all, n, out);
   return n;

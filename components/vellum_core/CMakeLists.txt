@@ -5,6 +5,7 @@ set(VELLUM_CORE_SRCS
   src/app.cpp
   src/app_store.cpp
   src/app_sleep.cpp
+  src/app_views.cpp
   src/app_words.cpp
   src/covers.cpp
   src/dictionary.cpp

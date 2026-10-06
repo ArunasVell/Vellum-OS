@@ -121,6 +121,7 @@ upper bounds):
 | EPUB: 2 MB chapter buffer, paragraph, manifest and contents tables | about 2.7 MB | always |
 | Covers: thumbnail work buffers and the two thumbnails shown | about 1.5 MB | always (1.1 MB before the full-screen sleep cover) |
 | Library entries, cache, bookmarks and file buffer | about 0.6 MB | always |
+| Library: folders still to read during a scan (64 paths) | 10 KB | always (added with folders) |
 | Highlights and their file buffer | about 0.5 MB | always |
 | Battery log and reading stats | about 0.25 MB | always |
 | Sleep screen pictures: up to 64 names and the marks file buffer | about 15 KB | always |
@@ -132,6 +133,9 @@ upper bounds):
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |
 | A sleep screen picture | none of its own: the cover work buffers (a PNG of at most 512 KB is read into them whole, and decodes like a cover) | while converting it, and while the sleep screen is drawn |
+| Folder browser: one folder's listing (256 items) | about 34 KB | from the first visit to Folders |
+| Picture viewer: a BMP row | 20 KB | from the first BMP shown |
+| Picture viewer: a PNG file, then its pixels | the file (up to 1 MB), then width × height | while decoding it (JPEGs are read as they decode; the picture itself goes into the large cover buffer) |
 | Wi-Fi and TLS buffers | 100–200 KB | while Wi-Fi is on |
 
 About 1.6 MB stay free. A very large colour PNG cover (roughly a million

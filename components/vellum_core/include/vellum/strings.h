@@ -225,7 +225,7 @@ struct Strings {
   const char* preview_language;  // its BCP 47 tag, for hyphenation
   // Library: order, search, shelves
   const char* sort_by;        // printf: an order name ("Sort: Title")
-  const char* sort_names[3];  // recent, title, author
+  const char* sort_names[4];  // recent, title, author, recently added
   const char* search;         // button on the library screen
   const char* search_prompt;  // in the keyboard's empty text line
   const char* ok;             // the keyboard's finishing key
@@ -265,6 +265,18 @@ struct Strings {
   const char* last_7_days;     // uppercase label
   const char* finished_label;  // uppercase label: books finished
   const char* left_in_book;    // printf: a duration ("3 h left")
+  // Library views: the cover grid, folders, pictures, finished books
+  const char* library_view;    // general settings row: list or covers
+  const char* view_names[2];   // list, covers
+  const char* recent_label;    // uppercase label over home's cover grid
+  const char* move_finished;   // general settings row
+  const char* move_names[2];   // off, to the Read folder
+  const char* folders;         // library tab and screen title
+  const char* card_root;       // the card's top folder, under the title
+  const char* folder_up;       // the row that goes up a folder
+  const char* folder_empty;    // a folder with nothing to show
+  const char* picture_failed;  // a picture the viewer cannot decode
+  const char* hint_picture;
 };
 
 const Strings& strings(Language lang);

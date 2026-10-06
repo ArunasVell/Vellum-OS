@@ -1,5 +1,5 @@
-// BMP pictures (Windows bitmaps), for sleep screens: uncompressed 1, 4, 8,
-// 24 and 32 bits per pixel, read from the card a row at a time as grey, so
+// BMP pictures (Windows bitmaps), for sleep screens and the picture viewer:
+// uncompressed 1, 4, 8, 24 and 32 bits per pixel, read from the card a row at a time as grey, so
 // a large picture never has to fit in memory.
 #pragma once
 
@@ -31,5 +31,20 @@ bool read_info(File& f, Info& out);
 // Reads row y (0 = top) as w grey bytes (0 black, 255 white). `raw` must
 // hold info.row_bytes.
 bool read_row(File& f, const Info& info, int y, uint8_t* raw, uint8_t* grey);
+
+constexpr int kMaxWidth = 4096;
+
+// size(ctx, w, h) is called first and may refuse the picture (false); then
+// row(ctx, y, grey) for every row, y counted from the top, in the file's
+// order (usually bottom to top). `grey` holds w bytes, 0 black to 255 white.
+struct Sink {
+  void* ctx = nullptr;
+  bool (*size)(void* ctx, int w, int h) = nullptr;
+  void (*row)(void* ctx, int y, const uint8_t* grey) = nullptr;
+};
+
+// Returns false when the file is not a bitmap of those kinds, is wider than
+// kMaxWidth, or cannot be read whole.
+bool read(File& file, const Sink& sink);
 
 }  // namespace vellum::bmp

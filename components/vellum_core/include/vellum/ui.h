@@ -73,5 +73,9 @@ void draw_picture(Framebuffer& fb, Rect r, const CoverImage& picture);
 // A selected row is drawn inverted.
 void draw_book_row(Framebuffer& fb, Rect r, const LibraryEntry& book, const Strings& text, bool selected,
                    const CoverImage* picture = nullptr);
+// One book in a grid: its cover at the small thumbnail's size, the title
+// under it and a bar for how far it is read. A selected tile is inverted.
+void draw_book_tile(Framebuffer& fb, Rect r, const LibraryEntry& book, bool selected,
+                    const CoverImage* picture = nullptr);
 
 }  // namespace vellum::ui

@@ -64,5 +64,11 @@ const CoverImage* load_screen(Storage& storage, const char* path);
 // kThumbW*kThumbH bytes. Returns false when there is none.
 bool load_thumb(Storage& storage, const char* path, CoverImage& out);
 
+// The picture viewer: decodes a JPEG (baseline, any size: read as it
+// decodes), PNG (up to 1 MB) or BMP file shrunk to fit kLargeW x kLargeH
+// into out.px, which must hold that many bytes. Returns false when the
+// file cannot be read or decoded.
+bool load_picture(Storage& storage, const char* path, CoverImage& out);
+
 }  // namespace covers
 }  // namespace vellum
