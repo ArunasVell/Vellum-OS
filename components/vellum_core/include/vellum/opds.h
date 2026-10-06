@@ -1,7 +1,8 @@
 // Book catalogues on the web (OPDS, which is Atom XML): a parser fed a feed
 // piece by piece as it downloads. It builds no tree and keeps only what the
 // store shows: each book's title, author, summary and best EPUB download,
-// and the link to the feed's next page.
+// the link to the feed's next page and its search, and (when asked) the
+// sections of a catalogue that are lists of more entries.
 #pragma once
 
 #include <cstddef>
@@ -19,6 +20,7 @@ struct OpdsEntry {
   char epub[256] = {};     // the best EPUB to download, or ""
   uint32_t size = 0;       // that download's length in bytes; 0 when the feed does not say
   int8_t epub_rank = -1;   // how well that EPUB suits the reader, to choose among several
+  bool section = false;    // not a book: a list of more entries (a catalogue's section) at `detail`
 };
 
 // What a feed held. `entries` is the caller's, `capacity` entries long.
@@ -32,13 +34,20 @@ struct OpdsFeed {
 
 class OpdsParser {
  public:
-  // Starts a feed fetched from `base_url` (relative links resolve against it).
-  void begin(OpdsFeed& feed, const char* base_url);
+  // Starts a feed fetched from `base_url` (relative links resolve against
+  // it). `sections` keeps entries that lead to other lists (a catalogue's
+  // navigation); Project Gutenberg's lists hold such links that are not
+  // worth showing.
+  void begin(OpdsFeed& feed, const char* base_url, bool sections = false);
   // The next piece of the feed, in order; pieces may split anywhere.
   void feed(const char* data, size_t len);
   // After the last piece. Returns false when it was not an Atom feed (an
   // HTML error page, say).
   bool finish();
+  // The feed's search: an OpenSearch description, or an address with
+  // "{searchTerms}" in it (search_is_template()); "" when it has none.
+  const char* search() const { return search_; }
+  bool search_is_template() const { return search_template_; }
 
  private:
   enum class Mode : uint8_t { Text, Tag, Comment, Cdata };
@@ -76,7 +85,20 @@ class OpdsParser {
   bool has_author_ = false;
   OpdsEntry entry_;
   char content_[sizeof(OpdsEntry::summary)] = {};
+  bool sections_ = false;
+  char section_[256] = {};  // the entry's link to another list
+  char search_[256] = {};
+  bool search_template_ = false;
 };
+
+// The address that searches for `words` from an OpenSearch template (its
+// {searchTerms} filled in, other {parameters} left empty). False when it
+// has no {searchTerms} or does not fit.
+bool search_from_template(const char* tmpl, const char* words, char* out, size_t size);
+
+// The Atom (or else any) search template in an OpenSearch description,
+// resolved against `base`. False when there is none.
+bool opensearch_template(std::string_view xml, const char* base, char* out, size_t size);
 
 // Resolves `href` (absolute, "//host/..", "/path" or relative) against
 // `base` into out. Returns false when it does not fit.

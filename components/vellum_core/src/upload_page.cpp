@@ -45,6 +45,18 @@ const char kUploadPage[] = R"page(<!doctype html>
   .hl textarea { font: 15px/1.4 system-ui, sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; resize: vertical; min-height: 2.6em; width: 100%; }
   .hl .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .hl .saved { font: 12px/1 ui-monospace, Menlo, monospace; color: var(--accent); }
+  details.set { border-top: 1px solid var(--line); padding: 12px 0; }
+  details.set summary { font: italic 600 20px/1.25 Georgia, "Iowan Old Style", serif; cursor: pointer; }
+  details.set .lead { margin: 8px 0 12px; font-size: 15px; }
+  .fields { display: flex; flex-direction: column; gap: 12px; }
+  .fields label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted); }
+  .fields label.check { flex-direction: row; align-items: center; gap: 8px; color: var(--ink); }
+  .fields input[type=text], .fields input[type=password], .fields input[type=url], .fields select { font: 16px/1.3 system-ui, sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .fields .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .state { font: 13px/1.3 ui-monospace, Menlo, monospace; color: var(--muted); }
+  .state.done { color: var(--accent); }
+  .state.bad { color: var(--bad); }
   .note { font-size: 14px; margin: 0 0 12px; }
   li .act { flex: none; display: flex; gap: 10px; align-items: baseline; }
 </style>
@@ -87,6 +99,50 @@ const char kUploadPage[] = R"page(<!doctype html>
     </div>
     <div id="highlights"></div>
   </section>
+  <section id="set-section" hidden>
+    <h2 data-t="settings">Settings</h2>
+    <details class="set">
+      <summary data-t="setreader">The reader</summary>
+      <p class="lead" data-t="setlead">Changes show on the reader at once.</p>
+      <div class="fields"><div class="grid" id="set-grid"></div><span class="state" id="set-state"></span></div>
+    </details>
+    <details class="set">
+      <summary data-t="wifi">Home Wi-Fi</summary>
+      <p class="lead" data-t="wifilead">For updates, the free book store, KOReader sync and this page.</p>
+      <form class="fields" id="wifi-form" autocomplete="off">
+        <label><span data-t="netname">Network name</span><input id="ssid" type="text" maxlength="32" required autocapitalize="off" spellcheck="false"></label>
+        <label><span data-t="password">Password</span><input id="wpass" type="password" maxlength="63"></label>
+        <div class="row"><button class="small" type="submit" data-t="save">Save</button><span class="state" id="wifi-state"></span></div>
+      </form>
+    </details>
+    <details class="set">
+      <summary data-t="sync">KOReader sync</summary>
+      <p class="lead" data-t="synclead">Keeps your place in step with KOReader on a phone or another reader. Use the same server, user and document matching there. On the reader: a book's Contents › Sync progress.</p>
+      <form class="fields" id="sync-form" autocomplete="off">
+        <label><span data-t="server">Server</span><input id="sync-server" type="url" placeholder="https://sync.koreader.rocks" autocapitalize="off" spellcheck="false"></label>
+        <label><span data-t="user">User name</span><input id="sync-user" type="text" maxlength="63" required autocapitalize="off" spellcheck="false"></label>
+        <label><span data-t="password">Password</span><input id="sync-pass" type="password" maxlength="100"></label>
+        <label><span data-t="method">Document matching</span><select id="sync-method"><option value="0" data-t="binary">Binary (KOReader's default)</option><option value="1" data-t="filename">File name</option></select></label>
+        <label class="check"><input id="sync-create" type="checkbox"> <span data-t="create">Create this account on the server</span></label>
+        <label class="check"><input id="sync-auto" type="checkbox"> <span data-t="auto">Sync automatically when a book closes or the reader sleeps (uses Wi-Fi)</span></label>
+        <div class="row"><button class="small" type="submit" data-t="save">Save</button><button class="small quiet" type="button" id="sync-forget" data-t="forget" hidden>Sign out</button><span class="state" id="sync-state"></span></div>
+      </form>
+    </details>
+    <details class="set">
+      <summary data-t="cats">Your catalogues</summary>
+      <p class="lead" data-t="catslead">OPDS catalogues (a Calibre server, COPS, a library) appear in the reader's store after the free ones. Up to 8.</p>
+      <ul id="cat-list"></ul>
+      <form class="fields" id="cat-form" autocomplete="off" style="margin-top:12px">
+        <label><span data-t="catname">Name</span><input id="cat-name" type="text" maxlength="47"></label>
+        <label><span data-t="caturl">Address</span><input id="cat-url" type="url" required placeholder="https://example.org/opds" autocapitalize="off" spellcheck="false"></label>
+        <div class="grid">
+          <label><span data-t="user">User name</span><input id="cat-user" type="text" maxlength="63" autocapitalize="off" spellcheck="false"></label>
+          <label><span data-t="password">Password</span><input id="cat-pass" type="password" maxlength="63"></label>
+        </div>
+        <div class="row"><button class="small" type="submit" data-t="add">Add</button><span class="state" id="cat-state"></span></div>
+      </form>
+    </details>
+  </section>
   <p data-t="done">When you're done, press Home on the reader. The new books appear in its library.</p>
 </main>
 <script>
@@ -104,13 +160,59 @@ const char kUploadPage[] = R"page(<!doctype html>
     converting: "verčiama…", convfail: "nepavyko paversti", calibre: "paverskite su Calibre",
     highlights: "Pabraukimai", copyall: "Kopijuoti viską", dltxt: "Atsisiųsti .txt", dlmd: "Atsisiųsti .md",
     copied: "Nukopijuota", note: "Pastaba", addnote: "Pridėkite pastabą…", savenote: "Išsaugoti", saved: "išsaugota",
-    remove: "Pašalinti", removeq: "Pašalinti šį pabraukimą?"
+    remove: "Pašalinti", removeq: "Pašalinti šį pabraukimą?",
+    settings: "Nustatymai", setreader: "Skaityklė", setlead: "Pakeitimai skaityklėje matomi iš karto.",
+    wifi: "Namų Wi-Fi", wifilead: "Atnaujinimams, nemokamų knygų parduotuvei, KOReader sinchronizavimui ir šiam puslapiui.",
+    netname: "Tinklo pavadinimas", password: "Slaptažodis", save: "Išsaugoti",
+    sync: "KOReader sinchronizavimas",
+    synclead: "Jūsų vieta knygoje sutampa su KOReader telefone ar kitoje skaityklėje. Ten naudokite tą patį serverį, vartotoją ir dokumentų atpažinimą. Skaityklėje: knygos Turinys › Sinchronizuoti.",
+    server: "Serveris", user: "Vartotojo vardas", method: "Dokumentų atpažinimas", binary: "Pagal turinį (KOReader numatytasis)",
+    filename: "Pagal failo pavadinimą", create: "Sukurti šią paskyrą serveryje",
+    auto: "Sinchronizuoti savaime užvėrus knygą ar skaityklei užmiegant (naudoja Wi-Fi)", forget: "Atsijungti",
+    cats: "Jūsų katalogai", catslead: "OPDS katalogai (Calibre serveris, COPS, biblioteka) rodomi skaityklės parduotuvėje po nemokamų. Iki 8.",
+    catname: "Pavadinimas", caturl: "Adresas", add: "Pridėti", full: "Daugiau netelpa", bad: "Netinkama reikšmė",
+    savedok: "Išsaugota", nocats: "Katalogų dar nėra.",
+    labels: { language: "Kalba", clock: "Laikrodis", sleep_after: "Užmigti po", updates: "Atnaujinimai", own_network: "Knygų įkėlimo tinklas",
+      menu_font: "Meniu šriftas", book_font: "Knygos šriftas", text_size: "Teksto dydis", line_spacing: "Eilučių tarpai",
+      word_spacing: "Tarpai tarp žodžių", margins: "Paraštės", justify: "Lygiuotė", hyphenate: "Žodžių kėlimas", footer: "Poraštė",
+      library_view: "Knygų rodymas", move_finished: "Perkelti perskaitytas",
+      sleep_screen: "Miego ekranas", sleep_order: "Paveikslėliai",
+      orientation: "Ekranas", auto_turn: "Automatinis vertimas", full_refresh: "Pilnas atnaujinimas" },
+    values: { language: ["English", "Lietuvių"], clock: ["24 val.", "12 val."], sleep_after: ["5 min.", "10 min.", "30 min.", "Niekada"],
+      updates: ["Naktį", "Paklausti", "Išjungta"], own_network: ["Namų Wi-Fi, jei nustatytas", "Skaityklės tinklas"],
+      text_size: ["Mažas", "Vidutinis", "Didelis", "Labai didelis"], line_spacing: ["Siauri", "Įprasti", "Platūs"],
+      word_spacing: ["Siauri", "Įprasti", "Platūs"], margins: ["Siauros", "Įprastos", "Plačios"], justify: ["Kairinė", "Abipusė"],
+      hyphenate: ["Išjungtas", "Įjungtas"], footer: ["Puslapio numeris", "Liko skyriuje", "Perskaityta %"],
+      library_view: ["Sąrašas", "Viršeliai"], move_finished: ["Ne", "Į Read/"],
+      sleep_screen: ["Knygos viršelis", "Mano paveikslėliai", "Skaitymo statistika", "Minimalus", "Kaip paliktas"],
+      sleep_order: ["Maišyti", "Vienas"],
+      orientation: ["Stačias", "Apverstas", "Gulsčias, mygt. kairėje", "Gulsčias, mygt. dešinėje"],
+      auto_turn: ["Kas 5 s", "Kas 10 s", "Kas 15 s", "Kas 20 s", "Kas 30 s", "Kas 45 s", "Kas 60 s", "Kas 90 s", "Kas 120 s"],
+      full_refresh: ["Kas puslapį", "Kas 5 psl.", "Kas 12 psl.", "Kas 20 psl.", "Naujas skyrius"] }
   } : {
     waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book, font, dictionary or picture", none: "No books yet.",
     nopics: "No pictures yet.", removepicq: "Remove this picture?",
     converting: "converting…", convfail: "could not convert", calibre: "convert with Calibre",
     copied: "Copied", note: "Note", addnote: "Add a note…", savenote: "Save", saved: "saved",
-    remove: "Remove", removeq: "Remove this highlight?"
+    remove: "Remove", removeq: "Remove this highlight?",
+    full: "No room for more", bad: "That value cannot be used", savedok: "Saved", nocats: "No catalogues yet.",
+    labels: { language: "Language", clock: "Clock", sleep_after: "Sleep after", updates: "Updates", own_network: "Add books over",
+      menu_font: "Menu font", book_font: "Book font", text_size: "Text size", line_spacing: "Line spacing",
+      word_spacing: "Word spacing", margins: "Margins", justify: "Alignment", hyphenate: "Hyphenation", footer: "Footer",
+      library_view: "Home and library view", move_finished: "Move finished books",
+      sleep_screen: "Sleep screen", sleep_order: "Sleep pictures",
+      orientation: "Screen", auto_turn: "Auto page turn", full_refresh: "Full refresh" },
+    values: { language: ["English", "Lietuvių"], clock: ["24-hour", "12-hour"], sleep_after: ["5 min", "10 min", "30 min", "Never"],
+      updates: ["At night", "Ask first", "Off"], own_network: ["Home Wi-Fi, when set", "The reader's own network"],
+      text_size: ["Small", "Medium", "Large", "Extra large"], line_spacing: ["Narrow", "Normal", "Wide"],
+      word_spacing: ["Narrow", "Normal", "Wide"], margins: ["Narrow", "Normal", "Wide"], justify: ["Left", "Justified"],
+      hyphenate: ["Off", "On"], footer: ["Page number", "Time left in chapter", "Percent read"],
+      library_view: ["List", "Covers"], move_finished: ["Off", "To Read/"],
+      sleep_screen: ["Book cover", "My pictures", "Reading stats", "Minimal", "Page as left"],
+      sleep_order: ["Shuffle", "One picture"],
+      orientation: ["Portrait", "Upside down", "Landscape, keys left", "Landscape, keys right"],
+      auto_turn: ["Every 5 s", "Every 10 s", "Every 15 s", "Every 20 s", "Every 30 s", "Every 45 s", "Every 60 s", "Every 90 s", "Every 120 s"],
+      full_refresh: ["Every page", "Every 5 pages", "Every 12 pages", "Every 20 pages", "New chapter"] }
   };
   if (lt) {
     document.documentElement.lang = "lt";
@@ -479,6 +581,91 @@ const char kUploadPage[] = R"page(<!doctype html>
   document.getElementById("hl-txt").addEventListener("click", () => download(false));
   document.getElementById("hl-md").addEventListener("click", () => download(true));
   loadHighlights();
+
+  // Settings: the reader's own, the home Wi-Fi, KOReader sync and the
+  // reader's catalogues. Each change goes to the reader as it is made.
+  const $ = (id) => document.getElementById(id);
+  function say(el, ok, text) { el.className = "state " + (ok ? "done" : "bad"); el.textContent = text; }
+  async function send(url, fields, stateEl) {
+    stateEl.className = "state"; stateEl.textContent = "…";
+    try {
+      const r = await post(url, fields);
+      say(stateEl, r.ok, r.ok ? T.savedok || "Saved" : r.status === 507 ? T.full : r.status === 400 ? T.bad : T.failed);
+      return r.ok;
+    } catch (_) { say(stateEl, false, T.failed); return false; }
+  }
+  const order = ["language", "clock", "sleep_after", "sleep_screen", "sleep_order", "updates", "own_network", "library_view", "move_finished", "orientation", "menu_font", "book_font", "text_size",
+    "line_spacing", "word_spacing", "margins", "justify", "hyphenate", "footer", "auto_turn", "full_refresh"];
+  function renderSettings(info) {
+    const grid = $("set-grid");
+    grid.replaceChildren();
+    const s = info.settings;
+    for (const key of order) {
+      if (!(key in s)) continue;
+      const label = document.createElement("label");
+      const name = document.createElement("span"); name.textContent = T.labels[key] || key;
+      const sel = document.createElement("select");
+      const font = key === "menu_font" || key === "book_font";
+      const options = font ? s.fonts : T.values[key];
+      if (!options) continue;
+      options.forEach((text, i) => {
+        const o = document.createElement("option");
+        o.value = font ? text : String(i); o.textContent = text;
+        sel.append(o);
+      });
+      sel.value = String(s[key]);
+      sel.addEventListener("change", () => send("/settings", { [key]: sel.value }, $("set-state")));
+      label.append(name, sel);
+      grid.append(label);
+    }
+    if (info.home_network && !$("ssid").value) $("ssid").value = info.home_network;
+    const sync = info.sync || {};
+    $("sync-server").value = sync.server || "";
+    $("sync-user").value = sync.user || "";
+    $("sync-method").value = String(sync.method || 0);
+    $("sync-auto").checked = !!sync.auto;
+    $("sync-forget").hidden = !sync.user;
+    $("sync-pass").placeholder = sync.user ? "••••••" : "";
+    const list = $("cat-list");
+    list.replaceChildren();
+    if (!info.catalogues.length) { const li = document.createElement("li"); li.className = "empty"; li.textContent = T.nocats; list.append(li); }
+    info.catalogues.forEach((c, i) => {
+      const r = row(c.name, "");
+      r.left.title = c.url;
+      const x = document.createElement("button"); x.className = "small quiet"; x.type = "button"; x.textContent = T.remove;
+      x.addEventListener("click", async () => { if (await send("/catalogues", { action: "remove", index: i }, $("cat-state"))) loadSettings(); });
+      r.state.replaceWith(x);
+      list.append(r.li);
+    });
+  }
+  async function loadSettings() {
+    try {
+      const r = await fetch("/settings");
+      if (!r.ok) return;
+      renderSettings(await r.json());
+      $("set-section").hidden = false;
+    } catch (_) {}
+  }
+  $("wifi-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    send("/wifi", { ssid: $("ssid").value, password: $("wpass").value }, $("wifi-state"));
+  });
+  $("sync-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const ok = await send("/sync", { server: $("sync-server").value.trim(), user: $("sync-user").value.trim(), password: $("sync-pass").value,
+      method: $("sync-method").value, create: $("sync-create").checked ? 1 : 0, auto: $("sync-auto").checked ? 1 : 0 }, $("sync-state"));
+    if (ok) { $("sync-pass").value = ""; $("sync-create").checked = false; loadSettings(); }
+  });
+  $("sync-forget").addEventListener("click", async () => {
+    if (await send("/sync", { forget: 1 }, $("sync-state"))) loadSettings();
+  });
+  $("cat-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const ok = await send("/catalogues", { action: "add", name: $("cat-name").value.trim(), url: $("cat-url").value.trim(),
+      user: $("cat-user").value.trim(), password: $("cat-pass").value }, $("cat-state"));
+    if (ok) { for (const id of ["cat-name", "cat-url", "cat-user", "cat-pass"]) $(id).value = ""; loadSettings(); }
+  });
+  loadSettings();
 
   // The phone knows the time: the reader's clock takes it from here.
   const d = new Date();

@@ -1,9 +1,11 @@
 #include "vellum/settings.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string_view>
 
 #include "vellum/textfile.h"
+#include "vellum/upload_page.h"
 
 namespace vellum {
 
@@ -61,6 +63,8 @@ constexpr SettingKey kKeys[] = {
      [](Settings& s, int v) { s.hyphenate = v != 0; }},
     {"footer", 3, [](const Settings& s) { return static_cast<int>(s.footer); },
      [](Settings& s, int v) { s.footer = static_cast<FooterInfo>(v); }},
+    {"own_network", 2, [](const Settings& s) { return s.own_network ? 1 : 0; },
+     [](Settings& s, int v) { s.own_network = v != 0; }},
     {"auto_turn", kAutoTurnSteps, [](const Settings& s) { return int{s.auto_turn}; },
      [](Settings& s, int v) { s.auto_turn = static_cast<uint8_t>(v); }},
     {"full_refresh", 5, [](const Settings& s) { return static_cast<int>(s.full_refresh); },
@@ -163,6 +167,60 @@ bool save_settings(Storage& storage, const Settings& s) {
                      s.menu_font);
   if (n >= static_cast<int>(sizeof(buf))) return false;
   return storage.write(kSettingsPath, buf, static_cast<uint32_t>(n));
+}
+
+bool settings_json(const Settings& s, const char* fonts, char* out, size_t size) {
+  size_t len = 0;
+  auto add = [&](const char* text) {
+    const size_t n = std::strlen(text);
+    if (len + n + 1 > size) return false;
+    std::memcpy(out + len, text, n + 1);
+    len += n;
+    return true;
+  };
+  if (!add("{")) return false;
+  for (const SettingKey& k : kKeys) {
+    char item[48];
+    std::snprintf(item, sizeof(item), "\"%s\":%d,", k.name, k.get(s));
+    if (!add(item)) return false;
+  }
+  if (!add("\"book_font\":\"") || !json_escape(s.book_font, out, size, len) || !add("\",\"menu_font\":\"") ||
+      !json_escape(s.menu_font, out, size, len) || !add("\",\"fonts\":[")) {
+    return false;
+  }
+  bool first = true;
+  for (std::string_view rest = fonts != nullptr ? fonts : ""; !rest.empty();) {
+    const size_t end = rest.find('\n');
+    char name[sizeof(s.book_font)];
+    textfile::copy(rest.substr(0, end), name, sizeof(name));
+    rest = end == std::string_view::npos ? std::string_view{} : rest.substr(end + 1);
+    if (name[0] == '\0') continue;
+    if (!add(first ? "\"" : ",\"") || !json_escape(name, out, size, len) || !add("\"")) return false;
+    first = false;
+  }
+  return add("]}");
+}
+
+bool settings_from_form(const char* body, size_t len, Settings& s) {
+  Settings next = s;
+  int named = 0;
+  char value[sizeof(s.book_font)];
+  for (const SettingKey& k : kKeys) {
+    if (!form_field(body, len, k.name, value, sizeof(value))) continue;
+    const uint32_t v = textfile::to_uint(value, UINT32_MAX);
+    if (v >= static_cast<uint32_t>(k.count)) return false;
+    k.set(next, static_cast<int>(v));
+    ++named;
+  }
+  for (char* font : {next.book_font, next.menu_font}) {
+    if (!form_field(body, len, font == next.book_font ? "book_font" : "menu_font", value, sizeof(value))) continue;
+    if (value[0] == '\0' || std::strpbrk(value, "\n\r") != nullptr) return false;
+    std::snprintf(font, sizeof(s.book_font), "%s", value);
+    ++named;
+  }
+  if (named == 0) return false;
+  s = next;
+  return true;
 }
 
 }  // namespace vellum

@@ -128,7 +128,8 @@ upper bounds):
 | Reader page table | 64 KB | always |
 | Text, FB2 and web-page books: chapter, paragraph and contents tables | about 0.8 MB | always (added with more book types) |
 | **Total at start** | **about 6.2 MB** | |
-| Free book store: one list page, a book's details, the way back | about 52 KB | from the first visit to the store |
+| Free book store: one list page, a book's details, the way back, your own catalogues and their search | about 61 KB | from the first visit to the store |
+| Phone page: the font list for its Settings section | about 1.2 KB | while the phone page is open |
 | Rendered fonts | 20–60 KB per size | with a font other than Literata |
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |

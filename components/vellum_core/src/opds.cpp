@@ -131,8 +131,12 @@ int epub_rank(std::string_view href, std::string_view title) {
 
 }  // namespace
 
-void OpdsParser::begin(OpdsFeed& feed, const char* base_url) {
+void OpdsParser::begin(OpdsFeed& feed, const char* base_url, bool sections) {
   feed_ = &feed;
+  sections_ = sections;
+  section_[0] = '\0';
+  search_[0] = '\0';
+  search_template_ = false;
   feed.count = 0;
   feed.dropped = 0;
   feed.next[0] = '\0';
@@ -264,10 +268,12 @@ void OpdsParser::open(std::string_view name, std::string_view attrs) {
   if (name == "feed") atom_ = true;
   if (name == "link") return link(attrs);
   if (name == "entry") {
+    atom_ = true;  // a feed, or one entry on its own (a book's details)
     in_entry_ = true;
     in_author_ = has_author_ = false;
     entry_ = {};
     content_[0] = '\0';
+    section_[0] = '\0';
     return;
   }
   if (!in_entry_) return;
@@ -341,6 +347,13 @@ void OpdsParser::link(std::string_view attrs) {
   if (href[0] == '\0') return;
   if (!in_entry_) {
     if (std::strcmp(rel, "next") == 0) resolve_url(base_, href, feed_->next, sizeof(feed_->next));
+    if (std::strcmp(rel, "search") == 0) {
+      // An address to fill in beats a description to fetch first.
+      const bool tmpl = std::strstr(href, "{searchTerms}") != nullptr;
+      if ((search_[0] == '\0' || (tmpl && !search_template_)) && resolve_url(base_, href, search_, sizeof(search_))) {
+        search_template_ = tmpl;
+      }
+    }
     return;
   }
   const std::string_view r(rel), t(type);
@@ -354,12 +367,24 @@ void OpdsParser::link(std::string_view attrs) {
     }
   } else if (t.substr(0, 20) == "application/atom+xml" && entry_.detail[0] == '\0' && is_book_feed(href)) {
     resolve_url(base_, href, entry_.detail, sizeof(entry_.detail));
+  } else if (sections_ && t.substr(0, 20) == "application/atom+xml") {
+    if (contains(t, "type=entry")) {
+      // A book's own entry, with its downloads.
+      if (entry_.detail[0] == '\0') resolve_url(base_, href, entry_.detail, sizeof(entry_.detail));
+    } else if (section_[0] == '\0' && r != "related" && r != "alternate" && r != "self") {
+      resolve_url(base_, href, section_, sizeof(section_));
+    }
   }
 }
 
 void OpdsParser::end_entry() {
   in_entry_ = false;
-  if (entry_.author[0] == '\0' && entry_.epub[0] == '\0') {
+  if (entry_.epub[0] == '\0' && entry_.detail[0] == '\0' && section_[0] != '\0') {
+    // A section of the catalogue: its content says what it holds.
+    entry_.section = true;
+    textfile::copy(section_, entry_.detail, sizeof(entry_.detail));
+    if (entry_.summary[0] == '\0') textfile::copy(content_, entry_.summary, sizeof(entry_.summary));
+  } else if (entry_.author[0] == '\0' && entry_.epub[0] == '\0') {
     // Gutenberg's lists give the author as the entry's content.
     textfile::copy(content_, entry_.author, sizeof(entry_.author));
   } else if (entry_.summary[0] == '\0') {
@@ -385,6 +410,52 @@ void OpdsParser::take_text(char* out, size_t size, bool strip_markup) {
   Text text(out, size, strip_markup);
   decode(raw, text);
   text_len_ = 0;
+}
+
+bool search_from_template(const char* tmpl, const char* words, char* out, size_t size) {
+  if (std::strstr(tmpl, "{searchTerms}") == nullptr || size == 0) return false;
+  char query[192];
+  if (!url_encode_query(words, query, sizeof(query))) return false;
+  size_t len = 0;
+  for (const char* p = tmpl; *p != '\0';) {
+    if (*p == '{') {
+      const char* end = std::strchr(p, '}');
+      if (end != nullptr) {
+        const std::string_view name(p + 1, static_cast<size_t>(end - p - 1));
+        if (name == "searchTerms") {
+          const size_t n = std::strlen(query);
+          if (len + n >= size) return false;
+          std::memcpy(out + len, query, n);
+          len += n;
+        }
+        p = end + 1;  // other parameters ({startPage?}, {count}) stay empty
+        continue;
+      }
+    }
+    if (len + 1 >= size) return false;
+    out[len++] = *p++;
+  }
+  out[len] = '\0';
+  return true;
+}
+
+bool opensearch_template(std::string_view xml, const char* base, char* out, size_t size) {
+  bool found = false;
+  for (size_t at = xml.find("<Url"); at != std::string_view::npos; at = xml.find("<Url", at + 4)) {
+    const size_t end = xml.find('>', at);
+    if (end == std::string_view::npos) break;
+    const std::string_view attrs = xml.substr(at + 4, end - at - 4);
+    char type[64], tmpl[256];
+    decode_attr(attrs, "type", type, sizeof(type));
+    decode_attr(attrs, "template", tmpl, sizeof(tmpl));
+    if (std::strstr(tmpl, "{searchTerms}") == nullptr) continue;
+    const bool atom = std::strncmp(type, "application/atom+xml", 20) == 0;
+    if ((atom || !found) && resolve_url(base, tmpl, out, size)) {
+      found = true;
+      if (atom) return true;
+    }
+  }
+  return found;
 }
 
 bool resolve_url(const char* base, std::string_view href, char* out, size_t size) {

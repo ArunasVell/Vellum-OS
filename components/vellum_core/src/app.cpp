@@ -113,6 +113,7 @@ constexpr int kUpdateRows = 4;  // check or install, automatic, home Wi-Fi, from
 // "Add books" geometry.
 constexpr int kTransferTop = 192;  // baseline of the first step label
 constexpr int kQrSize = 156;
+constexpr int kHomeStepHeight = 108;  // step 1 on the home Wi-Fi: its name, no code
 
 constexpr int kUpdateNoticeItem = 1000;  // hit item of the home screen's update notice
 
@@ -497,6 +498,7 @@ App::App(Board& board)
     load_update_state(*board_.storage, update_state_);
     highlights_.load(*board_.storage);
     shelves_.load(*board_.storage);
+    kosync::load_account(*board_.storage, sync_account_);
   }
   fb_.set_rotation(rotation_for(screen_));  // Settings › Screen
   library_.load(builtin_books(), board_.storage, epub_, &text_book_);
@@ -508,6 +510,7 @@ App::~App() {
   delete[] large_cover_.px;
   delete[] small_cover_.px;
   delete[] definition_;
+  delete[] transfer_fonts_;
   delete store_;
   delete[] folder_items_;
 }
@@ -533,6 +536,7 @@ void App::rescan_library() {
   text_book_.close();
   text_path_[0] = '\0';
   reading_ = -1;
+  sync_doc_book_ = sync_sent_book_ = 0;  // books may have moved in the list
   finished_count_ = 0;
   // The Folders tab may come or go: keep the same shelf shown.
   const int shelf = library_on_shelf() ? library_tab_ - library_first_shelf() : -1;
@@ -1373,24 +1377,60 @@ const BookFonts& App::book_fonts() {
 
 // ---- Adding books over Wi-Fi -------------------------------------------------
 
+bool App::home_wifi_set() const {
+  if (board_.updater == nullptr) return false;
+  char network[40];
+  board_.updater->home_network(network, sizeof(network));
+  return network[0] != '\0';
+}
+
 void App::open_transfer(bool setup) {
   transfer_setup_ = setup;
+  transfer_home_failed_ = false;
+  transfer_settings_seen_ = 0;
   if (board_.storage == nullptr && !setup) {
     transfer_state_ = TransferState::NoCard;
   } else if (board_.transfer == nullptr) {
     transfer_state_ = TransferState::Failed;
   } else {
+    // On the home Wi-Fi when one is set, unless Settings says not to. The
+    // updates page sets that network, so it always opens the reader's own.
+    transfer_home_ = !setup && !settings_.own_network && home_wifi_set();
     // Starting the radio takes a moment: say so first.
     transfer_state_ = TransferState::Off;
     show(Screen::Transfer);
+    // The typefaces, for the page's Settings.
+    constexpr size_t kFontsBytes = FontLibrary::kMaxFamilies * (sizeof(settings_.book_font) + 1) + 1;
+    if (transfer_fonts_ == nullptr) transfer_fonts_ = new (std::nothrow) char[kFontsBytes];
+    if (transfer_fonts_ != nullptr) {
+      size_t len = 0;
+      transfer_fonts_[0] = '\0';
+      for (int i = 0; i < fonts_.count(); ++i) {
+        len += std::snprintf(transfer_fonts_ + len, kFontsBytes - len, "%s\n", fonts_.name(i));
+        if (len >= kFontsBytes) break;
+      }
+    }
     transfer_info_ = {};
-    transfer_state_ = board_.transfer->start(transfer_info_) ? TransferState::Running : TransferState::Failed;
+    transfer_info_.home = transfer_home_;
+    transfer_info_.fonts = transfer_fonts_;
+    bool started = board_.transfer->start(transfer_info_);
+    if (!started && transfer_home_) {
+      // The home Wi-Fi is out of reach: the reader's own network will do.
+      transfer_home_failed_ = true;
+      transfer_info_ = {};
+      transfer_info_.fonts = transfer_fonts_;
+      started = board_.transfer->start(transfer_info_);
+    }
+    transfer_home_ = started && transfer_info_.home;
+    transfer_state_ = started ? TransferState::Running : TransferState::Failed;
     if (setup) {
       // The QR code and address lead straight to the updates page.
       const size_t len = std::strlen(transfer_info_.address);
       std::snprintf(transfer_info_.address + len, sizeof(transfer_info_.address) - len, "/setup");
-    } else if (transfer_state_ == TransferState::Running && board_.peers != nullptr && board_.peers->start()) {
-      // Other readers can send books here too, alongside the upload page.
+    } else if (transfer_state_ == TransferState::Running && !transfer_home_ && board_.peers != nullptr &&
+               board_.peers->start()) {
+      // Other readers can send books here too, alongside the upload page
+      // (on the reader's own network's channel, so not on the home Wi-Fi).
       receiver_.begin(*board_.peers, *board_.storage);
     }
     draw();
@@ -1424,6 +1464,38 @@ void App::close_transfer() {
   } else {
     show(Screen::Home);
   }
+}
+
+void App::switch_transfer_network() {
+  settings_.own_network = transfer_home_;
+  if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
+  bool received = receiver_.received() > 0;
+  if (receiver_.state() != PeerReceiver::State::Off) {
+    receiver_.end();
+    board_.peers->stop();
+  }
+  if (transfer_state_ == TransferState::Running) {
+    TransferStatus st;
+    board_.transfer->status(st);
+    received = received || st.received > 0;
+    board_.transfer->stop();
+  }
+  if (received) rescan_library();  // what came so far, before the counts start again
+  open_transfer(false);
+}
+
+void App::take_phone_settings() {
+  if (board_.storage == nullptr) return;
+  const Settings before = settings_;
+  load_settings(*board_.storage, settings_);
+  if (std::strcmp(before.book_font, settings_.book_font) != 0 ||
+      std::strcmp(before.menu_font, settings_.menu_font) != 0) {
+    safe_fonts_ = false;  // a typeface chosen again
+  }
+  apply_fonts();
+  apply_light();
+  kosync::load_account(*board_.storage, sync_account_);
+  sync_doc_book_ = sync_sent_book_ = 0;  // the way books are known may have changed
 }
 
 // A new version of Vellum arrived from the upload page and waits in the spare
@@ -1489,30 +1561,39 @@ void App::draw_transfer() {
   const int col_x = kSide + kQrSize + 20;
   const int col_w = w - kSide - col_x;
 
-  // Step 1: join the reader's Wi-Fi network.
   int y = kTransferTop;
-  ui::draw_label(fb_, kSide, y, t.step_join);
-  char join[160] = "WIFI:T:WPA;S:";
-  size_t len = std::strlen(join);
-  append_wifi_escaped(join, sizeof(join), len, info.network);
-  std::snprintf(join + len, sizeof(join) - len, ";P:");
-  len = std::strlen(join);
-  append_wifi_escaped(join, sizeof(join), len, info.password);
-  std::snprintf(join + len, sizeof(join) - len, ";;");
-  ui::draw_qr(fb_, kSide, y + 12, kQrSize, join);
-  draw_text(fb_, ui::label_font(), col_x * 64, y + 46, t.network);
-  ui::draw_fitted(fb_, ui::large_font(), col_x, y + 80, col_w, info.network);
-  draw_text(fb_, ui::label_font(), col_x * 64, y + 120, t.password);
-  ui::draw_fitted(fb_, ui::large_font(), col_x, y + 154, col_w, info.password);
+  if (transfer_home_) {
+    // Step 1: the phone on the home Wi-Fi too; the reader is on it already.
+    ui::draw_label(fb_, kSide, y, t.step_home);
+    ui::draw_fitted(fb_, ui::large_font(), kSide, y + 40, w - 2 * kSide, info.network);
+    ui::draw_wrapped(fb_, ui::label_font(), kSide, y + 70, w - 2 * kSide, 1, t.home_hint, false);
+    y += kHomeStepHeight;
+  } else {
+    // Step 1: join the reader's Wi-Fi network.
+    ui::draw_label(fb_, kSide, y, t.step_join);
+    char join[160] = "WIFI:T:WPA;S:";
+    size_t len = std::strlen(join);
+    append_wifi_escaped(join, sizeof(join), len, info.network);
+    std::snprintf(join + len, sizeof(join) - len, ";P:");
+    len = std::strlen(join);
+    append_wifi_escaped(join, sizeof(join), len, info.password);
+    std::snprintf(join + len, sizeof(join) - len, ";;");
+    ui::draw_qr(fb_, kSide, y + 12, kQrSize, join);
+    draw_text(fb_, ui::label_font(), col_x * 64, y + 46, t.network);
+    ui::draw_fitted(fb_, ui::large_font(), col_x, y + 80, col_w, info.network);
+    draw_text(fb_, ui::label_font(), col_x * 64, y + 120, t.password);
+    ui::draw_fitted(fb_, ui::large_font(), col_x, y + 154, col_w, info.password);
+    y += kQrSize + 46;
+  }
 
   // Step 2: open the upload page.
-  y += kQrSize + 46;
   ui::draw_label(fb_, kSide, y, t.step_open);
   ui::draw_qr(fb_, kSide, y + 12, kQrSize, info.address);
   const char* address = info.address;
   if (std::strncmp(address, "http://", 7) == 0) address += 7;  // what people type
   ui::draw_fitted(fb_, ui::large_font(), col_x, y + 80, col_w, address);
-  ui::draw_wrapped(fb_, ui::label_font(), col_x, y + 118, col_w, 3, t.scan_hint, false);
+  ui::draw_wrapped(fb_, ui::label_font(), col_x, y + 118, col_w, 3, transfer_home_ ? t.scan_one_hint : t.scan_hint,
+                   false);
 
   // What has arrived so far.
   TransferStatus st;
@@ -1560,8 +1641,27 @@ void App::draw_transfer() {
     std::snprintf(line, sizeof(line), "%s", t.waiting);
   }
   ui::draw_fitted(fb_, ui::text_font(), kSide, y + 34, w - 2 * kSide, line);
-  if (receiver_.state() != PeerReceiver::State::Off) {
-    ui::draw_wrapped(fb_, ui::label_font(), kSide, y + 74, w - 2 * kSide, 3, t.peer_hint, false);
+  // The other network, when there is one: a row above the hint.
+  const bool can_switch = transfer_home_ || home_wifi_set();
+  const int lines = can_switch ? 2 : 3;
+  if (transfer_home_failed_) {
+    ui::draw_wrapped(fb_, ui::label_font(), kSide, y + 74, w - 2 * kSide, lines, t.home_wifi_failed, false);
+  } else if (receiver_.state() != PeerReceiver::State::Off) {
+    ui::draw_wrapped(fb_, ui::label_font(), kSide, y + 74, w - 2 * kSide, lines, t.peer_hint, false);
+  }
+  if (can_switch) {
+    char other[96];
+    if (transfer_home_) {
+      std::snprintf(other, sizeof(other), "%s", t.use_own_network);
+    } else {
+      char network[40] = "";
+      if (board_.updater != nullptr) board_.updater->home_network(network, sizeof(network));
+      std::snprintf(other, sizeof(other), t.use_home_wifi, network);
+    }
+    const Rect r = row_rect(fb_, fb_.height() - kHintRoom - kLinkHeight, kLinkHeight);
+    draw_link(fb_, r, other, false);
+    dotted_rule(fb_, r.y);
+    add_hit(r, 0);
   }
 
   ui::draw_hint(fb_, t.hint_transfer);
@@ -1936,6 +2036,7 @@ void App::open_contents() {
     }
   }
   contents_sel_ = 0;
+  sync_state_ = SyncState::Idle;
   show(Screen::Contents);
 }
 
@@ -1944,7 +2045,7 @@ int App::contents_rows_per_page() const { return (fb_.height() - kContentsTop - 
 int App::contents_row_count() const {
   const Document& doc = *reader_.document();
   const int chapters = doc.toc_count() > 0 ? doc.toc_count() : doc.chapter_count();
-  return (can_send() ? 7 : 6) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) +
+  return (can_send() ? 7 : 6) + (can_sync() ? 1 : 0) + (contents_mark_count_ > 0 ? 1 + contents_mark_count_ : 0) +
          (contents_hl_row_count_ > 0 ? 1 + contents_hl_row_count_ : 0) + 1 + chapters;
 }
 
@@ -1968,6 +2069,10 @@ App::ContentsRow App::contents_row(int i, int& index) const {
     --i;
   }
   if (i == 4) return ContentsRow::Shelves;
+  if (can_sync()) {
+    if (i == 5) return ContentsRow::Sync;
+    --i;
+  }
   i -= 5;
   if (contents_mark_count_ > 0) {
     if (i == 0) return ContentsRow::BookmarksLabel;
@@ -2056,6 +2161,8 @@ void App::contents_activate() {
       return open_send();
     case ContentsRow::Shelves:
       return open_shelve(reading_, Screen::Reader);
+    case ContentsRow::Sync:
+      return sync_progress(true);
     case ContentsRow::Bookmark:
       return jump_to(library_.bookmark(contents_marks_[index]).position);
     case ContentsRow::Highlight:
@@ -2140,6 +2247,42 @@ void App::draw_contents() {
                                                  : t.look_up_word,
                   selected);
         break;
+      case ContentsRow::Sync: {
+        // How the last sync went, at the right.
+        char status[48] = "";
+        switch (sync_state_) {
+          case SyncState::Idle:
+            break;
+          case SyncState::Busy:
+            std::snprintf(status, sizeof(status), "%s", t.sync_busy);
+            break;
+          case SyncState::Sent:
+            std::snprintf(status, sizeof(status), t.sync_sent, sync_percent_);
+            break;
+          case SyncState::Moved:
+            std::snprintf(status, sizeof(status), t.sync_moved, sync_percent_);
+            break;
+          case SyncState::UpToDate:
+            std::snprintf(status, sizeof(status), "%s", t.sync_up_to_date);
+            break;
+          case SyncState::Failed:
+            std::snprintf(status, sizeof(status), "%s",
+                          t.sync_errors[std::max(0, static_cast<int>(sync_error_) - 1) % 5]);
+            break;
+        }
+        const Rect b{r.x, r.y + 2, r.w, kLinkHeight};
+        if (status[0] == '\0') {
+          draw_link(fb_, b, t.sync_progress, selected);
+          break;
+        }
+        const Color fg = highlight(fb_, b, selected);
+        const int right = b.x + b.w - kPad;
+        const int status_w = std::min(text_width_px(ui::label_font(), status), b.w / 2);
+        ui::draw_fitted(fb_, ui::label_font(), right - status_w, b.y + 30, status_w, status, fg);
+        ui::draw_fitted(fb_, ui::text_font(), b.x + kPad, b.y + 30, right - status_w - 12 - (b.x + kPad),
+                        t.sync_progress, fg);
+        break;
+      }
       case ContentsRow::AutoTurn: {
         char label[64];
         std::snprintf(label, sizeof(label), t.start_auto_turn, kAutoTurnSeconds[settings_.auto_turn]);
@@ -2821,7 +2964,8 @@ void App::sleep(bool empty) {
   draw_sleep(empty);
   queue_.submit_full();
   if (board_.frontlight != nullptr) board_.frontlight->set(0, 0);
-  board_.power.sleep();  // a deep-sleeping board restarts from here on waking
+  if (in_book && !empty) sync_auto();  // under the sleep screen
+  board_.power.sleep();                // a deep-sleeping board restarts from here on waking
 }
 
 void App::wake() {
@@ -3081,6 +3225,14 @@ bool App::handle(const InputEvent& ev) {
           finish_update();
           break;
         }
+        if (st.settings_saved != transfer_settings_seen_) {
+          // Settings from the phone: the language or fonts may change everything.
+          transfer_settings_seen_ = st.settings_saved;
+          take_phone_settings();
+          draw();
+          queue_.submit_full();
+          return true;
+        }
       }
       break;
     case InputEvent::Type::Peer:
@@ -3153,7 +3305,9 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Pictures || screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;
       if (screen_ == Screen::Folders) return folder_up(), false;
       if (screen_ == Screen::Picture) return open_folder(folder_path_, folder_items_[picture_item_].name), false;
+      const bool closing_book = screen_ == Screen::Reader || screen_ == Screen::Contents;
       show(Screen::Home);
+      if (closing_book) sync_auto();  // the home screen shows meanwhile
     }
     return false;
   }
@@ -3244,7 +3398,12 @@ bool App::handle_key(Key key) {
       if (key == Key::Power) return open_folder(folder_path_, folder_items_[picture_item_].name), false;
       return picture_step(step);
     case Screen::Transfer:
-      break;  // only Home leaves it
+      // Power switches between the reader's own network and the home Wi-Fi.
+      if (key == Key::Power && transfer_state_ == TransferState::Running && !transfer_setup_ &&
+          (transfer_home_ || home_wifi_set())) {
+        switch_transfer_network();
+      }
+      return false;  // only Home leaves it
   }
   return false;
 }
@@ -3377,8 +3536,9 @@ bool App::handle_gesture(const Gesture& g) {
       pictures_sel_ = item;
       pictures_activate();
       return true;
-    case Screen::Reader:
     case Screen::Transfer:
+      return handle_key(Key::Power);  // the row that switches networks
+    case Screen::Reader:
     case Screen::Battery:
     case Screen::Light:
     case Screen::Library:

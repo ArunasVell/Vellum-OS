@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vellum/battery_log.h"
+#include "vellum/catalogues.h"
 #include "vellum/covers.h"
 #include "vellum/dictionary.h"
 #include "vellum/display_queue.h"
@@ -10,6 +11,7 @@
 #include "vellum/hal.h"
 #include "vellum/highlights.h"
 #include "vellum/keyboard.h"
+#include "vellum/kosync.h"
 #include "vellum/library.h"
 #include "vellum/opds.h"
 #include "vellum/peer_transfer.h"
@@ -74,7 +76,15 @@ namespace vellum {
 // Ebooks' catalogues, their lists, pages of books, and one book with its
 // summary and a Download button. The book lands in books/ and can be read
 // at once. The reader joins the home Wi-Fi for the first page it fetches
-// and turns the radio off on leaving the store (or sleeping).
+// and turns the radio off on leaving the store (or sleeping). Catalogues
+// added on the phone page (Catalogues) follow the built-in ones, with
+// their sections, their search and their passwords.
+//
+// KOReader sync (kosync.h): with an account set on the phone page, a
+// book's Contents › Sync progress takes a further position from the server
+// (read on another device) or sends this one. With "sync automatically"
+// on, closing a book and sleeping send it too (joining the home Wi-Fi for
+// a moment).
 //
 // Settings › Sleep screen chooses what the screen keeps while asleep
 // (app_sleep.cpp): the book's cover, the reader's own pictures from the
@@ -97,7 +107,10 @@ namespace vellum {
 // the other one receives while its "Add books" screen is open.
 //
 // "Add books" opens a Wi-Fi network and an upload page (Board::transfer);
-// Home closes it and reloads the library.
+// Home closes it and reloads the library. With a home Wi-Fi set, the page
+// is served there instead (unless Settings says otherwise; a row on the
+// screen switches). The page's Settings section changes the reader's
+// settings, which it takes up at once.
 //
 // Settings › Updates looks for new versions of Vellum (Board::updater) and
 // installs them, now or at night: before sleeping the reader sets a wake
@@ -157,6 +170,7 @@ class App {
     AutoTurn,  // starts or stops turning pages by itself
     Send,
     Shelves,  // opens the book's shelves screen
+    Sync,     // KOReader sync, when an account is set
     BookmarksLabel,
     Bookmark,
     HighlightsLabel,
@@ -236,6 +250,12 @@ class App {
   // `setup` opens the phone page for home Wi-Fi and update files instead.
   void open_transfer(bool setup = false);
   void close_transfer();
+  // A home Wi-Fi network is set (Updater::home_network).
+  bool home_wifi_set() const;
+  // The other network for the page: the reader's own or the home Wi-Fi.
+  void switch_transfer_network();
+  // The phone page saved settings or the sync account: take them up.
+  void take_phone_settings();
   // An update arrived from the phone page: restart into it.
   void finish_update();
   // Software updates (Settings › Updates).
@@ -246,6 +266,16 @@ class App {
   bool update_available() const;
   void check_for_update();
   void install_update();
+  // KOReader sync of the open book. sync_progress() first takes a further
+  // position from the server (moving there) when `pull`, else (or when there
+  // is none) sends this one; it shows how it went on the Contents row.
+  bool can_sync() const;
+  void sync_progress(bool pull);
+  // Closing the book or sleeping: sends the position when the account asks
+  // for it and the page moved since the last send. Leaves the radio off.
+  void sync_auto();
+  // The open book's id on the server; false when it has none.
+  bool sync_document();
   // Shows that the new version is installed, then restarts into it.
   void restart_into_update();
   // The timer woke the reader at night: check, maybe install, sleep again.
@@ -298,6 +328,12 @@ class App {
     OpdsEntry entries[kStoreEntries];
     OpdsEntry detail;  // one book's own feed
     char history[kStoreHistory][256];
+    char history_titles[kStoreHistory][64];
+    Catalogues catalogues;   // the reader's own, from the card
+    char auth[192];          // their sign-in header, "" for none
+    char search[256];        // the search of the own catalogue shown: a template or a description
+    bool search_template;    // search holds {searchTerms}
+    char description[4096];  // an OpenSearch description, fetched to search
   };
   void open_store();
   // Turns the radio off; the screen stays.
@@ -310,9 +346,19 @@ class App {
   bool store_busy() const;
   // Fetches a page of a list (or of search results) and shows it.
   void store_load(const char* url);
-  // Search hook: shows Project Gutenberg's books matching `words`. Waits for
-  // the on-screen keyboard; nothing calls it yet.
+  // Shows the books matching `words`: in the reader's own catalogue being
+  // browsed (its OpenSearch), else in Project Gutenberg.
   void store_search(const char* words);
+  // Catalogues: the built-in ones, then the reader's own.
+  int store_source_count() const;
+  bool store_custom() const;  // store_source_ is one of the reader's own
+  const char* store_source_name(int source) const;
+  // Rows before the books on a list page: Earlier books (built-in
+  // catalogues, after the first page) or Search (an own catalogue's first page).
+  int store_lead_rows() const;
+  int store_rows_per_page() const;
+  // Remembers the list page shown, for Home (or Earlier books) to go back to.
+  void store_push_history();
   // Opens entry i of the list page: its own feed when it has one.
   void store_open_book(int i);
   void store_download();
@@ -543,7 +589,11 @@ class App {
   int definition_lines_ = 0;                          // lines it takes, as last drawn
   int definition_rows_ = 1;                           // lines that fit in the panel
   TransferState transfer_state_ = TransferState::Off;
-  bool transfer_setup_ = false;  // the phone page for updates, not books
+  bool transfer_setup_ = false;        // the phone page for updates, not books
+  bool transfer_home_ = false;         // the page is on the home Wi-Fi
+  bool transfer_home_failed_ = false;  // it could not be joined: the reader's own network instead
+  int transfer_settings_seen_ = 0;     // TransferStatus::settings_saved taken up
+  char* transfer_fonts_ = nullptr;     // TransferInfo::fonts, allocated once
   // Updates: what is known, and what this session has tried.
   enum class UpdateBusy : uint8_t { No, Checking, Installing };
   UpdateState update_state_;
@@ -608,9 +658,21 @@ class App {
   int store_book_ = 0;   // the list entry the book page shows
   int store_depth_ = 0;  // pages in store_->history
   int store_percent_ = 0;
-  int store_saved_ = -1;       // library index of the book just downloaded
-  char store_url_[256] = {};   // the list page shown
-  char store_title_[64] = {};  // its name
+  int store_saved_ = -1;        // library index of the book just downloaded
+  int store_custom_count_ = 0;  // the reader's own catalogues, as last loaded
+  char store_url_[256] = {};    // the list page shown
+  char store_title_[64] = {};   // its name
+
+  // KOReader sync.
+  enum class SyncState : uint8_t { Idle, Busy, Sent, Moved, UpToDate, Failed };
+  kosync::Account sync_account_;
+  SyncState sync_state_ = SyncState::Idle;  // shown on the Contents row
+  kosync::Result sync_error_ = kosync::Result::Ok;
+  int sync_percent_ = 0;         // sent, or moved to
+  char sync_doc_[33] = {};       // the open book's id on the server
+  uint32_t sync_doc_book_ = 0;   // reader_.id() it is for; 0 for none
+  BookPos sync_sent_;            // the position last sent
+  uint32_t sync_sent_book_ = 0;  // and the book, by reader_.id()
 
   FolderItem* folder_items_ = nullptr;  // allocated on the first visit
   int folder_count_ = 0;
