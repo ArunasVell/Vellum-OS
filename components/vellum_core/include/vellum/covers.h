@@ -41,5 +41,11 @@ bool make(Storage& storage, const char* cover_path, const uint8_t* data, uint32_
 // or kSmallW*kSmallH (small) bytes. Returns false when there is none.
 bool load(Storage& storage, const char* cover_path, bool large, CoverImage& out);
 
+// The picture viewer: decodes a JPEG (baseline, any size: read as it
+// decodes), PNG (up to 1 MB) or BMP file shrunk to fit kLargeW x kLargeH
+// into out.px, which must hold that many bytes. Returns false when the
+// file cannot be read or decoded.
+bool load_picture(Storage& storage, const char* path, CoverImage& out);
+
 }  // namespace covers
 }  // namespace vellum

@@ -78,6 +78,13 @@ int ReadingStats::find(const char* path) const {
   return -1;
 }
 
+void ReadingStats::rename_book(const char* from, const char* to) {
+  const int i = find(from);
+  if (i < 0) return;
+  std::snprintf(books_[i].path, sizeof(BookTotal::path), "%s", to);
+  dirty_ = true;
+}
+
 const ReadingStats::BookTotal* ReadingStats::find_book(const char* path) const {
   const int i = find(path);
   return i >= 0 ? &books_[i] : nullptr;

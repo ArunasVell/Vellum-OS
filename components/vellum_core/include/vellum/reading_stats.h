@@ -74,6 +74,8 @@ class ReadingStats {
   int book_count() const { return book_count_; }
   const BookTotal& book_by_recent(int i) const;
   const BookTotal* find_book(const char* path) const;
+  // A book's file moved: its totals follow it to the new path.
+  void rename_book(const char* from, const char* to);
 
   int day_count() const { return day_count_; }
   const DayTotal& day(int i) const { return days_[i]; }
