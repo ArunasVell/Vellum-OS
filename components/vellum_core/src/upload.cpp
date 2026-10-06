@@ -71,6 +71,7 @@ bool safe_name(const char* in, char* out, size_t size, const char* const* exts) 
 constexpr const char* kBookExts[] = {".epub", ".fb2.zip", ".fb2", ".txt", ".html", ".htm", nullptr};
 constexpr const char* kFontExts[] = {".ttf", ".otf", nullptr};
 constexpr const char* kDictionaryExts[] = {".ifo", ".idx", ".dict", ".dict.dz", ".syn", nullptr};
+constexpr const char* kPictureExts[] = {".jpg", ".jpeg", ".png", ".bmp", nullptr};
 
 }  // namespace
 
@@ -118,6 +119,8 @@ bool safe_book_name(const char* in, char* out, size_t size) { return safe_name(i
 bool safe_font_name(const char* in, char* out, size_t size) { return safe_name(in, out, size, kFontExts); }
 
 bool safe_dictionary_name(const char* in, char* out, size_t size) { return safe_name(in, out, size, kDictionaryExts); }
+
+bool safe_picture_name(const char* in, char* out, size_t size) { return safe_name(in, out, size, kPictureExts); }
 
 bool json_escape(const char* s, char* out, size_t size, size_t& len) {
   for (; *s != '\0'; ++s) {

@@ -26,6 +26,10 @@ enum class FooterInfo : uint8_t { PageNumber, ChapterTime, Percent };
 enum class LibrarySort : uint8_t { Recent, Title, Author, Added };
 // How home and the library show books: rows, or a grid of covers.
 enum class LibraryView : uint8_t { List, Covers };
+// What the screen shows while the reader sleeps (Settings › Sleep screen).
+enum class SleepScreen : uint8_t { Cover, Pictures, Stats, Minimal, Page };
+// Which of the reader's own pictures: a different one each time, or one kept.
+enum class SleepOrder : uint8_t { Shuffle, One };
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 
 struct Settings {
@@ -36,6 +40,8 @@ struct Settings {
   uint8_t warmth = 3;                          // 0 (coolest) to kLightSteps (warmest)
   AutoUpdate auto_update = AutoUpdate::AtNight;
   LibrarySort library_sort = LibrarySort::Recent;
+  SleepScreen sleep_screen = SleepScreen::Cover;
+  SleepOrder sleep_order = SleepOrder::Shuffle;
   LibraryView library_view = LibraryView::List;
   bool move_finished = false;  // finished books move to books/Read/
   // Reading
