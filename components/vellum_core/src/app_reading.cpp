@@ -200,6 +200,7 @@ bool App::reading_key(Key key) {
       // page); Prev and Home say not yet.
       if (key == Key::Power) {
         library_.state(reading_).finished = true;
+        book_finished(reading_);  // to books/Read/ when Settings asks for it
         save_progress();
       }
       if (key == Key::Next && at_last_page()) return false;

@@ -121,6 +121,7 @@ upper bounds):
 | EPUB: 2 MB chapter buffer, paragraph, manifest and contents tables | about 2.7 MB | always |
 | Covers: thumbnail work buffers and the two thumbnails shown | about 1.5 MB | always (1.1 MB before the full-screen sleep cover) |
 | Library entries, cache, bookmarks and file buffer | about 0.6 MB | always |
+| Library: folders still to read during a scan (64 paths) | 10 KB | always (added with folders) |
 | Highlights and their file buffer | about 0.5 MB | always |
 | Battery log and reading stats | about 0.25 MB | always |
 | Reader page table | 64 KB | always |
@@ -131,10 +132,13 @@ upper bounds):
 | Rendered fonts | 20–60 KB per size | with a font other than Literata |
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |
+| Folder browser: one folder's listing (256 items) | about 34 KB | from the first visit to Folders |
+| Picture viewer: a BMP row | 20 KB | from the first BMP shown |
+| Picture viewer: a PNG file, then its pixels | the file (up to 1 MB), then width × height | while decoding it (JPEGs are read as they decode; the picture itself goes into the large cover buffer) |
 | A picture in a book being decoded | as a cover: the same work buffers | the first time its page is shown; then kept on the card, 1 bit a pixel, in `vellum/pictures/` |
 | Wi-Fi and TLS buffers | 100–200 KB | while Wi-Fi is on |
 
-About 1.6 MB stay free. A very large colour PNG cover (roughly a million
+About 1.5 MB stay free. A very large colour PNG cover (roughly a million
 pixels or more in RGB) does not fit and keeps the drawn cover; nothing
 crashes. The 2 MB chapter buffer is the one to shrink if PSRAM ever runs
 short.

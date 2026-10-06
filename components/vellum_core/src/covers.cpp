@@ -5,6 +5,7 @@
 #include <cstring>
 #include <new>
 
+#include "vellum/bmp.h"
 #include "vellum/ui.h"
 
 extern "C" {
@@ -37,6 +38,7 @@ constexpr char kMagic[4] = {'V', 'C', 'V', '1'};
 constexpr size_t kHeader = 12;  // magic, then large w, h and small w, h as 16-bit little-endian
 constexpr size_t kPoolBytes = 8 * 1024;
 constexpr uint32_t kMaxPngPixels = 2'000'000;  // a full-size decode; larger PNGs keep the drawn cover
+constexpr uint32_t kMaxPngFile = 1024 * 1024;  // a PNG picture file is read whole first
 
 // Shrinks a picture into a box of at most max_w x max_h, keeping its shape.
 void fit(int w, int h, int max_w, int max_h, int& out_w, int& out_h) {
@@ -97,12 +99,18 @@ struct JpegInput {
   uint32_t len;
   uint32_t pos;
   Shrinker* shrink;
+  File* file = nullptr;  // read from here instead of data
 };
 
 size_t jpeg_in(JDEC* jd, uint8_t* buf, size_t n) {
   auto* in = static_cast<JpegInput*>(jd->device);
   n = std::min<size_t>(n, in->len - in->pos);
-  if (buf != nullptr) std::memcpy(buf, in->data + in->pos, n);
+  if (buf != nullptr && in->file != nullptr) {
+    // A picture file, read as the decoder goes.
+    if (in->file->read_at(in->pos, buf, static_cast<uint32_t>(n)) != static_cast<int32_t>(n)) return 0;
+  } else if (buf != nullptr) {
+    std::memcpy(buf, in->data + in->pos, n);
+  }
   in->pos += static_cast<uint32_t>(n);
   return n;
 }
@@ -119,14 +127,16 @@ int jpeg_out(JDEC* jd, void* bitmap, JRECT* r) {
   return 1;
 }
 
-// Decodes into the large thumbnail; sets its size.
-bool decode_large(const uint8_t* data, uint32_t len, Work& wk, int& w, int& h) {
+// Decodes into `out`, kLargeW x kLargeH at most (wk.large unless given);
+// sets its size. A JPEG may come from `file` (`data` unused, `len` its size).
+bool decode_large(const uint8_t* data, uint32_t len, Work& wk, int& w, int& h, uint8_t* out = nullptr,
+                  File* file = nullptr) {
   Shrinker s;
   s.sum = wk.sum;
-  const bool png = len >= 8 && std::memcmp(data, "\x89PNG", 4) == 0;
+  const bool png = file == nullptr && len >= 8 && std::memcmp(data, "\x89PNG", 4) == 0;
   if (!png) {
     JDEC jd;
-    JpegInput in{data, len, 0, &s};
+    JpegInput in{data, len, 0, &s, file};
     if (jd_prepare(&jd, jpeg_in, wk.pool, kPoolBytes, &in) != JDR_OK) return false;
     fit(jd.width, jd.height, kLargeW, kLargeH, w, h);
     // Let the decoder shrink as far as it can while staying above the thumbnail.
@@ -155,7 +165,36 @@ bool decode_large(const uint8_t* data, uint32_t len, Work& wk, int& w, int& h) {
     }
     stbi_image_free(grey);
   }
-  s.finish(wk.large);
+  s.finish(out != nullptr ? out : wk.large);
+  return true;
+}
+
+// A BMP, row by row through the shrinker.
+bool decode_bmp(File& file, Work& wk, uint8_t* out, int& w, int& h) {
+  struct Ctx {
+    Shrinker s;
+    int* w;
+    int* h;
+  } ctx{{}, &w, &h};
+  ctx.s.sum = wk.sum;
+  bmp::Sink sink;
+  sink.ctx = &ctx;
+  sink.size = [](void* p, int pw, int ph) {
+    auto* c = static_cast<Ctx*>(p);
+    fit(pw, ph, kLargeW, kLargeH, *c->w, *c->h);
+    c->s.src_w = pw;
+    c->s.src_h = ph;
+    c->s.w = *c->w;
+    c->s.h = *c->h;
+    c->s.start();
+    return true;
+  };
+  sink.row = [](void* p, int y, const uint8_t* grey) {
+    auto* c = static_cast<Ctx*>(p);
+    for (int x = 0; x < c->s.src_w; ++x) c->s.add(x, y, grey[x]);
+  };
+  if (!bmp::read(file, sink)) return false;
+  ctx.s.finish(out);
   return true;
 }
 
@@ -318,6 +357,35 @@ bool draw_new(Storage* storage, const char* path, Framebuffer& fb, Rect r, const
   }
   storage->write(path, scratch, static_cast<uint32_t>(kPictureHeader + bytes));
   return true;
+}
+
+bool load_picture(Storage& storage, const char* path, CoverImage& out) {
+  Work& wk = work();
+  out.w = out.h = 0;
+  File* f = storage.open(path);
+  if (f == nullptr) return false;
+  uint8_t head[8] = {};
+  const uint32_t size = f->size();
+  const bool read = wk.ok() && f->read_at(0, head, sizeof(head)) == static_cast<int32_t>(sizeof(head));
+  int w = 0, h = 0;
+  bool ok = false;
+  if (read && head[0] == 'B' && head[1] == 'M') {
+    ok = decode_bmp(*f, wk, out.px, w, h);
+  } else if (read && head[0] == 0xFF && head[1] == 0xD8) {
+    ok = decode_large(nullptr, size, wk, w, h, out.px, f);  // read as it decodes: any file size
+  } else if (read && std::memcmp(head, "\x89PNG", 4) == 0 && size <= kMaxPngFile) {
+    // A PNG is decoded from memory: the file for a moment, then its pixels.
+    auto* data = new (std::nothrow) uint8_t[size];
+    ok = data != nullptr && f->read_at(0, data, size) == static_cast<int32_t>(size) &&
+         decode_large(data, size, wk, w, h, out.px);
+    delete[] data;
+  }
+  storage.close(f);
+  if (ok) {
+    out.w = w;
+    out.h = h;
+  }
+  return ok;
 }
 
 }  // namespace vellum::covers

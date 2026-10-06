@@ -69,6 +69,12 @@ namespace vellum {
 // sets the page white on black (also in Settings › Reading, with focus
 // reading, publisher styles and paragraph indents).
 //
+// Settings › Home and library view shows home's recent books and the
+// library as a grid of covers instead of rows (app_views.cpp). When the
+// card has folders, a Folders tab after Finished browses them: their
+// books, and pictures, which open full screen. Settings › Move finished
+// books moves a book's file to books/Read/ once it is finished and left.
+//
 // The library's last row, "Get free books", opens the store
 // (app_store.cpp, Board::network): Project Gutenberg's and Standard
 // Ebooks' catalogues, their lists, pages of books, and one book with its
@@ -126,7 +132,9 @@ class App {
     Send,
     Stats,
     Store,
-    Shelve  // a book's shelves, and whether it is finished
+    Shelve,   // a book's shelves, and whether it is finished
+    Folders,  // the card's folders, their books and pictures
+    Picture   // one picture, full screen
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -176,9 +184,11 @@ class App {
   void open_library();
   // Rebuilds library_view_ from the tab, the order and the search.
   void build_library_view();
-  int library_tab_count() const;   // All, Reading now, Finished, the shelves, New shelf
-  bool library_on_shelf() const;   // a shelf of the reader's is the tab shown
-  int library_first_book() const;  // selection index of the first book
+  int library_tab_count() const;     // All, Reading now, Finished, Folders, the shelves, New shelf
+  bool library_on_shelf() const;     // a shelf of the reader's is the tab shown
+  bool library_has_folders() const;  // the Folders tab is there (tab 3)
+  int library_first_shelf() const;   // the tab of the reader's first shelf
+  int library_first_book() const;    // selection index of the first book
   // Buttons, books, then "Get free books" (library_has_store()).
   int library_item_count() const;
   // The store link ends the All tab when there is a network; while
@@ -328,6 +338,46 @@ class App {
   void draw_store_book();
   // Rereads the card's books, staying on the screen shown.
   void rescan_library();
+
+  // Library views (app_views.cpp). The cover grid: home's recent books and
+  // the library's books as tiles, kGridCols to a row.
+  static constexpr int kGridCols = 3;
+  static constexpr int kHomeTiles = 9;
+  bool grid() const { return settings_.library_view == LibraryView::Covers; }
+  void draw_home_grid();
+  // The library's books on this page from y = top, above `bottom`.
+  void draw_library_grid(int top, int bottom);
+  int library_grid_rows() const;
+  void draw_update_notice();
+  // The folder browser: one folder's subfolders, books and pictures, with a
+  // row up to its parent. Home goes up, from the top back to the library.
+  enum class FolderKind : uint8_t { Up, Folder, Book, Picture };
+  struct FolderItem {
+    FolderKind kind;
+    int16_t book;    // library index of a book
+    char name[128];  // file or folder name
+  };
+  static constexpr int kFolderItems = 256;
+  // Opens `path` ("" for the card's top) and selects the item named `select`.
+  void open_folder(const char* path, const char* select = "");
+  void list_folder();
+  void folder_up();
+  void folder_activate();
+  bool folder_key(Key key);
+  bool folder_gesture(const Gesture& g);
+  int folder_rows() const;  // rows on one page
+  // A folder item's card path into out.
+  void folder_item_path(int item, char* out, size_t size) const;
+  void draw_folders();
+  // The picture viewer: folder item `item`, fitted to the screen. Prev and
+  // Next step through the folder's pictures; Home and Power go back.
+  void open_picture(int item);
+  bool picture_step(int step);
+  void draw_picture_screen();
+  // Finished books move to books/Read/ (Settings) once the reader leaves
+  // them for home, the library or the folders.
+  void book_finished(int book);
+  void move_finished_books();
 
   // Remembers where a tappable item was drawn; `item` is its selection index.
   void add_hit(Rect r, int item);
@@ -518,6 +568,17 @@ class App {
   int store_saved_ = -1;       // library index of the book just downloaded
   char store_url_[256] = {};   // the list page shown
   char store_title_[64] = {};  // its name
+
+  FolderItem* folder_items_ = nullptr;  // allocated on the first visit
+  int folder_count_ = 0;
+  int folder_sel_ = 0;
+  char folder_path_[sizeof(LibraryEntry::path)] = {};  // "" for the card's top
+  int picture_item_ = -1;                              // the folder item shown
+  bool picture_ready_ = false;                         // decoded into large_cover_
+  bool picture_ok_ = false;
+  static constexpr int kFinishedQueue = 8;
+  int finished_queue_[kFinishedQueue] = {};  // library indices to move
+  int finished_count_ = 0;
 
   struct Hit {
     Rect r;
