@@ -36,7 +36,8 @@ constexpr int kHitNotYet = 3006;
 
 int wrap(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
 
-bool in_link(const Link& l, TextPos p) { return !(p < l.begin) && p < l.end; }
+// Whether a word on the page is (partly) in a link: "mill.¹" is, by its number.
+bool in_link(const Link& l, const WordBox& b) { return b.begin < l.end && l.begin < TextPos{b.begin.paragraph, b.end}; }
 
 // A pill-shaped button with its top-left corner at (x, y); returns its area.
 Rect draw_button(Framebuffer& fb, int x, int y, std::string_view label, bool filled) {
@@ -56,7 +57,7 @@ int App::link_at_word(int i) const {
   if (i < 0 || i >= w.count) return -1;
   const ChapterMarkup m = reader_.document()->markup();
   for (uint32_t k = 0; k < m.link_count; ++k) {
-    if (in_link(m.links[k], w.words[i].begin)) return static_cast<int>(k);
+    if (in_link(m.links[k], w.words[i])) return static_cast<int>(k);
   }
   return -1;
 }
@@ -73,7 +74,7 @@ int App::page_links(int16_t* out, int max) const {
     const Link& l = m.links[k];
     if (last < l.begin || !(first < l.end)) continue;
     for (int i = 0; i < w.count; ++i) {
-      if (in_link(l, w.words[i].begin)) {
+      if (in_link(l, w.words[i])) {
         out[n++] = static_cast<int16_t>(k);
         break;
       }
@@ -88,7 +89,7 @@ void App::focus_link(int i) {
   word_sel_ = 0;
   if (i < 0 || static_cast<uint32_t>(i) >= m.link_count) return;
   for (int k = 0; k < w.count; ++k) {
-    if (in_link(m.links[i], w.words[k].begin)) {
+    if (in_link(m.links[i], w.words[k])) {
       word_sel_ = k;
       return;
     }

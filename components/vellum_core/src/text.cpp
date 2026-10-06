@@ -274,12 +274,36 @@ size_t focus_length(std::string_view word) {
   return i;
 }
 
-// The emphasis at `pos`: the flags of the last run that starts by then.
-uint8_t flags_at(const PageStyle& style, TextPos pos) {
-  if (style.run_count == 0) return 0;
-  const StyleRun* end = style.runs + style.run_count;
-  const StyleRun* r = std::upper_bound(style.runs, end, pos, [](TextPos p, const StyleRun& run) { return p < run.at; });
-  return r == style.runs ? 0 : (r - 1)->flags;
+// Draws word text[begin, end) of `paragraph` from pen position x, with its
+// emphasis a run at a time: a word may change part way ("mill.¹", the
+// note's number a link). Links are underlined lightly. Returns the
+// emphasis of its end, for a hyphen after it.
+uint8_t draw_word(Framebuffer& fb, const PageStyle& style, uint32_t paragraph, std::string_view text, uint32_t begin,
+                  uint32_t end, int32_t x, int baseline) {
+  const Font& font = *style.font;
+  const StyleRun* stop = style.runs + style.run_count;
+  const StyleRun* next = style.run_count == 0 ? stop
+                                              : std::upper_bound(style.runs, stop, TextPos{paragraph, begin},
+                                                                 [](TextPos p, const StyleRun& r) { return p < r.at; });
+  uint8_t flags = next == style.runs || style.run_count == 0 ? 0 : (next - 1)->flags;
+  const int under = std::max(2, font.descent / 3);
+  uint8_t look = 0;
+  for (uint32_t from = begin; from < end;) {
+    uint32_t to = end;
+    if (next != stop && next->at.paragraph == paragraph && next->at.offset < end) to = std::max(from, next->at.offset);
+    const uint8_t f = style.publisher ? flags : flags & StyleRun::kLink;
+    look = f & (StyleRun::kBold | StyleRun::kItalic);
+    if (to > from) {
+      const int32_t after = draw_styled(fb, font, x, baseline, text.substr(from, to - from), look);
+      if (f & StyleRun::kLink) {
+        for (int px = (x + 32) >> 6; px < (after + 32) >> 6; px += 2) fb.set_pixel(px, baseline + under, Color::Black);
+      }
+      x = after;
+    }
+    from = to;
+    if (to < end) flags = (next++)->flags;
+  }
+  return look;
 }
 
 const Picture* find_picture(const PageStyle& style, uint32_t paragraph) {
@@ -380,7 +404,7 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
 
     if (marks.picture) {
       const Picture* pic = style.pictures != nullptr ? find_picture(style, pos.paragraph) : nullptr;
-      Rect box = picture_box(style, pic, top);
+      Rect box = picture_box(style, pic, pos == start ? top : top + line_height / 4);
       const bool large = box.h > style.area.h / 2;
       if (!(pos == start) && (large || box.y + box.h > bottom)) break;  // on the next page
       if (large) box.y = style.area.y + (style.area.h - box.h) / 2;     // a page to itself
@@ -464,15 +488,13 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
       const int gaps = n - 1;
       const bool ragged = align != 0 || marks.row || !style.justify || last_line || gaps <= 0;
       const int32_t extra = ragged ? 0 : line_width - natural;
-      const int under = std::max(2, font.descent / 3);
       for (int k = 0; k < n; ++k) {
         const std::string_view word = text.substr(words[k].begin, words[k].end - words[k].begin);
         if (fb != nullptr) {
-          uint8_t flags = flags_at(style, {pos.paragraph, words[k].begin});
-          if (!style.publisher) flags &= StyleRun::kLink;
-          const uint8_t look = flags & (StyleRun::kBold | StyleRun::kItalic);
-          const int32_t after = draw_styled(*fb, font, x, baseline, word, look);
-          if (words[k].hyphen) draw_styled(*fb, font, after, baseline, "-", look);
+          const uint8_t look = draw_word(*fb, style, pos.paragraph, text, words[k].begin, words[k].end, x, baseline);
+          if (words[k].hyphen) {
+            draw_styled(*fb, font, x + words[k].width - text_width(font, "-"), baseline, "-", look);
+          }
           // Focus reading: the word's start again, a pixel on, for bold. Not
           // for the second half of a word broken across lines.
           const bool word_start = words[k].begin <= marks.length || is_space(text[words[k].begin - 1]);
@@ -480,11 +502,6 @@ TextPos typeset_page(const PageStyle& style, const char* const* paragraphs, uint
             if (const size_t lead = focus_length(word); lead > 0) {
               draw_styled(*fb, font, x + 64, baseline, word.substr(0, lead), look & StyleRun::kItalic);
             }
-          }
-          if (flags & StyleRun::kLink) {
-            const int x0 = (x + 32) >> 6;
-            const int x1 = (x + words[k].width + 32) >> 6;
-            for (int px = x0; px < x1; px += 2) fb->set_pixel(px, baseline + under, Color::Black);
           }
         }
         if (boxes != nullptr && boxes->count < PageWords::kMax) {

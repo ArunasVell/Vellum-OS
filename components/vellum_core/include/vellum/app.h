@@ -60,7 +60,14 @@ namespace vellum {
 // author holds the text, accents aside. Holding a book in the list, or
 // Contents › Add to shelf, opens its shelves screen: tick the shelves it is
 // on, make a new one, or mark the book finished (reaching the last page
-// does that too).
+// asks "Finished the book?" once; Next on the last page asks again).
+//
+// Links in a book are underlined lightly (app_reading.cpp). Tapping one, or
+// picking it in Contents › Links on this page, follows it; a footnote shows
+// over the page instead, and after a jump Contents › Back to where you were
+// returns. Contents › Go to… moves by percent of the book, and Night mode
+// sets the page white on black (also in Settings › Reading, with focus
+// reading, publisher styles and paragraph indents).
 //
 // The library's last row, "Get free books", opens the store
 // (app_store.cpp, Board::network): Project Gutenberg's and Standard

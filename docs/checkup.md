@@ -125,11 +125,13 @@ upper bounds):
 | Battery log and reading stats | about 0.25 MB | always |
 | Reader page table | 64 KB | always |
 | Text, FB2 and web-page books: chapter, paragraph and contents tables | about 0.8 MB | always (added with more book types) |
-| **Total at start** | **about 6.2 MB** | |
+| EPUB markup: emphasis, links, pictures, ids and stylesheet rules of the loaded chapter | about 115 KB | always (added with pictures and links) |
+| **Total at start** | **about 6.3 MB** | |
 | Free book store: one list page, a book's details, the way back | about 52 KB | from the first visit to the store |
 | Rendered fonts | 20–60 KB per size | with a font other than Literata |
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |
+| A picture in a book being decoded | as a cover: the same work buffers | the first time its page is shown; then kept on the card, 1 bit a pixel, in `vellum/pictures/` |
 | Wi-Fi and TLS buffers | 100–200 KB | while Wi-Fi is on |
 
 About 1.6 MB stay free. A very large colour PNG cover (roughly a million

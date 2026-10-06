@@ -148,7 +148,11 @@ int App::page_marks(TextMark* out, int max) const {
     // The link in hand, inverted.
     const ChapterMarkup m = reader_.document()->markup();
     if (n < max && link_sel_ >= 0 && static_cast<uint32_t>(link_sel_) < m.link_count) {
-      out[n++] = {m.links[link_sel_].begin, m.links[link_sel_].end, TextMark::Style::Selected};
+      // From the start of its first word: a note's number may end one.
+      const PageWords& w = reader_.words();
+      TextPos begin = m.links[link_sel_].begin;
+      if (word_sel_ < w.count && w.words[word_sel_].begin < begin) begin = w.words[word_sel_].begin;
+      out[n++] = {begin, m.links[link_sel_].end, TextMark::Style::Selected};
     }
     return n;
   }

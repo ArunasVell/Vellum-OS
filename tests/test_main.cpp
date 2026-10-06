@@ -3924,6 +3924,393 @@ void test_app_store_search() {
   std::filesystem::remove_all("test-card-store-search");
 }
 
+// Reading extras: pictures, links and notes, the book's styles, focus, night, Go to and the end of a book.
+// extras.epub (tests/data/make_extras_epub.py) holds them; tests that draw pictures read a copy on a test
+// card, since pictures are kept there once shrunk.
+
+int black_pixels(const Framebuffer& fb, Rect r) {
+  int n = 0;
+  for (int y = r.y; y < r.y + r.h; ++y) {
+    for (int x = r.x; x < r.x + r.w; ++x) n += fb.pixel(x, y) == Color::Black;
+  }
+  return n;
+}
+
+void put_extras(StdioStorage& card) {
+  const std::string book = read_all(VELLUM_TEST_DATA "/extras.epub");
+  CHECK(!book.empty() && card.write("books/extras.epub", book.data(), static_cast<uint32_t>(book.size())));
+}
+
+void test_paragraph_marks() {
+  const ParagraphMarks m = read_marks("\x01\x04\x06\x0E\x0E\x0FHi");
+  CHECK(m.length == 6 && m.heading && m.align == 1 && m.first == -1 && m.level == 2 && m.item);
+  CHECK(!m.picture && !m.rule && !m.row);
+  const ParagraphMarks plain = read_marks("Plain");
+  CHECK(plain.length == 0 && !plain.heading && plain.align == 0 && plain.first == 0 && plain.level == 0);
+  CHECK(read_marks("\x05\x07x").align == 2 && read_marks("\x05\x07x").first == 1);
+  CHECK(read_marks("\x02"
+                   "alt")
+            .picture &&
+        read_marks("\x03").rule &&
+        read_marks("\x10"
+                   "a | b")
+            .row);
+}
+
+void test_book_css() {
+  const char* css =
+      "/* a comment */ p { text-indent: 1.2em; margin: 0 }\n"
+      "p.center, .caption { text-align: center; text-indent: 0 }\n"
+      ".bold { font-weight: 700 } em.up { font-style: normal }\n"
+      "ul.plain { list-style-type: none }\n"
+      "div.poem > p { text-align: right }\n";
+  CssRule rules[16];
+  const uint32_t n = Epub::parse_css(css, rules, 0, 16);
+  const auto find = [&](std::string_view tag, std::string_view cls) -> const CssRule* {
+    for (uint32_t i = 0; i < n; ++i) {
+      if (rules[i].tag == (tag.empty() ? 0 : anchor_hash(tag)) && rules[i].cls == (cls.empty() ? 0 : anchor_hash(cls)))
+        return &rules[i];
+    }
+    return nullptr;
+  };
+  const CssRule* p = find("p", "");
+  CHECK(p != nullptr && p->indent == 1 && p->align == -1);
+  const CssRule* center = find("p", "center");
+  CHECK(center != nullptr && center->align == 1 && center->indent == 0);
+  const CssRule* caption = find("", "caption");
+  CHECK(caption != nullptr && caption->align == 1);
+  const CssRule* bold = find("", "bold");
+  CHECK(bold != nullptr && bold->bold == 1);
+  const CssRule* up = find("em", "up");
+  CHECK(up != nullptr && up->italic == 0);
+  const CssRule* plain = find("ul", "plain");
+  CHECK(plain != nullptr && plain->marker == 0);
+  for (uint32_t i = 0; i < n; ++i) CHECK(rules[i].align != 2);  // "div.poem > p" is not a simple selector
+  CHECK(Epub::parse_css(css, rules, 0, 2) == 2);                // the table is never overrun
+}
+
+void test_epub_extras() {
+  StdioStorage data(VELLUM_TEST_DATA);
+  Epub epub;
+  CHECK(epub.open(data, "extras.epub"));
+  CHECK(epub.chapter_count() == 3);
+
+  // Pictures: their own paragraphs with the alt text, measured from their first bytes.
+  Chapter ch{};
+  CHECK(epub.load_chapter(0, ch));
+  CHECK(ch.paragraph_count == 12);
+  CHECK(std::string(ch.paragraphs[2]) ==
+        "\x02"
+        "A hill under a rising sun");
+  CHECK(std::string(ch.paragraphs[3]) == "\x04\x06The hill, drawn small.");  // .caption: centred, flush
+  CHECK(std::string(ch.paragraphs[7]) == "\x02");                            // in <svg>, without alt text
+  ChapterMarkup m = epub.markup();
+  CHECK(m.picture_count == 5);
+  if (m.picture_count == 5) {
+    CHECK(m.pictures[0].paragraph == 2 && m.pictures[0].w == 600 && m.pictures[0].h == 400);
+    CHECK(m.pictures[1].paragraph == 5 && m.pictures[1].w == 24 && m.pictures[1].h == 24);
+    CHECK(m.pictures[2].paragraph == 7 && m.pictures[2].w == 900 && m.pictures[2].h == 1400);
+    CHECK(m.pictures[3].entry >= 0 && m.pictures[3].w == 0);  // progressive JPEG: a placeholder
+    CHECK(m.pictures[4].entry == -1);                         // missing from the book
+  }
+  CHECK(m.link_count == 0);
+
+  // Emphasis, links, a rule, lists, a table row and the book's alignment.
+  CHECK(epub.load_chapter(1, ch));
+  CHECK(ch.paragraph_count == 16);
+  const std::vector<std::string> want = {
+      "\x01Notes and Lists",
+      "\x06The river ran quickly past the old mill.1 Nobody knew who built it.2",
+      "\x07See the second part for more, or the web.",
+      "\x04\x06"
+      "A centred line",
+      "\x05\x07"
+      "A line on the right",
+  };
+  for (size_t i = 0; i < want.size() && i < ch.paragraph_count; ++i) CHECK(want[i] == ch.paragraphs[i]);
+  CHECK(std::string(ch.paragraphs[6]) == "\x03");
+  CHECK(std::string(ch.paragraphs[7]) == "\x0E\x0F\xE2\x80\xA2 Flour");
+  CHECK(std::string(ch.paragraphs[9]) ==
+        "\x0E\x0E\x0F"
+        "3. cold");  // nested, numbered from start="3"
+  CHECK(std::string(ch.paragraphs[11]) ==
+        "\x0E"
+        "No bullet here");  // list-style-type: none
+  CHECK(std::string(ch.paragraphs[12]) ==
+        "\x10"
+        "Grain | Price");
+  m = epub.markup();
+  const auto run_at = [&](uint32_t paragraph, uint32_t offset) {
+    for (uint32_t i = 0; i < m.run_count; ++i) {
+      if (m.runs[i].at == TextPos{paragraph, offset}) return static_cast<int>(m.runs[i].flags);
+    }
+    return -1;
+  };
+  CHECK(run_at(1, 14) == StyleRun::kItalic && run_at(1, 22) == 0);  // "quickly"
+  CHECK(run_at(1, 31) == StyleRun::kBold && run_at(1, 40) == 0);    // "old mill"
+  CHECK(run_at(1, 41) == StyleRun::kLink && run_at(2, 4) == StyleRun::kLink);
+  CHECK(run_at(12, 0) == StyleRun::kBold);  // <th>
+  CHECK(m.link_count == 3);                 // not the one to the web
+  if (m.link_count != 3) return;
+  CHECK(m.links[0].begin == (TextPos{1, 41}) && m.links[0].end == (TextPos{1, 42}) && m.links[0].note);
+  CHECK(m.links[0].chapter == 1 && m.links[0].anchor == anchor_hash("fn1"));
+  CHECK(m.links[1].chapter == 2 && m.links[1].anchor == anchor_hash("en2") && m.links[1].note);  // a <sup>
+  CHECK(m.links[2].chapter == 2 && m.links[2].anchor == anchor_hash("part") && !m.links[2].note);
+
+  // A footnote in this chapter, an endnote in the next, and a link to a heading.
+  char note[256];
+  LinkTarget to;
+  CHECK(epub.follow(m.links[0], to, note, sizeof(note)));
+  CHECK(to.note && std::string(note) == "The mill was built in 1820 by the miller's grandfather.");
+  m = epub.markup();
+  CHECK(epub.follow(m.links[1], to, note, sizeof(note)));
+  CHECK(to.note && std::string(note) == "2. Nobody knows; the parish records burned.\nA second paragraph of it.");
+  m = epub.markup();
+  CHECK(m.link_count == 3);  // chapter 1 is loaded again
+  CHECK(epub.follow(m.links[2], to, note, sizeof(note)));
+  CHECK(!to.note && to.chapter == 2 && to.paragraph == 0);
+  // A note longer than the room is cut at a whole character, with an ellipsis.
+  m = epub.markup();
+  CHECK(epub.follow(m.links[0], to, note, 16));
+  CHECK(std::strlen(note) < 16 && std::string(note).ends_with("\xE2\x80\xA6"));
+}
+
+void test_page_extras() {
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  const PageStyle base{&fonts::literata_26, {28, 70, 424, 660}, 26, nullptr};
+
+  // A character the fonts lack is a box, a zero-width space nothing.
+  CHECK(text_width_px(fonts::literata_26, "\xE2\x98\x85") > 8);
+  CHECK(text_width(fonts::literata_26,
+                   "a\xE2\x80\x8B"
+                   "b") == text_width(fonts::literata_26, "ab"));
+  f.fb.clear(Color::White);
+  draw_text(f.fb, fonts::literata_26, 40 * 64, 100, "\xE2\x98\x85");
+  CHECK(black_pixels(f.fb, {40, 70, 40, 40}) > 20);
+
+  // Focus reading bolds the start of words without moving them.
+  const char* words[] = {"Reading quickly through the long afternoon, everyone grew sleepy."};
+  f.fb.clear(Color::White);
+  const TextPos plain = typeset_page(base, words, 1, {}, &f.fb);
+  const int plain_ink = black_pixels(f.fb, base.area);
+  PageStyle focus = base;
+  focus.focus = true;
+  f.fb.clear(Color::White);
+  CHECK(typeset_page(focus, words, 1, {}, &f.fb) == plain);
+  CHECK(black_pixels(f.fb, base.area) > plain_ink + plain_ink / 10);
+
+  // A rule is a short centred line; a picture without a size gets a placeholder box with its alt text.
+  const char* blocks[] = {"Above.", "\x03",
+                          "\x02"
+                          "Lost map",
+                          "Below."};
+  const Picture lost{2, -1, 0, 0};
+  PageStyle with = base;
+  with.pictures = &lost;
+  with.picture_count = 1;
+  PageWords pw;
+  f.fb.clear(Color::White);
+  CHECK(typeset_page(with, blocks, 4, {}, &f.fb, &pw) == (TextPos{4, 0}));
+  CHECK(pw.count == 2);  // the words of the paragraphs: neither the rule nor the alt text
+  const Rect box = picture_box(with, &lost, 200);
+  CHECK(box.w > 0 && box.h >= 2 * fonts::literata_26.line_height - 4);
+  // A big picture has a page to itself.
+  const char* big[] = {"Before.", "\x02", "After."};
+  const Picture tall{1, 3, 900, 1400};
+  with.pictures = &tall;
+  const TextPos first = typeset_page(with, big, 3, {}, nullptr);
+  CHECK(first == (TextPos{1, 0}));
+  CHECK(typeset_page(with, big, 3, first, nullptr) == (TextPos{2, 0}));
+
+  // The book's own centring is kept, or not.
+  const char* centred[] = {"\x04Mid"};
+  PageWords a, b;
+  typeset_page(base, centred, 1, {}, nullptr, &a);
+  PageStyle own = base;
+  own.publisher = false;
+  typeset_page(own, centred, 1, {}, nullptr, &b);
+  CHECK(a.count == 1 && b.count == 1 && a.words[0].x > b.words[0].x + 100);
+
+  // Inverting a rectangle, twice, is no change.
+  f.fb.clear(Color::White);
+  f.fb.invert({10, 10, 20, 20});
+  CHECK(f.fb.pixel(15, 15) == Color::Black && f.fb.pixel(5, 5) == Color::White && f.fb.pixel(30, 30) == Color::White);
+  f.fb.invert({10, 10, 20, 20});
+  CHECK(f.fb.pixel(15, 15) == Color::White);
+}
+
+void test_reader_extras() {
+  std::filesystem::remove_all("test-card-reading");
+  StdioStorage card("test-card-reading");
+  put_extras(card);
+  Epub epub;
+  CHECK(epub.open(card, "books/extras.epub"));
+  Fixture f;
+  f.fb.set_rotation(Rotation::R90);
+  Reader reader;
+  CHECK(reader.open(epub, 7, reading_style(Settings{}), {}, f.fb));
+  CHECK(reader.page_count() == 3);  // the full-page picture has the second
+
+  // The picture is drawn (dithered: some of it black, not all) and kept on the card at its size.
+  const Strings& t = strings(Language::English);
+  reader.draw(f.fb, t, "", 80);
+  const Rect hill{40, 250, 400, 60};
+  const int ink = black_pixels(f.fb, hill);
+  CHECK(ink > 1000 && ink < hill.w * hill.h);
+  CHECK(std::filesystem::exists("test-card-reading/vellum/pictures"));
+  CHECK(!std::filesystem::is_empty("test-card-reading/vellum/pictures"));
+  std::vector<uint8_t> day(f.buf);
+  reader.draw(f.fb, t, "", 80);  // from the card this time: the same pixels
+  CHECK(day == f.buf);
+
+  // Night: white on black, the picture as it was.
+  reader.set_night(true);
+  reader.draw(f.fb, t, "", 80);
+  CHECK(f.fb.pixel(4, 4) == Color::Black);
+  CHECK(black_pixels(f.fb, hill) == ink);
+  CHECK(black_pixels(f.fb, {28, 20, 424, 20}) > 0);  // the text above it is inverted
+  reader.set_night(false);
+
+  // Go to: a page by its share of the book.
+  CHECK(reader.chapter_at(0) == 0 && reader.chapter_at(100) == 2);
+  for (int percent : {0, 40, 75, 100}) {
+    CHECK(reader.go_to_percent(percent));
+    CHECK(reader.chapter() == reader.chapter_at(percent));
+    CHECK(std::abs(reader.percent() - percent) <= 35);
+  }
+  CHECK(reader.go_to_percent(0) && reader.chapter() == 0 && reader.page() == 0);
+
+  // The settings for all this are kept.
+  Settings s;
+  CHECK(s.publisher_styles && !s.night && !s.focus_reading);
+  s.night = true;
+  s.focus_reading = true;
+  s.publisher_styles = false;
+  s.paragraph_indent = 2;
+  CHECK(save_settings(card, s));
+  Settings back;
+  load_settings(card, back);
+  CHECK(back.night && back.focus_reading && !back.publisher_styles && back.paragraph_indent == 2);
+  const ReadingStyle style = reading_style(back);
+  CHECK(style.focus && !style.publisher && style.indent_rule == IndentRule::Never);
+
+  // The panels' hints are one line.
+  for (Language lang : {Language::English, Language::Lithuanian}) {
+    const Strings& l = strings(lang);
+    for (const char* hint : {l.hint_pick_link, l.hint_go_coarse, l.hint_go_fine}) {
+      if (text_width_px(fonts::literata_16, hint) > kH - 2 * 28) std::printf("too wide: %s\n", hint);
+      CHECK(text_width_px(fonts::literata_16, hint) <= kH - 2 * 28);
+    }
+  }
+}
+
+void test_app_reading_extras() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer screen(buf.data(), kW, kH);
+  screen.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  std::filesystem::remove_all("test-card-reading");
+  StdioStorage card("test-card-reading");
+  put_extras(card);
+  // Read last, at "Notes and Lists".
+  const char* progress = "books/extras.epub\t1\t0\t0\t50\t1\n";
+  CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  auto* app = new App(board);
+  app->start();
+  const auto line = [&]() {
+    const std::string all = read_all("test-card-reading/vellum/progress.txt");
+    const size_t at = all.find("books/extras.epub\t");
+    return at == std::string::npos ? std::string() : all.substr(at, all.find('\n', at) - at);
+  };
+  const auto panel_up = [&]() { return black_run(screen, 0, kH, 440, kW - 1); };
+  press(*app, Key::Power);  // open it
+  CHECK(line().starts_with("books/extras.epub\t1\t0\t0\t"));
+  CHECK(!panel_up());
+
+  // Tapping the footnote's number shows the note over the page; a tap on the page closes it.
+  tap(*app, 157, 135);
+  CHECK(panel_up());
+  CHECK(line().starts_with("books/extras.epub\t1\t0\t0\t"));
+  tap(*app, 240, 300);
+  CHECK(!panel_up());
+  // The endnote, from the next chapter; Home closes it.
+  tap(*app, 133, 174);
+  CHECK(panel_up());
+  press(*app, Key::Home);
+  CHECK(!panel_up());
+  CHECK(line().starts_with("books/extras.epub\t1\t0\t0\t"));
+
+  // A link to a heading goes there; Contents › Back to where you were returns.
+  tap(*app, 210, 214);
+  CHECK(line().starts_with("books/extras.epub\t2\t0\t0\t"));
+  press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(line().starts_with("books/extras.epub\t1\t0\t0\t"));
+
+  // Without touch: Contents › Links on this page, then the side buttons pick one.
+  // Rows: back, bookmark, light, look up, add to shelf, go to, night mode, links on this page.
+  press(*app, Key::Power);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Next);  // the third: "the second part"
+  press(*app, Key::Power);
+  CHECK(line().starts_with("books/extras.epub\t2\t0\t0\t"));
+  press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // back to where you were
+  CHECK(line().starts_with("books/extras.epub\t1\t0\t0\t"));
+
+  // Night mode from Contents: saved, and the page is white on black.
+  press(*app, Key::Power);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(read_all("test-card-reading/vellum/settings.txt").find("night=1") != std::string::npos);
+  CHECK(screen.pixel(4, 4) == Color::Black);
+  press(*app, Key::Power);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(screen.pixel(4, 4) == Color::White);
+
+  // Go to: Prev lowers it 10 at a time, Power makes the steps finer, Power again goes.
+  press(*app, Key::Power);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  CHECK(panel_up());
+  for (int i = 0; i < 12; ++i) press(*app, Key::Prev);  // 0%
+  press(*app, Key::Power);
+  press(*app, Key::Power);
+  CHECK(!panel_up());
+  CHECK(line().starts_with("books/extras.epub\t0\t0\t0\t"));
+  // Home leaves Go to as it was. (Contents now has Back to where you were, too.)
+  press(*app, Key::Power);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Home);
+  CHECK(!panel_up());
+  CHECK(line().starts_with("books/extras.epub\t0\t0\t0\t"));
+
+  // The last page asks whether the book is finished; Next does not get past it, "Not yet" closes it.
+  for (int i = 0; i < 12; ++i) press(*app, Key::Next);
+  CHECK(panel_up());
+  CHECK(line().ends_with("\t0"));
+  press(*app, Key::Prev);  // not yet
+  CHECK(!panel_up());
+  press(*app, Key::Next);  // asked again from the last page
+  CHECK(panel_up());
+  press(*app, Key::Power);  // mark as read
+  CHECK(!panel_up());
+  CHECK(line().starts_with("books/extras.epub\t2\t") && line().ends_with("\t1"));
+  delete app;
+  std::filesystem::remove_all("test-card-reading");
+}
+
 int main() {
   test_rotation_mapping();
   test_rotation_round_trip();
@@ -4004,6 +4391,12 @@ int main() {
   test_library_sorting();
   test_shelves_store();
   test_app_library();
+  test_paragraph_marks();
+  test_book_css();
+  test_epub_extras();
+  test_page_extras();
+  test_reader_extras();
+  test_app_reading_extras();
   if (failures) {
     std::printf("%d check(s) failed\n", failures);
     return 1;
