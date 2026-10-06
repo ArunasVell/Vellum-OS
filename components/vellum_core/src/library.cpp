@@ -140,6 +140,7 @@ bool is_book_file(const char* name) {
 }
 
 bool is_picture_file(const char* name) {
+  if (name[0] == '.') return false;  // hidden, such as a Mac's "._" copies
   return ends_with(name, ".jpg") || ends_with(name, ".jpeg") || ends_with(name, ".png") || ends_with(name, ".bmp");
 }
 

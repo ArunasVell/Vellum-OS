@@ -11,6 +11,7 @@
 
 #include "vellum/app.h"
 #include "vellum/battery_log.h"
+#include "vellum/bmp.h"
 #include "vellum/book.h"
 #include "vellum/catalogues.h"
 #include "vellum/charset.h"
@@ -31,6 +32,7 @@
 #include "vellum/reading_stats.h"
 #include "vellum/settings.h"
 #include "vellum/shelves.h"
+#include "vellum/sleep_pictures.h"
 #include "vellum/stdio_storage.h"
 #include "vellum/store.h"
 #include "vellum/strings.h"
@@ -262,10 +264,26 @@ void test_interface_text_fits() {
   // Hints are one line between the screen margins in every language.
   for (Language lang : {Language::English, Language::Lithuanian}) {
     const Strings& t = strings(lang);
-    for (const char* hint :
-         {t.hint_home, t.hint_list, t.hint_settings, t.hint_transfer, t.transfer_lead, t.hint_battery, t.hint_light,
-          t.hint_check, t.hint_updates, t.hint_setup, t.setup_lead, t.hint_pick_line, t.hint_pick_word, t.store_lead,
-          t.hint_store_busy, t.charge_hint, t.hint_picture}) {
+    for (const char* hint : {t.hint_home,
+                             t.hint_list,
+                             t.hint_settings,
+                             t.hint_transfer,
+                             t.transfer_lead,
+                             t.hint_battery,
+                             t.hint_light,
+                             t.hint_check,
+                             t.hint_updates,
+                             t.hint_setup,
+                             t.setup_lead,
+                             t.hint_pick_line,
+                             t.hint_pick_word,
+                             t.store_lead,
+                             t.hint_store_busy,
+                             t.charge_hint,
+                             t.hint_pictures_shuffle,
+                             t.hint_pictures_one,
+                             t.hint_preview,
+                             t.hint_picture}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -661,6 +679,10 @@ void test_upload_helpers() {
   CHECK(safe("notes.pdf") == "<rejected>");
   CHECK(safe(".epub") == "<rejected>");
   CHECK(safe("") == "<rejected>");
+  CHECK(safe_picture_name("C:\\fakepath\\Sea.JPG", buf, sizeof(buf)) && std::string(buf) == "Sea.JPG");
+  CHECK(safe_picture_name("../dawn.jpeg", buf, sizeof(buf)) && std::string(buf) == "dawn.jpeg");
+  CHECK(safe_picture_name("a.bmp", buf, sizeof(buf)) && safe_picture_name("b.png", buf, sizeof(buf)));
+  CHECK(!safe_picture_name("cover.gif", buf, sizeof(buf)) && !safe_picture_name("book.epub", buf, sizeof(buf)));
   // Long names keep their extension and stay whole UTF-8.
   std::string long_name;
   for (int i = 0; i < 80; ++i) long_name += "\xC4\x85";  // ą, two bytes each
@@ -765,7 +787,7 @@ void test_app_update() {
   auto* app = new App(board);
   app->start();
   tap(*app, 240, 700);  // Settings
-  tap(*app, 240, 358);  // Updates
+  tap(*app, 240, 394);  // Updates
   tap(*app, 240, 475);  // Update from a file: the phone page
   CHECK(transfer.starts == 1);
 
@@ -1649,7 +1671,7 @@ void test_app_fonts() {
   press(*app, Key::Power);
   CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
   CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
-  for (int i = 0; i < 10; ++i) press(*app, Key::Next);  // down to Reading
+  for (int i = 0; i < 11; ++i) press(*app, Key::Next);  // down to Reading
   press(*app, Key::Power);
   press(*app, Key::Power);  // Book font: the next after Literata
   CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
@@ -1778,7 +1800,7 @@ void test_app_updates_screen() {
   app->start();
 
   tap(*app, 240, 700);  // Settings
-  tap(*app, 240, 358);  // Updates, the seventh row
+  tap(*app, 240, 394);  // Updates, the eighth row
   tap(*app, 240, 325);  // Check now: the home Wi-Fi is out of reach
   CHECK(updater.checks == 1 && updater.installs == 0);
   CHECK(read_all("test-card/vellum/update.txt").empty());  // a failed check remembers nothing
@@ -2001,8 +2023,8 @@ void test_app_device_check() {
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i)
-    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Light, Battery, Updates, Stats: Device check
+  for (int i = 0; i < 9; ++i)
+    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Sleep screen, Light, Battery, Updates, Stats
   CHECK(!on_check());
   press(*app, Key::Power);
   CHECK(on_check());
@@ -2050,7 +2072,7 @@ void test_app_device_check_memory() {
     app.start();
     for (int i = 0; i < 5; ++i) press(app, Key::Next);  // Settings
     press(app, Key::Power);
-    for (int i = 0; i < 8; ++i) press(app, Key::Next);  // Device check
+    for (int i = 0; i < 9; ++i) press(app, Key::Next);  // Device check
     press(app, Key::Power);
   };
   auto* app = new App(board);
@@ -3142,10 +3164,10 @@ void test_app_reading_stats() {
   CHECK(saved.find("b\t1\t510\t13\tbuiltin:") != std::string::npos);
   CHECK(saved.find("d\t2026-10-04\t0\t510\t13\n") != std::string::npos);
 
-  // Settings › Reading stats, the eighth row: opens, Power goes back.
+  // Settings › Reading stats, the ninth row: opens, Power goes back.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
   int full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -3153,7 +3175,7 @@ void test_app_reading_stats() {
   CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::Black);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);
-  CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::White);
+  CHECK(view.pixel(17, 430) == Color::Black);  // back on Settings, the Reading stats row highlighted
 
   // Settings › Reading › Footer: time left in the chapter, then the percent.
   press(*app, Key::Next);  // Device check
@@ -3172,7 +3194,7 @@ void test_app_reading_stats() {
   press(*app, Key::Home);
   press(*app, Key::Prev);
   press(*app, Key::Power);
-  for (int i = 0; i < 11; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 12; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
@@ -4530,6 +4552,61 @@ void test_app_own_catalogue() {
   std::filesystem::remove_all("test-card-cat");
 }
 
+// ---- Sleep screens -----------------------------------------------------------
+
+// A w x h BMP of `bpp` bits whose pixel (x, y) has the grey grey_at(x, y)
+// (on the palette for 1, 4 and 8 bits). `fields`: 32 bits with bit fields,
+// red and blue swapped from the usual order.
+int bmp_levels(int bpp) { return bpp <= 8 ? 1 << bpp : 256; }
+int bmp_index(int bpp, int x, int y) { return (x * 3 + y * 5) % bmp_levels(bpp); }
+int bmp_grey(int bpp, int x, int y) {
+  const int n = bmp_levels(bpp);
+  return bpp <= 8 ? bmp_index(bpp, x, y) * 255 / (n - 1) : (x * 20 + y * 7) % 256;
+}
+
+std::vector<uint8_t> make_bmp(int bpp, int w, int h, bool top_down, bool fields = false) {
+  const int colours = bpp <= 8 ? 1 << bpp : 0;
+  const uint32_t row = static_cast<uint32_t>((w * bpp + 31) / 32 * 4);
+  const uint32_t data_at = 14 + 40 + (fields ? 12 : 0) + colours * 4;
+  std::vector<uint8_t> out(data_at + row * h, 0);
+  auto put32 = [&](size_t at, uint32_t v) {
+    for (int i = 0; i < 4; ++i) out[at + i] = static_cast<uint8_t>(v >> (8 * i));
+  };
+  out[0] = 'B';
+  out[1] = 'M';
+  put32(2, static_cast<uint32_t>(out.size()));
+  put32(10, data_at);
+  put32(14, 40);
+  put32(18, static_cast<uint32_t>(w));
+  put32(22, static_cast<uint32_t>(top_down ? -h : h));
+  out[26] = 1;
+  out[28] = static_cast<uint8_t>(bpp);
+  put32(30, fields ? 3 : 0);
+  put32(46, static_cast<uint32_t>(colours));
+  if (fields) {
+    put32(54, 0x000000FF);  // red in the low byte
+    put32(58, 0x0000FF00);
+    put32(62, 0x00FF0000);
+  }
+  for (int i = 0; i < colours; ++i) {
+    const auto v = static_cast<uint8_t>(i * 255 / (colours - 1));
+    for (int c = 0; c < 3; ++c) out[14 + 40 + i * 4 + c] = v;
+  }
+  for (int y = 0; y < h; ++y) {
+    uint8_t* r = out.data() + data_at + row * (top_down ? y : h - 1 - y);
+    for (int x = 0; x < w; ++x) {
+      if (bpp <= 8) {
+        const int per = 8 / bpp;
+        r[x / per] |= static_cast<uint8_t>(bmp_index(bpp, x, y) << (8 - bpp * (x % per + 1)));
+      } else {
+        const auto v = static_cast<uint8_t>(bmp_grey(bpp, x, y));
+        for (int c = 0; c < 3; ++c) r[x * (bpp / 8) + c] = v;
+      }
+    }
+  }
+  return out;
+}
+
 // ---- Library views: folders, recently added, moving finished books, the
 // cover grid, the folder browser and pictures.
 
@@ -4539,7 +4616,7 @@ void write_file(StdioStorage& card, const char* path, const std::string& data) {
 
 // A Windows bitmap of `bits` 1, 8 or 24 a pixel, rows stored bottom to top
 // unless top_down: black on the top half, white below.
-std::string make_bmp(int w, int h, int bits, bool top_down) {
+std::string make_half_bmp(int w, int h, int bits, bool top_down) {
   const int stride = ((w * bits + 31) / 32) * 4;
   const int colours = bits <= 8 ? 1 << bits : 0;
   const int offset = 14 + 40 + colours * 4;
@@ -4576,6 +4653,343 @@ std::string make_bmp(int w, int h, int bits, bool top_down) {
     }
   }
   return out;
+}
+
+void test_bmp_reader() {
+  std::filesystem::remove_all("test-card-bmp");
+  StdioStorage card("test-card-bmp");
+  struct Kind {
+    int bpp;
+    bool top_down;
+    bool fields;
+  };
+  for (const Kind k : {Kind{1, false, false}, Kind{4, false, false}, Kind{8, true, false}, Kind{24, false, false},
+                       Kind{24, true, false}, Kind{32, false, false}, Kind{32, false, true}}) {
+    const int w = 13, h = 5;  // an odd width: rows padded to 4 bytes
+    const std::vector<uint8_t> file = make_bmp(k.bpp, w, h, k.top_down, k.fields);
+    CHECK(card.write("p.bmp", file.data(), static_cast<uint32_t>(file.size())));
+    File* f = card.open("p.bmp");
+    CHECK(f != nullptr);
+    if (f == nullptr) continue;
+    bmp::Info info;
+    CHECK(bmp::read_info(*f, info));
+    CHECK(info.w == w && info.h == h && info.bpp == k.bpp && info.top_down == k.top_down);
+    std::vector<uint8_t> raw(info.row_bytes), grey(w);
+    bool same = true;
+    for (int y = 0; y < h; ++y) {
+      CHECK(bmp::read_row(*f, info, y, raw.data(), grey.data()));
+      for (int x = 0; x < w; ++x) same = same && std::abs(grey[x] - bmp_grey(k.bpp, x, y)) <= 1;
+    }
+    if (!same) std::printf("BMP %d bits%s: wrong pixels\n", k.bpp, k.fields ? " (fields)" : "");
+    CHECK(same);
+    CHECK(!bmp::read_row(*f, info, h, raw.data(), grey.data()));
+    card.close(f);
+  }
+  // Refused: compressed (RLE), 16 bits, not a BMP, cut short.
+  std::vector<uint8_t> file = make_bmp(8, 4, 4, false);
+  file[30] = 1;
+  CHECK(card.write("p.bmp", file.data(), static_cast<uint32_t>(file.size())));
+  auto refused = [&] {
+    File* f = card.open("p.bmp");
+    bmp::Info info;
+    const bool ok = f != nullptr && bmp::read_info(*f, info);
+    if (f != nullptr) card.close(f);
+    return !ok;
+  };
+  CHECK(refused());
+  file = make_bmp(24, 4, 4, false);
+  file[28] = 16;
+  CHECK(card.write("p.bmp", file.data(), static_cast<uint32_t>(file.size())));
+  CHECK(refused());
+  CHECK(card.write("p.bmp", "BMxx", 4));
+  CHECK(refused());
+  std::filesystem::remove_all("test-card-bmp");
+}
+
+// Counts the opening of the card's sleep pictures, to tell when one is decoded.
+class PictureCountingCard : public StdioStorage {
+ public:
+  using StdioStorage::StdioStorage;
+  File* open(const char* path) override {
+    if (std::strncmp(path, "sleep/", 6) == 0) ++opened;
+    return StdioStorage::open(path);
+  }
+  int opened = 0;
+};
+
+void copy_sleep_pictures(Storage& card) {
+  for (const char* name : {"dawn.jpg", "field.png", "night.bmp"}) {
+    const std::string data = read_all((std::string(VELLUM_TEST_DATA "/sleep/") + name).c_str());
+    CHECK(!data.empty());
+    CHECK(card.write((std::string("sleep/") + name).c_str(), data.data(), static_cast<uint32_t>(data.size())));
+  }
+}
+
+void test_sleep_pictures() {
+  std::filesystem::remove_all("test-card-sleep");
+  PictureCountingCard card("test-card-sleep");
+  SleepPictures pictures;
+  pictures.scan(card);
+  CHECK(pictures.count() == 0);
+  CHECK(pictures.choose(card, SleepOrder::Shuffle, 1, true) == -1);  // none: the cover instead
+
+  copy_sleep_pictures(card);
+  CHECK(card.write("sleep/notes.txt", "x", 1));  // not a picture
+  CHECK(is_picture_file("A.JPEG") && is_picture_file("b.Png") && !is_picture_file(".hidden.jpg"));
+  pictures.scan(card);
+  CHECK(pictures.count() == 3);
+  if (pictures.count() != 3) return;
+  CHECK(std::string(pictures.at(0).name) == "dawn.jpg" && std::string(pictures.at(2).name) == "night.bmp");
+
+  // Each format converts to a screen picture, cut to the screen's shape and
+  // never enlarged, with a thumbnail.
+  std::vector<uint8_t> thumb_px(covers::kThumbW * covers::kThumbH);
+  struct Want {
+    int w, h, top, bottom;  // size and mean grey of the top and bottom fifths
+  };
+  const Want want[] = {{360, 600, 255, 0}, {300, 500, 255, 255}, {120, 200, 40, 40}};
+  for (int i = 0; i < 3; ++i) {
+    CHECK(!pictures.ready(card, i));
+    CHECK(pictures.prepare(card, i));
+    CHECK(pictures.ready(card, i));
+    char path[64];
+    pictures.cache_path(i, path, sizeof(path));
+    CHECK(std::string(path).starts_with("vellum/sleep/"));
+    const CoverImage* img = covers::load_screen(card, path);
+    CHECK(img != nullptr);
+    if (img == nullptr) continue;
+    CHECK(img->w == want[i].w && img->h == want[i].h);
+    CHECK(std::abs(band_mean(*img, 0, img->h / 5) - want[i].top) < 12);
+    CHECK(std::abs(band_mean(*img, img->h * 4 / 5, img->h) - want[i].bottom) < 12);
+    CoverImage thumb;
+    thumb.px = thumb_px.data();
+    CHECK(covers::load_thumb(card, path, thumb));
+    CHECK(thumb.w > 0 && thumb.w <= covers::kThumbW && thumb.h > 0 && thumb.h <= covers::kThumbH);
+    CHECK(thumb.h * 3 == thumb.w * 5 || std::abs(thumb.h * 3 - thumb.w * 5) <= 5);  // the screen's shape
+  }
+
+  // Sleeping again decodes nothing: the screen pictures are kept.
+  card.opened = 0;
+  for (int k = 0; k < 4; ++k) CHECK(pictures.choose(card, SleepOrder::Shuffle, 7, true) >= 0);
+  CHECK(card.opened == 0);
+
+  // Shuffle: never the same picture twice in a row, whatever the seed.
+  pictures.scan(card);
+  int last = pictures.choose(card, SleepOrder::Shuffle, 3, true);
+  for (uint32_t seed = 0; seed < 12; ++seed) {
+    pictures.scan(card);  // as each sleep does: the last one shown is read back
+    const int next = pictures.choose(card, SleepOrder::Shuffle, seed / 3, true);
+    CHECK(next >= 0 && next != last);
+    last = next;
+  }
+  // Only among the marked ones when some are.
+  pictures.set_mark(0, true);
+  pictures.set_mark(2, true);
+  CHECK(pictures.save(card));
+  for (uint32_t seed = 0; seed < 6; ++seed) {
+    pictures.scan(card);
+    CHECK(pictures.marked_count() == 2);
+    const int next = pictures.choose(card, SleepOrder::Shuffle, seed, true);
+    CHECK((next == 0 || next == 2) && next != last);
+    last = next;
+  }
+  // One picture: the marked one, every time; the first when none is marked.
+  pictures.clear_marks();
+  pictures.set_mark(1, true);
+  for (uint32_t seed = 0; seed < 4; ++seed) CHECK(pictures.choose(card, SleepOrder::One, seed, true) == 1);
+  pictures.clear_marks();
+  CHECK(pictures.choose(card, SleepOrder::One, 5, true) == 0);
+
+  // A broken picture is tried once, then skipped; the pinned one falls back to the others.
+  CHECK(card.write("sleep/a-broken.jpg", "\xFF\xD8\xFF\x00junk", 8));
+  pictures.scan(card);
+  CHECK(pictures.count() == 4 && std::string(pictures.at(0).name) == "a-broken.jpg");
+  pictures.set_mark(0, true);
+  card.opened = 0;
+  CHECK(!pictures.prepare(card, 0));
+  CHECK(pictures.ready(card, 0) && card.opened == 1);
+  CHECK(!pictures.prepare(card, 0));
+  CHECK(card.opened == 1);
+  CHECK(pictures.choose(card, SleepOrder::One, 0, false) == 1);
+
+  // Gone or changed pictures lose their screen pictures.
+  char gone[64], changed[64];
+  pictures.cache_path(3, gone, sizeof(gone));
+  pictures.cache_path(1, changed, sizeof(changed));
+  std::remove("test-card-sleep/sleep/night.bmp");
+  const std::string dawn = read_all(VELLUM_TEST_DATA "/sleep/dawn.jpg") + "extra";
+  CHECK(card.write("sleep/dawn.jpg", dawn.data(), static_cast<uint32_t>(dawn.size())));
+  pictures.scan(card);
+  CHECK(pictures.count() == 3);
+  CHECK(!std::filesystem::exists(std::string("test-card-sleep/") + gone));
+  CHECK(!std::filesystem::exists(std::string("test-card-sleep/") + changed));
+  CHECK(!pictures.ready(card, 1));
+
+  // Only broken pictures: nothing to show.
+  std::filesystem::remove_all("test-card-sleep/sleep");
+  CHECK(card.write("sleep/x.png", "\x89PNG\r\n\x1a\nbad", 11));
+  CHECK(card.write("sleep/y.bmp", "BM", 2));
+  pictures.scan(card);
+  CHECK(pictures.count() == 2);
+  CHECK(pictures.choose(card, SleepOrder::Shuffle, 0, true) == -1);
+  std::filesystem::remove_all("test-card-sleep");
+}
+
+// Share of black pixels in a logical rectangle, in percent.
+int black_percent(const Framebuffer& fb, Rect r) {
+  int n = 0;
+  for (int y = r.y; y < r.y + r.h; ++y)
+    for (int x = r.x; x < r.x + r.w; ++x) n += fb.pixel(x, y) == Color::Black ? 1 : 0;
+  return n * 100 / (r.w * r.h);
+}
+
+void test_app_sleep_screens() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  Framebuffer view(buf.data(), kW, kH);
+  view.set_rotation(Rotation::R90);
+  CountingPanel panel;
+  NoInput input;
+  TestPower power;
+  std::filesystem::remove_all("test-card-sleep");
+  PictureCountingCard card("test-card-sleep");
+  const Rect whole{0, 0, kH, kW};
+  const Rect corner{kH / 2 - 20, kW - 36, 40, 20};  // the "Page as left" badge
+  auto set_kind = [&](int kind, int order = 0) {
+    char text[64];
+    const int n = std::snprintf(text, sizeof(text), "sleep_screen=%d\nsleep_order=%d\n", kind, order);
+    CHECK(card.write("vellum/settings.txt", text, static_cast<uint32_t>(n)));
+  };
+  auto hold_power = [](App& app) {
+    app.handle(key_event(InputEvent::Type::KeyDown, Key::Power));
+    app.timeout();
+    app.handle(key_event(InputEvent::Type::KeyUp, Key::Power));
+  };
+
+  // Every kind sleeps without a card, on an empty card, and with pictures.
+  for (int pass = 0; pass < 3; ++pass) {
+    if (pass == 2) copy_sleep_pictures(card);
+    for (int kind = 0; kind < 5; ++kind) {
+      Board board{"test",        panel,     input, power, nullptr, nullptr, pass == 0 ? nullptr : &card,
+                  Rotation::R90, buf.data()};
+      if (pass > 0) set_kind(kind);
+      auto* app = new App(board);
+      app->start();
+      const int sleeps = power.sleeps;
+      hold_power(*app);
+      CHECK(power.sleeps == sleeps + 1);
+      app->handle(key_event(InputEvent::Type::KeyDown, Key::Next));  // wakes
+      delete app;
+    }
+  }
+
+  // The book cover, then a picture in its place; the cover again when no picture decodes.
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  set_kind(0);
+  auto* app = new App(board);
+  app->start();
+  hold_power(*app);
+  const std::vector<uint8_t> cover = buf;
+  delete app;
+  std::filesystem::remove_all("test-card-sleep/sleep");
+  const std::string night = read_all(VELLUM_TEST_DATA "/sleep/night.bmp");
+  CHECK(card.write("sleep/night.bmp", night.data(), static_cast<uint32_t>(night.size())));
+  set_kind(1);
+  app = new App(board);
+  app->start();
+  hold_power(*app);
+  CHECK(black_percent(view, whole) > 70);  // dark grey, dithered
+  card.opened = 0;
+  app->handle(key_event(InputEvent::Type::KeyDown, Key::Next));
+  hold_power(*app);  // the second sleep reads the kept screen picture
+  CHECK(card.opened == 0 && black_percent(view, whole) > 70);
+  delete app;
+  CHECK(card.write("sleep/night.bmp", "BMjunk", 6));
+  app = new App(board);
+  app->start();
+  hold_power(*app);
+  CHECK(buf == cover);
+  delete app;
+
+  // Minimal: a white page; reading stats: some ink.
+  set_kind(3);
+  app = new App(board);
+  app->start();
+  hold_power(*app);
+  CHECK(black_percent(view, whole) < 10);
+  delete app;
+  set_kind(2);
+  app = new App(board);
+  app->start();
+  hold_power(*app);
+  const int stats_ink = black_percent(view, whole);
+  CHECK(stats_ink > 0 && stats_ink < 30);
+  delete app;
+
+  // Page as left: the page stays, with a badge in the corner.
+  set_kind(4);
+  app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the current book
+  std::vector<uint8_t> page = buf;
+  CHECK(black_percent(view, corner) < 30);
+  hold_power(*app);
+  CHECK(black_percent(view, corner) > 50);
+  Framebuffer before(page.data(), kW, kH);
+  before.set_rotation(Rotation::R90);
+  int differ = 0;
+  for (int y = 0; y < kW - 50; ++y)
+    for (int x = 0; x < kH; ++x) differ += before.pixel(x, y) != view.pixel(x, y) ? 1 : 0;
+  CHECK(differ == 0);
+  delete app;
+
+  // An empty battery adds its band to every kind.
+  for (int kind = 0; kind < 5; ++kind) {
+    set_kind(kind);
+    power.level = 1;
+    app = new App(board);
+    app->start();                                            // straight to sleep
+    CHECK(view.pixel(kH / 2, kW - 120) == Color::Black);     // the band's edge
+    CHECK(black_percent(view, {0, kW - 118, kH, 40}) < 10);  // white under it
+    CHECK(black_percent(view, {0, kW - 90, kH, 40}) > 0);    // its message
+    power.level = 50;
+    delete app;
+  }
+
+  // Settings › Sleep screen: choose Minimal, preview it, choose a picture.
+  copy_sleep_pictures(card);
+  set_kind(0);
+  std::remove("test-card-sleep/vellum/state.txt");  // start at home, not in the book
+  app = new App(board);
+  app->start();
+  press(*app, Key::Prev);  // Settings, the last link
+  press(*app, Key::Power);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after: Sleep screen
+  press(*app, Key::Power);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);  // Book cover, My pictures, Reading stats: Minimal
+  press(*app, Key::Power);
+  CHECK(read_all("test-card-sleep/vellum/settings.txt").find("sleep_screen=3") != std::string::npos);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);  // Page as left, Pictures, Choose pictures: Preview
+  const int full = panel.full;
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 1);
+  CHECK(black_percent(view, {0, 80, kH, 300}) < 10);  // the minimal page
+  CHECK(black_percent(view, {28, 70, 300, 40}) == 0);
+  press(*app, Key::Next);  // any button: back
+  CHECK(panel.full == full + 2);
+  CHECK(black_percent(view, {28, 70, 300, 40}) > 3);  // the settings' title
+  press(*app, Key::Prev);                             // Choose pictures
+  press(*app, Key::Power);
+  press(*app, Key::Next);   // field.png
+  press(*app, Key::Power);  // marked
+  CHECK(read_all("test-card-sleep/vellum/sleep.txt").find("mark\tfield.png") != std::string::npos);
+  press(*app, Key::Home);  // back to the sleep screen settings
+  press(*app, Key::Prev);  // Pictures: Shuffle becomes One picture
+  press(*app, Key::Power);
+  CHECK(read_all("test-card-sleep/vellum/settings.txt").find("sleep_order=1") != std::string::npos);
+  press(*app, Key::Home);  // back to Settings, on the Sleep screen row
+  press(*app, Key::Home);
+  delete app;
+  std::filesystem::remove_all("test-card-sleep");
 }
 
 void test_library_folders() {
@@ -4678,7 +5092,7 @@ void test_pictures() {
   // Bitmaps of each kind, either way up: fitted into the large thumbnail's box.
   for (int bits : {1, 8, 24}) {
     for (bool top_down : {false, true}) {
-      write_file(card, "pictures/p.bmp", make_bmp(600, 300, bits, top_down));
+      write_file(card, "pictures/p.bmp", make_half_bmp(600, 300, bits, top_down));
       CHECK(covers::load_picture(card, "pictures/p.bmp", img));
       CHECK(img.w == covers::kLargeW && img.h == 200);
       if (!img.valid()) continue;
@@ -4706,7 +5120,7 @@ void test_pictures() {
   // Not pictures, or not whole.
   write_file(card, "pictures/junk.jpg", std::string("\xFF\xD8\xFF\x00junk", 8));
   CHECK(!covers::load_picture(card, "pictures/junk.jpg", img) && !img.valid());
-  write_file(card, "pictures/cut.bmp", make_bmp(600, 300, 24, false).substr(0, 4000));
+  write_file(card, "pictures/cut.bmp", make_half_bmp(600, 300, 24, false).substr(0, 4000));
   CHECK(!covers::load_picture(card, "pictures/cut.bmp", img));
   CHECK(!covers::load_picture(card, "pictures/missing.png", img));
   std::filesystem::remove_all("test-card-pictures");
@@ -4868,8 +5282,8 @@ void test_app_folders_and_pictures() {
   FixedPower power;
   StdioStorage card("test-card-browse");
   write_file(card, "books/X/b.epub", read_all(VELLUM_TEST_DATA "/sample.epub"));
-  write_file(card, "pictures/a.bmp", make_bmp(600, 300, 24, false));  // black top
-  write_file(card, "pictures/b.bmp", make_bmp(600, 300, 8, true));
+  write_file(card, "pictures/a.bmp", make_half_bmp(600, 300, 24, false));  // black top
+  write_file(card, "pictures/b.bmp", make_half_bmp(600, 300, 8, true));
   write_file(card, "pictures/c.jpg", std::string("\xFF\xD8\xFF\x00junk", 8));  // cannot be shown
   write_file(card, "pictures/readme.md", "not shown");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
@@ -5014,6 +5428,9 @@ int main() {
   test_app_home_wifi_transfer();
   test_app_sync();
   test_app_own_catalogue();
+  test_bmp_reader();
+  test_sleep_pictures();
+  test_app_sleep_screens();
   test_library_folders();
   test_recently_added();
   test_pictures();

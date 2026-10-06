@@ -5,6 +5,7 @@ set(VELLUM_CORE_SRCS
   src/app.cpp
   src/app_store.cpp
   src/app_sync.cpp
+  src/app_sleep.cpp
   src/app_views.cpp
   src/app_words.cpp
   src/covers.cpp
@@ -37,6 +38,7 @@ set(VELLUM_CORE_SRCS
   src/reading_stats.cpp
   src/settings.cpp
   src/shelves.cpp
+  src/sleep_pictures.cpp
   src/stdio_storage.cpp
   src/store.cpp
   src/strings.cpp

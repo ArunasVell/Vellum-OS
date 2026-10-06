@@ -25,6 +25,7 @@
 #include "esp_wifi.h"
 #include "vellum/highlights.h"
 #include "vellum/library.h"
+#include "vellum/sleep_pictures.h"
 #include "vellum/stdio_storage.h"
 #include "vellum/upload_page.h"
 #include "wifi_common.h"
@@ -40,6 +41,8 @@ constexpr int kMaxDevices = 2;
 // handler waiting for it forever would also hang httpd_stop(), and with it
 // the app when Home closes the transfer.
 constexpr int kMaxSilentWaits = 3;
+constexpr const char* kWhatFits =
+    "Only books (EPUB, FB2, TXT, HTML), fonts, dictionaries and pictures (JPG, PNG, BMP) can be added.";
 
 }  // namespace
 
@@ -121,17 +124,25 @@ struct WifiTransfer::Impl {
     return httpd_resp_sendstr(req, "ok");
   }
 
-  static esp_err_t get_books(httpd_req_t* req) {
+  static esp_err_t get_books(httpd_req_t* req) { return list_files(req, "books", vellum::is_book_file); }
+
+  // The sleep screen pictures, listed like the books.
+  static esp_err_t get_sleep(httpd_req_t* req) {
+    return list_files(req, vellum::SleepPictures::kFolder, vellum::is_picture_file);
+  }
+
+  // A folder's files that `wanted` accepts, as JSON: [{"name": ..., "size": ...}].
+  static esp_err_t list_files(httpd_req_t* req, const char* folder, bool (*wanted)(const char*)) {
     auto* self = static_cast<Impl*>(req->user_ctx);
     char dir_path[64];
-    self->books_dir(dir_path, sizeof(dir_path));
+    std::snprintf(dir_path, sizeof(dir_path), "%s/%s", self->root, folder);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Cache-Control", "no-store");
     httpd_resp_sendstr_chunk(req, "[");
     if (DIR* d = opendir(dir_path)) {
       bool first = true;
       while (dirent* e = readdir(d)) {
-        if (e->d_name[0] == '.' || !vellum::is_book_file(e->d_name)) continue;
+        if (e->d_name[0] == '.' || !wanted(e->d_name)) continue;
         char path[384];
         std::snprintf(path, sizeof(path), "%s/%s", dir_path, e->d_name);
         struct stat sb;
@@ -166,12 +177,13 @@ struct WifiTransfer::Impl {
     if (httpd_req_get_url_query_str(req, query, sizeof(query)) != ESP_OK ||
         httpd_query_key_value(query, "name", raw, sizeof(raw)) != ESP_OK ||
         !vellum::url_decode(raw, std::strlen(raw), decoded, sizeof(decoded))) {
-      return fail(req, "400 Bad Request", "Only books (EPUB, FB2, TXT, HTML), fonts and dictionaries can be added.");
+      return fail(req, "400 Bad Request", kWhatFits);
     }
     const bool font = vellum::safe_font_name(decoded, name, sizeof(name));
     const bool dictionary = !font && vellum::safe_dictionary_name(decoded, name, sizeof(name));
-    if (!font && !dictionary && !vellum::safe_book_name(decoded, name, sizeof(name))) {
-      return fail(req, "400 Bad Request", "Only books (EPUB, FB2, TXT, HTML), fonts and dictionaries can be added.");
+    const bool picture = !font && !dictionary && vellum::safe_picture_name(decoded, name, sizeof(name));
+    if (!font && !dictionary && !picture && !vellum::safe_book_name(decoded, name, sizeof(name))) {
+      return fail(req, "400 Bad Request", kWhatFits);
     }
 
     // Room on the card?
@@ -183,8 +195,11 @@ struct WifiTransfer::Impl {
     }
 
     char dir_path[64];
-    if (font || dictionary) {
-      std::snprintf(dir_path, sizeof(dir_path), "%s/%s", self->root, font ? "fonts" : "dictionaries");
+    if (font || dictionary || picture) {
+      std::snprintf(dir_path, sizeof(dir_path), "%s/%s", self->root,
+                    font         ? "fonts"
+                    : dictionary ? "dictionaries"
+                                 : vellum::SleepPictures::kFolder);
     } else {
       self->books_dir(dir_path, sizeof(dir_path));
     }
@@ -236,6 +251,24 @@ struct WifiTransfer::Impl {
     done(ok);
     ESP_LOGI(kTag, "%s %s (%u bytes)", ok ? "saved" : "failed", name, static_cast<unsigned>(req->content_len));
     if (!ok) return fail(req, "500 Internal Server Error", "The book could not be saved.");
+    return httpd_resp_sendstr(req, "ok");
+  }
+
+  // Deletes a sleep screen picture; the reader drops its converted copy on its next scan.
+  static esp_err_t post_sleep_remove(httpd_req_t* req) {
+    auto* self = static_cast<Impl*>(req->user_ctx);
+    char body[512];
+    char raw[384];
+    char name[128];
+    const int n = req->content_len < sizeof(body) ? httpd_req_recv(req, body, req->content_len) : -1;
+    if (n <= 0 || !vellum::form_field(body, static_cast<size_t>(n), "name", raw, sizeof(raw)) ||
+        !vellum::safe_picture_name(raw, name, sizeof(name)) || std::strcmp(raw, name) != 0) {
+      return fail(req, "400 Bad Request", "Expected a picture's name.");
+    }
+    char path[256];
+    std::snprintf(path, sizeof(path), "%s/%s/%s", self->root, vellum::SleepPictures::kFolder, name);
+    if (std::remove(path) != 0) return fail(req, "404 Not Found", "No such picture.");
+    ESP_LOGI(kTag, "removed sleep picture %s", name);
     return httpd_resp_sendstr(req, "ok");
   }
 
@@ -556,6 +589,8 @@ struct WifiTransfer::Impl {
         {.uri = "/settings", .method = HTTP_POST, .handler = post_settings, .user_ctx = this},
         {.uri = "/sync", .method = HTTP_POST, .handler = post_sync, .user_ctx = this},
         {.uri = "/catalogues", .method = HTTP_POST, .handler = post_catalogues, .user_ctx = this},
+        {.uri = "/sleep", .method = HTTP_GET, .handler = get_sleep, .user_ctx = this},
+        {.uri = "/sleep/remove", .method = HTTP_POST, .handler = post_sleep_remove, .user_ctx = this},
     };
     for (const httpd_uri_t& r : routes) httpd_register_uri_handler(server, &r);
     return true;

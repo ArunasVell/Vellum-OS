@@ -57,6 +57,8 @@ const char kUploadPage[] = R"page(<!doctype html>
   .state { font: 13px/1.3 ui-monospace, Menlo, monospace; color: var(--muted); }
   .state.done { color: var(--accent); }
   .state.bad { color: var(--bad); }
+  .note { font-size: 14px; margin: 0 0 12px; }
+  li .act { flex: none; display: flex; gap: 10px; align-items: baseline; }
 </style>
 </head>
 <body>
@@ -78,6 +80,15 @@ const char kUploadPage[] = R"page(<!doctype html>
   <section>
     <h2 data-t="onreader">On the reader</h2>
     <ul id="books"></ul>
+  </section>
+  <section>
+    <h2 data-t="sleeppics">Sleep screen pictures</h2>
+    <p class="note" data-t="sleeplead">For Settings › Sleep screen › My pictures. Each one is cut to the reader's screen (480 × 800) here before it is sent.</p>
+    <div class="tools">
+      <button class="small" id="pick-pics" type="button" data-t="addpics">Add pictures</button>
+    </div>
+    <input id="pics" type="file" accept="image/*,.jpg,.jpeg,.png,.bmp" multiple hidden>
+    <ul id="pictures"></ul>
   </section>
   <section id="hl-section" hidden>
     <h2 data-t="highlights">Highlights</h2>
@@ -143,6 +154,9 @@ const char kUploadPage[] = R"page(<!doctype html>
     pick: "Pasirinkti knygas", drop: "arba įmeskite knygas, šriftus ar žodynus čia", sending: "Siunčiama",
     onreader: "Skaityklėje", done: "Baigę paspauskite skaityklės Namų mygtuką. Naujos knygos atsiras bibliotekoje.",
     waiting: "laukia", sent: "išsiųsta", full: "nėra vietos", failed: "nepavyko", notepub: "netinka", none: "Knygų dar nėra.",
+    sleeppics: "Miego ekrano paveikslėliai", addpics: "Pridėti paveikslėlių", nopics: "Paveikslėlių dar nėra.",
+    sleeplead: "Skilčiai Nustatymai › Miego ekranas › Mano paveikslėliai. Kiekvienas čia pritaikomas skaityklės ekranui (480 × 800) ir tik tada siunčiamas.",
+    removepicq: "Pašalinti šį paveikslėlį?",
     converting: "verčiama…", convfail: "nepavyko paversti", calibre: "paverskite su Calibre",
     highlights: "Pabraukimai", copyall: "Kopijuoti viską", dltxt: "Atsisiųsti .txt", dlmd: "Atsisiųsti .md",
     copied: "Nukopijuota", note: "Pastaba", addnote: "Pridėkite pastabą…", savenote: "Išsaugoti", saved: "išsaugota",
@@ -161,15 +175,19 @@ const char kUploadPage[] = R"page(<!doctype html>
     labels: { language: "Kalba", clock: "Laikrodis", sleep_after: "Užmigti po", updates: "Atnaujinimai", own_network: "Knygų įkėlimo tinklas",
       menu_font: "Meniu šriftas", book_font: "Knygos šriftas", text_size: "Teksto dydis", line_spacing: "Eilučių tarpai",
       word_spacing: "Tarpai tarp žodžių", margins: "Paraštės", justify: "Lygiuotė", hyphenate: "Žodžių kėlimas", footer: "Poraštė",
-      library_view: "Knygų rodymas", move_finished: "Perkelti perskaitytas" },
+      library_view: "Knygų rodymas", move_finished: "Perkelti perskaitytas",
+      sleep_screen: "Miego ekranas", sleep_order: "Paveikslėliai" },
     values: { language: ["English", "Lietuvių"], clock: ["24 val.", "12 val."], sleep_after: ["5 min.", "10 min.", "30 min.", "Niekada"],
       updates: ["Naktį", "Paklausti", "Išjungta"], own_network: ["Namų Wi-Fi, jei nustatytas", "Skaityklės tinklas"],
       text_size: ["Mažas", "Vidutinis", "Didelis", "Labai didelis"], line_spacing: ["Siauri", "Įprasti", "Platūs"],
       word_spacing: ["Siauri", "Įprasti", "Platūs"], margins: ["Siauros", "Įprastos", "Plačios"], justify: ["Kairinė", "Abipusė"],
       hyphenate: ["Išjungtas", "Įjungtas"], footer: ["Puslapio numeris", "Liko skyriuje", "Perskaityta %"],
-      library_view: ["Sąrašas", "Viršeliai"], move_finished: ["Ne", "Į Read/"] }
+      library_view: ["Sąrašas", "Viršeliai"], move_finished: ["Ne", "Į Read/"],
+      sleep_screen: ["Knygos viršelis", "Mano paveikslėliai", "Skaitymo statistika", "Minimalus", "Kaip paliktas"],
+      sleep_order: ["Maišyti", "Vienas"] }
   } : {
-    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book, font or dictionary", none: "No books yet.",
+    waiting: "waiting", sent: "sent", full: "card full", failed: "failed", notepub: "not a book, font, dictionary or picture", none: "No books yet.",
+    nopics: "No pictures yet.", removepicq: "Remove this picture?",
     converting: "converting…", convfail: "could not convert", calibre: "convert with Calibre",
     copied: "Copied", note: "Note", addnote: "Add a note…", savenote: "Save", saved: "saved",
     remove: "Remove", removeq: "Remove this highlight?",
@@ -177,13 +195,16 @@ const char kUploadPage[] = R"page(<!doctype html>
     labels: { language: "Language", clock: "Clock", sleep_after: "Sleep after", updates: "Updates", own_network: "Add books over",
       menu_font: "Menu font", book_font: "Book font", text_size: "Text size", line_spacing: "Line spacing",
       word_spacing: "Word spacing", margins: "Margins", justify: "Alignment", hyphenate: "Hyphenation", footer: "Footer",
-      library_view: "Home and library view", move_finished: "Move finished books" },
+      library_view: "Home and library view", move_finished: "Move finished books",
+      sleep_screen: "Sleep screen", sleep_order: "Sleep pictures" },
     values: { language: ["English", "Lietuvių"], clock: ["24-hour", "12-hour"], sleep_after: ["5 min", "10 min", "30 min", "Never"],
       updates: ["At night", "Ask first", "Off"], own_network: ["Home Wi-Fi, when set", "The reader's own network"],
       text_size: ["Small", "Medium", "Large", "Extra large"], line_spacing: ["Narrow", "Normal", "Wide"],
       word_spacing: ["Narrow", "Normal", "Wide"], margins: ["Narrow", "Normal", "Wide"], justify: ["Left", "Justified"],
       hyphenate: ["Off", "On"], footer: ["Page number", "Time left in chapter", "Percent read"],
-      library_view: ["List", "Covers"], move_finished: ["Off", "To Read/"] }
+      library_view: ["List", "Covers"], move_finished: ["Off", "To Read/"],
+      sleep_screen: ["Book cover", "My pictures", "Reading stats", "Minimal", "Page as left"],
+      sleep_order: ["Shuffle", "One picture"] }
   };
   if (lt) {
     document.documentElement.lang = "lt";
@@ -218,6 +239,59 @@ const char kUploadPage[] = R"page(<!doctype html>
       if (!books.length) { const li = document.createElement("li"); li.className = "empty"; li.textContent = T.none; booksEl.append(li); }
       for (const b of books) booksEl.append(row(b.name, size(b.size)).li);
     } catch (_) {}
+  }
+
+  // Sleep screen pictures: listed with a way to remove each.
+  const picsEl = document.getElementById("pictures");
+  const isPicture = (f) => /\.(jpe?g|png|bmp|gif|webp|heic|heif|avif)$/i.test(f.name) || /^image\//.test(f.type || "");
+
+  async function refreshPictures() {
+    try {
+      const pics = await (await fetch("/sleep")).json();
+      picsEl.replaceChildren();
+      if (!pics.length) { const li = document.createElement("li"); li.className = "empty"; li.textContent = T.nopics; picsEl.append(li); }
+      for (const p of pics) {
+        const r = row(p.name, "");
+        const act = document.createElement("span"); act.className = "act";
+        const sz = document.createElement("span"); sz.className = "state"; sz.textContent = size(p.size);
+        const rm = document.createElement("button"); rm.className = "small quiet"; rm.type = "button"; rm.textContent = T.remove;
+        rm.addEventListener("click", async () => {
+          if (!confirm(T.removepicq)) return;
+          try { await post("/sleep/remove", { name: p.name }); } catch (_) {}
+          refreshPictures();
+        });
+        act.append(sz, rm);
+        r.state.replaceWith(act);
+        picsEl.append(r.li);
+      }
+    } catch (_) {}
+  }
+
+  // A picture cut to the screen's shape and size here, as a JPEG: small to
+  // send, quick for the reader, and any picture the phone can show works.
+  // Should the phone fail to read it, a JPEG, PNG or BMP goes as it is.
+  async function toScreen(f) {
+    const url = URL.createObjectURL(f);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      const W = 480, H = 800, c = document.createElement("canvas");
+      c.width = W; c.height = H;
+      const s = Math.max(W / img.naturalWidth, H / img.naturalHeight);
+      const w = img.naturalWidth * s, h = img.naturalHeight * s;
+      const g = c.getContext("2d");
+      g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+      g.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+      const blob = await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.9));
+      if (!blob) throw new Error("no jpeg");
+      return new File([blob], base(f.name) + ".jpg", { type: "image/jpeg" });
+    } catch (e) {
+      if (/\.(jpe?g|png|bmp)$/i.test(f.name)) return f;
+      throw e;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
   }
 
   // Books the reader cannot open as they are, converted on this phone: Word
@@ -336,7 +410,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       const r = row(f.name, T.waiting);
       sendingEl.hidden = false;
       queueEl.append(r.li);
-      const convert = /\.docx$/i.test(f.name) ? fromDocx : /\.(md|markdown)$/i.test(f.name) ? fromMarkdown : /\.rtf$/i.test(f.name) ? fromRtf : null;
+      const convert = /\.docx$/i.test(f.name) ? fromDocx : /\.(md|markdown)$/i.test(f.name) ? fromMarkdown : /\.rtf$/i.test(f.name) ? fromRtf : isPicture(f) ? toScreen : null;
       const bad = (text) => { r.state.textContent = text; r.state.classList.add("bad"); };
       if (/\.(mobi|azw\d?|kfx|pdf|doc|djvu|lit|pdb|cbz|cbr)$/i.test(f.name)) { bad(T.calibre); continue; }
       if (!convert && !/\.(epub|fb2|fb2\.zip|txt|html?|ttf|otf|ifo|idx|dict|dict\.dz|syn)$/i.test(f.name)) { bad(T.notepub); continue; }
@@ -377,6 +451,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       if (ok) bar.style.width = "100%";
       running = false;
       refresh();
+      refreshPictures();
       next();
     };
     xhr.send(f);
@@ -388,6 +463,10 @@ const char kUploadPage[] = R"page(<!doctype html>
   drop.addEventListener("dragleave", () => drop.classList.remove("over"));
   drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); add([...e.dataTransfer.files]); });
   refresh();
+  const pics = document.getElementById("pics");
+  document.getElementById("pick-pics").addEventListener("click", () => pics.click());
+  pics.addEventListener("change", () => { add([...pics.files]); pics.value = ""; });
+  refreshPictures();
 
   // Highlights made on the reader: notes are added here, where typing is easy.
   const hlSection = document.getElementById("hl-section");
@@ -507,7 +586,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       return r.ok;
     } catch (_) { say(stateEl, false, T.failed); return false; }
   }
-  const order = ["language", "clock", "sleep_after", "updates", "own_network", "library_view", "move_finished", "menu_font", "book_font", "text_size",
+  const order = ["language", "clock", "sleep_after", "sleep_screen", "sleep_order", "updates", "own_network", "library_view", "move_finished", "menu_font", "book_font", "text_size",
     "line_spacing", "word_spacing", "margins", "justify", "hyphenate", "footer"];
   function renderSettings(info) {
     const grid = $("set-grid");
