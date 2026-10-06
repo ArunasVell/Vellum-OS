@@ -6,12 +6,14 @@ set(VELLUM_CORE_SRCS
   src/app_reading.cpp
   src/app_controls.cpp
   src/app_store.cpp
+  src/app_sync.cpp
   src/app_sleep.cpp
   src/app_views.cpp
   src/app_words.cpp
   src/covers.cpp
   src/dictionary.cpp
   src/battery_log.cpp
+  src/catalogues.cpp
   src/bmp.cpp
   src/charset.cpp
   src/controls.cpp
@@ -27,12 +29,14 @@ set(VELLUM_CORE_SRCS
   src/framebuffer.cpp
   src/highlights.cpp
   src/keyboard.cpp
+  src/kosync.cpp
   src/hyphenation.cpp
   src/hyphenation/en_us.cpp
   src/hyphenation/lt.cpp
   src/library.cpp
   src/opds.cpp
   src/peer_transfer.cpp
+  src/phone_settings.cpp
   src/reader.cpp
   src/reading_stats.cpp
   src/screenshot.cpp

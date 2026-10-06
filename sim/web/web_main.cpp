@@ -103,9 +103,14 @@ class WebClock : public vellum::Clock {
 class WebTransfer : public vellum::Transfer {
  public:
   bool start(vellum::TransferInfo& info) override {
-    std::snprintf(info.network, sizeof(info.network), "Vellum-SIM");
-    std::snprintf(info.password, sizeof(info.password), "48151623");
-    std::snprintf(info.address, sizeof(info.address), "http://192.168.4.1");
+    if (info.home) {
+      std::snprintf(info.network, sizeof(info.network), "Home (simulated)");
+      std::snprintf(info.address, sizeof(info.address), "http://192.168.1.42");
+    } else {
+      std::snprintf(info.network, sizeof(info.network), "Vellum-SIM");
+      std::snprintf(info.password, sizeof(info.password), "48151623");
+      std::snprintf(info.address, sizeof(info.address), "http://192.168.4.1");
+    }
     st = {};
     running = true;
     return true;

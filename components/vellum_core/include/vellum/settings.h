@@ -51,6 +51,9 @@ struct Settings {
   uint8_t warmth = 3;                          // 0 (coolest) to kLightSteps (warmest)
   AutoUpdate auto_update = AutoUpdate::AtNight;
   LibrarySort library_sort = LibrarySort::Recent;
+  // "Add books" opens the reader's own Wi-Fi network even when a home
+  // Wi-Fi is set (else it serves the page there).
+  bool own_network = false;
   SleepScreen sleep_screen = SleepScreen::Cover;
   SleepOrder sleep_order = SleepOrder::Shuffle;
   LibraryView library_view = LibraryView::List;
@@ -84,6 +87,16 @@ struct Settings {
 constexpr const char* kSettingsPath = "vellum/settings.txt";
 void load_settings(Storage& storage, Settings& out);
 bool save_settings(Storage& storage, const Settings& s);
+
+// The phone page's Settings: the settings as JSON, under the keys of
+// settings.txt, with `fonts` (one typeface per line, or nullptr) as a list:
+// {"language":0,...,"book_font":"Literata","menu_font":"Literata","fonts":[...]}.
+// Returns false when it does not fit.
+bool settings_json(const Settings& s, const char* fonts, char* out, size_t size);
+// Sets the settings named in a form body ("text_size=2&justify=0"), as
+// settings.txt names them. Returns false, changing nothing, when a value
+// is out of range or nothing is named.
+bool settings_from_form(const char* body, size_t len, Settings& s);
 
 // Idle time before sleeping, in milliseconds; 0 for never.
 uint32_t sleep_after_ms(SleepAfter s);

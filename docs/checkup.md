@@ -129,7 +129,8 @@ upper bounds):
 | Text, FB2 and web-page books: chapter, paragraph and contents tables | about 0.8 MB | always (added with more book types) |
 | EPUB markup: emphasis, links, pictures, ids and stylesheet rules of the loaded chapter | about 115 KB | always (added with pictures and links) |
 | **Total at start** | **about 6.3 MB** | |
-| Free book store: one list page, a book's details, the way back | about 52 KB | from the first visit to the store |
+| Free book store: one list page, a book's details, the way back, your own catalogues and their search | about 61 KB | from the first visit to the store |
+| Phone page: the font list for its Settings section | about 1.2 KB | while the phone page is open |
 | Rendered fonts | 20–60 KB per size | with a font other than Literata |
 | Dictionary buffers | about 150 KB | after the first look-up |
 | A PNG cover being decoded | width × height × channels | while making its thumbnail |

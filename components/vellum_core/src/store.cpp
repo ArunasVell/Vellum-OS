@@ -49,10 +49,34 @@ bool search_url(const char* words, char* out, size_t size) {
   return n >= 0 && static_cast<size_t>(n) < size;
 }
 
-NetResult fetch_feed(Network& net, const char* url, OpdsFeed& feed, OpdsParser& parser) {
-  parser.begin(feed, url);
-  const NetResult r = net.get(
-      url,
+NetResult get(Network& net, const char* url, const char* headers, Network::BodyFn body, void* ctx) {
+  if (headers == nullptr || headers[0] == '\0') return net.get(url, body, ctx);
+  // Only a 200 answer's body is the file: an error page goes nowhere.
+  struct Pass {
+    Network::BodyFn body;
+    void* ctx;
+    HttpRequest* req;
+  };
+  HttpRequest req;
+  req.url = url;
+  req.headers = headers;
+  Pass pass{body, ctx, &req};
+  const NetResult r = net.request(
+      req,
+      [](void* c, const uint8_t* data, uint32_t len, uint32_t total) {
+        auto& p = *static_cast<Pass*>(c);
+        return p.req->status != 200 || p.body(p.ctx, data, len, total);
+      },
+      &pass);
+  if (r != NetResult::Ok) return r;
+  return req.status == 200 ? NetResult::Ok : NetResult::NoServer;
+}
+
+NetResult fetch_feed(Network& net, const char* url, OpdsFeed& feed, OpdsParser& parser, const char* headers,
+                     bool sections) {
+  parser.begin(feed, url, sections);
+  const NetResult r = get(
+      net, url, headers,
       [](void* ctx, const uint8_t* data, uint32_t len, uint32_t) {
         static_cast<OpdsParser*>(ctx)->feed(reinterpret_cast<const char*>(data), len);
         return true;
@@ -95,7 +119,8 @@ bool book_path(Storage& storage, const char* title, const char* author, char* ou
   return false;
 }
 
-Saved download(Network& net, Storage& storage, const char* url, const char* path, ProgressFn progress, void* ctx) {
+Saved download(Network& net, Storage& storage, const char* url, const char* path, ProgressFn progress, void* ctx,
+               const char* headers) {
   struct Sink {
     Writer* writer;
     ProgressFn progress;
@@ -107,8 +132,8 @@ Saved download(Network& net, Storage& storage, const char* url, const char* path
     char head[2] = {};
   } sink{storage.create(path), progress, ctx};
   if (sink.writer == nullptr) return Saved::CardFull;
-  const NetResult r = net.get(
-      url,
+  const NetResult r = get(
+      net, url, headers,
       [](void* c, const uint8_t* data, uint32_t len, uint32_t total) {
         auto& s = *static_cast<Sink*>(c);
         // An EPUB is a ZIP file: it starts "PK". Anything else (a web page

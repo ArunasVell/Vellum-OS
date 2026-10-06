@@ -191,6 +191,19 @@ struct Strings {
   const char* store_broke_off;
   const char* store_not_book;
   const char* hint_store_busy;
+  // The phone page on the home Wi-Fi, and KOReader sync
+  const char* step_home;         // uppercase label on "Add books"
+  const char* home_hint;         // under the network's name
+  const char* scan_one_hint;     // scan_hint with one code
+  const char* use_own_network;   // row on "Add books"
+  const char* use_home_wifi;     // the same the other way; printf: network name
+  const char* home_wifi_failed;  // why the reader's own network opened instead
+  const char* sync_progress;     // contents row
+  const char* sync_busy;
+  const char* sync_sent;   // printf: percent
+  const char* sync_moved;  // printf: percent
+  const char* sync_up_to_date;
+  const char* sync_errors[5];  // no home Wi-Fi, could not join it, no server, wrong login, name taken
   // Words: dictionaries and highlights
   const char* look_up_word;      // contents row
   const char* highlights_label;  // uppercase label in the contents
