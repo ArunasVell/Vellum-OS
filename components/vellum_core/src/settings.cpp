@@ -77,6 +77,8 @@ constexpr SettingKey kKeys[] = {
      [](Settings& s, int v) { s.auto_turn = static_cast<uint8_t>(v); }},
     {"full_refresh", 5, [](const Settings& s) { return static_cast<int>(s.full_refresh); },
      [](Settings& s, int v) { s.full_refresh = static_cast<FullRefresh>(v); }},
+    {"menu_text", 2, [](const Settings& s) { return s.large_menu_text ? 1 : 0; },
+     [](Settings& s, int v) { s.large_menu_text = v != 0; }},
     {"orientation", 4, [](const Settings& s) { return static_cast<int>(s.orientation); },
      [](Settings& s, int v) { s.orientation = static_cast<Orientation>(v); }},
 };

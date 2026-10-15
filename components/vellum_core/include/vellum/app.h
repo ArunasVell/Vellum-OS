@@ -151,6 +151,10 @@ class App {
   void timeout();
 
  private:
+  // The built-in books, when the board lists them.
+  std::span<const Book* const> shipped_books() const {
+    return board_.builtin_books ? builtin_books() : std::span<const Book* const>{};
+  }
   enum class Screen : uint8_t {
     Home,
     Library,

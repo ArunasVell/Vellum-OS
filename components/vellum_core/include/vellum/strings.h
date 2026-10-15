@@ -28,6 +28,8 @@ struct Strings {
   // Settings
   const char* reading;  // reading settings: row and screen title
   const char* menu_font;
+  const char* menu_text;
+  const char* menu_text_names[2];  // normal, large
   const char* book_font;
   const char* preview_label;  // uppercase label
   const char* language;
@@ -332,6 +334,7 @@ struct Strings {
   const char* welcome;             // title of the first step
   const char* welcome_lead;        // under it: what the setup is, then the language
   const char* clock_lead;          // the clock step
+  const char* menu_text_lead;      // the menu text size step
   const char* wifi_lead;           // the home Wi-Fi step
   const char* set_up_now;          // its row: opens the phone page
   const char* books_lead;          // the Add books step

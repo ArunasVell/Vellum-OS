@@ -23,6 +23,8 @@ constexpr Strings kEnglish = {
     .hint_settings = "Side buttons move · Power changes · Home back",
     .reading = "Reading",
     .menu_font = "Menu font",
+    .menu_text = "Menu text",
+    .menu_text_names = {"Normal", "Large"},
     .book_font = "Book font",
     .preview_label = "PREVIEW",
     .language = "Language",
@@ -332,6 +334,7 @@ constexpr Strings kEnglish = {
     .welcome = "Welcome",
     .welcome_lead = "Let’s set up a few things. You can change them later in Settings. First, your language:",
     .clock_lead = "How should the time look at the top of the screen?",
+    .menu_text_lead = "Which size of menu text is easier to read? You can change it later in Settings.",
     .wifi_lead =
         "With your home Wi-Fi the reader can update itself and get books from home. Your phone sets it "
         "up, and sets the clock too.",
@@ -364,6 +367,8 @@ constexpr Strings kLithuanian = {
     .hint_settings = "Šoniniai: rinktis · Įjungimo: keisti · Namų: atgal",
     .reading = "Skaitymas",
     .menu_font = "Meniu šriftas",
+    .menu_text = "Meniu tekstas",
+    .menu_text_names = {"Įprastas", "Didelis"},
     .book_font = "Knygos šriftas",
     .preview_label = "PERŽIŪRA",
     .language = "Kalba",
@@ -689,6 +694,7 @@ constexpr Strings kLithuanian = {
     .welcome = "Sveiki!",
     .welcome_lead = "Trumpai viską nustatykime. Vėliau tai galėsite pakeisti nustatymuose. Pirmiausia kalba:",
     .clock_lead = "Kaip rodyti laiką ekrano viršuje?",
+    .menu_text_lead = "Kokio dydžio meniu tekstą skaityti patogiau? Vėliau galėsite pakeisti nustatymuose.",
     .wifi_lead =
         "Prisijungusi prie namų Wi-Fi skaityklė galės atsinaujinti ir gauti knygas. Viską nustatysite "
         "telefonu, kartu ir laikrodį.",

@@ -1,7 +1,7 @@
 // The first-time setup: a few screens before the home screen the first time
 // the reader starts with a memory card Vellum has never used, and again from
 // Settings › Setup again. One step per screen: the language, the clock, the
-// home Wi-Fi (the phone page of Settings › Updates, which sets the clock
+// menu text size, the home Wi-Fi (the phone page of Settings › Updates, which sets the clock
 // too), and how books are added (the Add books screen). Each has Skip and
 // Next; leaving the phone page or Add books comes back to the next step.
 // Finishing (or skipping the last step) saves Settings::setup_done.
@@ -31,12 +31,22 @@ constexpr int kButtonGap = 16;
 constexpr int kHintRoom = 56;  // below the buttons
 constexpr int kPad = 12;       // highlights reach this far into the margins
 
-// The steps, in order. (A menu text size step would go after the clock once
-// Settings has one.)
-enum Step : int { kLanguage, kClock, kHomeWifi, kBooks, kSteps };
+// The steps, in order.
+enum Step : int { kLanguage, kClock, kMenuText, kHomeWifi, kBooks, kSteps };
 
 // What a step offers: its choices or its way in, then Skip and Next.
-enum class Item : uint8_t { English, Lithuanian, Clock24, Clock12, HomeWifi, AddBooks, Skip, Next };
+enum class Item : uint8_t {
+  English,
+  Lithuanian,
+  Clock24,
+  Clock12,
+  MenuNormal,
+  MenuLarge,
+  HomeWifi,
+  AddBooks,
+  Skip,
+  Next
+};
 constexpr int kMaxItems = 4;
 
 int step_items(int step, Item (&out)[kMaxItems]) {
@@ -49,6 +59,10 @@ int step_items(int step, Item (&out)[kMaxItems]) {
     case kClock:
       out[n++] = Item::Clock24;
       out[n++] = Item::Clock12;
+      break;
+    case kMenuText:
+      out[n++] = Item::MenuNormal;
+      out[n++] = Item::MenuLarge;
       break;
     case kHomeWifi:
       out[n++] = Item::HomeWifi;
@@ -103,6 +117,7 @@ void App::open_setup(int step) {
   setup_sel_ = 0;
   if (setup_step_ == kLanguage) setup_sel_ = static_cast<int>(settings_.language);
   if (setup_step_ == kClock) setup_sel_ = settings_.time_format == TimeFormat::H24 ? 0 : 1;
+  if (setup_step_ == kMenuText) setup_sel_ = settings_.large_menu_text ? 1 : 0;
   show(Screen::Setup);
 }
 
@@ -140,6 +155,12 @@ bool App::setup_activate() {
     case Item::Clock12:
       settings_.time_format = items[setup_sel_] == Item::Clock24 ? TimeFormat::H24 : TimeFormat::H12;
       break;
+    case Item::MenuNormal:
+    case Item::MenuLarge:
+      // At once too: this screen shows the size chosen.
+      settings_.large_menu_text = items[setup_sel_] == Item::MenuLarge;
+      apply_fonts();
+      break;
     case Item::HomeWifi:
     case Item::AddBooks:
       // Leaving either screen comes back here, at the next step (close_transfer()).
@@ -161,8 +182,8 @@ bool App::setup_activate() {
 void App::draw_setup() {
   const int w = fb_.width();
   const Strings& t = text();
-  const char* titles[kSteps] = {t.welcome, t.clock, t.home_wifi, t.add_books};
-  const char* leads[kSteps] = {t.welcome_lead, t.clock_lead, t.wifi_lead, t.books_lead};
+  const char* titles[kSteps] = {t.welcome, t.clock, t.menu_text, t.home_wifi, t.add_books};
+  const char* leads[kSteps] = {t.welcome_lead, t.clock_lead, t.menu_text_lead, t.wifi_lead, t.books_lead};
   draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, titles[setup_step_]);
   char line[96];
   std::snprintf(line, sizeof(line), t.setup_step, setup_step_ + 1, static_cast<int>(kSteps));
@@ -215,6 +236,11 @@ void App::draw_setup() {
         on = settings_.time_format == f;
         break;
       }
+      case Item::MenuNormal:
+      case Item::MenuLarge:
+        std::snprintf(name, sizeof(name), "%s", t.menu_text_names[items[i] == Item::MenuLarge ? 1 : 0]);
+        on = settings_.large_menu_text == (items[i] == Item::MenuLarge);
+        break;
       default:
         std::snprintf(name, sizeof(name), "%s", items[i] == Item::HomeWifi ? t.set_up_now : t.open_add_books);
         radio = false;
