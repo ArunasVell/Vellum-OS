@@ -168,6 +168,13 @@ class Input : public vellum::InputSource {
 
   // Call after the I2C bus is up and the touch rail is powered.
   void init_touch(i2c_master_bus_handle_t i2c) {
+    // Power the controller afresh so it starts from a known state (the rail
+    // may have been held off through deep sleep), and let it settle.
+    const auto power = static_cast<gpio_num_t>(x4pro::kTouchPowerN);
+    gpio_set_level(power, 1);
+    vTaskDelay(pdMS_TO_TICKS(20));
+    gpio_set_level(power, 0);
+    vTaskDelay(pdMS_TO_TICKS(50));
     if (!touch_.attach(i2c, x4pro::kI2cHz, x4pro::kTouchRst, x4pro::kTouchInt)) {
       ESP_LOGW(kTag, "touch controller not found; buttons only");
       return;
@@ -203,13 +210,36 @@ class Input : public vellum::InputSource {
     summary_logged_ = true;
     if (pop(out)) return true;
     const bool held = touching_ || home_;
+    // Until the touch controller's interrupt has been seen once, it is also
+    // read every kNoIrqPollMs, in case its interrupt line is not wired as
+    // expected. The app still sees one wait of timeout_ms.
+    const bool no_irq = have_touch_ && !touch_irq_seen_ && !held;
+    const uint32_t start = now_ms();
     uint32_t i;
-    if (busy_ != nullptr) esp_pm_lock_release(busy_);
-    const BaseType_t got = xQueueReceive(queue_, &i, pdMS_TO_TICKS(held ? kPollMs : timeout_ms));
-    if (busy_ != nullptr) esp_pm_lock_acquire(busy_);
+    BaseType_t got;
+    for (;;) {
+      const uint32_t spent = now_ms() - start;
+      uint32_t wait_ms = held ? kPollMs : timeout_ms - (spent < timeout_ms ? spent : timeout_ms);
+      if (no_irq && wait_ms > kNoIrqPollMs) wait_ms = kNoIrqPollMs;
+      if (busy_ != nullptr) esp_pm_lock_release(busy_);
+      got = xQueueReceive(queue_, &i, pdMS_TO_TICKS(wait_ms));
+      if (busy_ != nullptr) esp_pm_lock_acquire(busy_);
+      if (got == pdTRUE || !no_irq) break;
+      read_touch();
+      if (pop(out)) return true;
+      if (!no_irq_logged_ && now_ms() > 20000) {
+        no_irq_logged_ = true;
+        ESP_LOGW(kTag, "no touch interrupt yet; reading the touch controller every %lu ms",
+                 static_cast<unsigned long>(kNoIrqPollMs));
+      }
+      if (now_ms() - start >= timeout_ms) return false;
+    }
     if (got != pdTRUE) {
       if (!held) return false;
       i = kTouchSource;
+    } else if (i == kTouchSource && !touch_irq_seen_) {
+      touch_irq_seen_ = true;
+      ESP_LOGI(kTag, "touch interrupt seen");
     }
     if (i == kTransferSource) {
       out.type = vellum::InputEvent::Type::Transfer;
@@ -253,6 +283,7 @@ class Input : public vellum::InputSource {
   static constexpr uint32_t kPeerSource = kCount + 2;
   static inline std::atomic<bool> peer_pending_{false};
   static constexpr uint32_t kPollMs = 25;
+  static constexpr uint32_t kNoIrqPollMs = 100;
 
   static void IRAM_ATTR on_edge(void* arg) {
     const uint32_t i = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
@@ -313,6 +344,8 @@ class Input : public vellum::InputSource {
   bool pressed_[kCount] = {};
   Gt911 touch_;
   bool have_touch_ = false;
+  bool touch_irq_seen_ = false;
+  bool no_irq_logged_ = false;
   bool touching_ = false;
   bool home_ = false;
   vellum::InputEvent last_;
@@ -553,8 +586,8 @@ vellum::Board& board_x4pro_init() {
   static EspNowPeers peers(Input::post_peer);
 
   static vellum::Board board{
-      "XTEINK X4 Pro",       display, input,     power, &light, &clock, have_card ? &card : nullptr,
-      vellum::Rotation::R90, fb,      &transfer, &peers};
+      "XTEINK X4 Pro",        display, input,     power, &light, &clock, have_card ? &card : nullptr,
+      vellum::Rotation::R270, fb,      &transfer, &peers};
   board.version = esp_app_get_description()->version;
   board.memory = memory_info;
   static OtaUpdater updater;

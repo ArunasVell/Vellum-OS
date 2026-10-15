@@ -13,6 +13,7 @@
 class Gt911 {
  public:
   static constexpr uint8_t kAddress = 0x5D;
+  static constexpr uint8_t kAltAddress = 0x14;
 
   struct Report {
     bool touching = false;
@@ -21,9 +22,10 @@ class Gt911 {
     bool home = false;  // Home pad pressed
   };
 
-  // Resets the controller (selecting address 0x5D with the interrupt pin),
-  // adds it to `bus` and checks that it answers. Leaves the interrupt pin
-  // as an input. Returns false when no GT911 answers.
+  // Resets the controller (selecting address 0x5D with the interrupt pin,
+  // or 0x14 if it does not answer there), adds it to `bus` and checks that
+  // it answers, a few times over. Leaves the interrupt pin as an input.
+  // Returns false when no GT911 answers.
   bool attach(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio);
 
   // Reads the newest report. Returns false when there is none (the
@@ -40,6 +42,7 @@ class Gt911 {
   int max_y() const { return max_y_; }
 
  private:
+  bool reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio, uint8_t address);
   bool read_reg(uint16_t reg, uint8_t* buf, size_t len);
   bool write_reg(uint16_t reg, uint8_t value);
 
