@@ -326,6 +326,20 @@ struct Strings {
   const char* finished_question;  // at the end of a book
   const char* mark_read;          // its buttons
   const char* not_yet;
+  // The first-time setup (app_setup.cpp)
+  const char* setup_again;         // general settings row: runs the setup again
+  const char* setup_step;          // printf: step, steps ("Step 1 of 4")
+  const char* welcome;             // title of the first step
+  const char* welcome_lead;        // under it: what the setup is, then the language
+  const char* clock_lead;          // the clock step
+  const char* wifi_lead;           // the home Wi-Fi step
+  const char* set_up_now;          // its row: opens the phone page
+  const char* books_lead;          // the Add books step
+  const char* open_add_books;      // its row: opens Add books
+  const char* skip;                // button: on to the next step as it is
+  const char* next;                // button: on to the next step
+  const char* hint_welcome;        // the setup's hint
+  const char* hint_welcome_first;  // on the first step, which has no way back
 };
 
 const Strings& strings(Language lang);

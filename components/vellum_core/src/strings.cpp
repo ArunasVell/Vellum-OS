@@ -327,6 +327,23 @@ constexpr Strings kEnglish = {
     .finished_question = "Finished the book?",
     .mark_read = "Mark as read",
     .not_yet = "Not yet",
+    .setup_again = "Setup again",
+    .setup_step = "Step %d of %d",
+    .welcome = "Welcome",
+    .welcome_lead = "Let’s set up a few things. You can change them later in Settings. First, your language:",
+    .clock_lead = "How should the time look at the top of the screen?",
+    .wifi_lead =
+        "With your home Wi-Fi the reader can update itself and get books from home. Your phone sets it "
+        "up, and sets the clock too.",
+    .set_up_now = "Set up now",
+    .books_lead =
+        "Books come from your phone or computer over Wi-Fi. Open Add books and follow the steps on the "
+        "screen. You can always find it on the home screen.",
+    .open_add_books = "Open Add books",
+    .skip = "Skip",
+    .next = "Next",
+    .hint_welcome = "Side buttons move · Power chooses · Home back",
+    .hint_welcome_first = "Side buttons move · Power chooses",
 };
 
 constexpr Strings kLithuanian = {
@@ -667,6 +684,23 @@ constexpr Strings kLithuanian = {
     .finished_question = "Baigėte knygą?",
     .mark_read = "Pažymėti perskaitytą",
     .not_yet = "Dar ne",
+    .setup_again = "Sąranka iš naujo",
+    .setup_step = "%d žingsnis iš %d",
+    .welcome = "Sveiki!",
+    .welcome_lead = "Trumpai viską nustatykime. Vėliau tai galėsite pakeisti nustatymuose. Pirmiausia kalba:",
+    .clock_lead = "Kaip rodyti laiką ekrano viršuje?",
+    .wifi_lead =
+        "Prisijungusi prie namų Wi-Fi skaityklė galės atsinaujinti ir gauti knygas. Viską nustatysite "
+        "telefonu, kartu ir laikrodį.",
+    .set_up_now = "Nustatyti dabar",
+    .books_lead =
+        "Knygos įkeliamos per Wi-Fi iš telefono ar kompiuterio. Atverkite „Įkelti knygas“ ir sekite "
+        "nurodymus ekrane. Tai visada rasite pradžios ekrane.",
+    .open_add_books = "Atverti „Įkelti knygas“",
+    .skip = "Praleisti",
+    .next = "Toliau",
+    .hint_welcome = "Šoniniai: rinktis · Įjungimo: gerai · Namų: atgal",
+    .hint_welcome_first = "Šoniniai: rinktis · Įjungimo: gerai",
 };
 
 }  // namespace

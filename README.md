@@ -51,6 +51,8 @@ Add `--card DIR` to use a folder as the SD card (works with or without `--headle
 
 Put EPUB books in a `books` folder on the card (books in the top folder are found too). Vellum keeps its own files in a `vellum` folder: `settings.txt`, `progress.txt` (the page you are on in each book), `state.txt` (whether to reopen the book after sleep) and `library.txt` (a list of the books, so the library opens without re-reading every file). All three are plain text and safe to delete; Vellum rebuilds them.
 
+On a card Vellum has never used (no `settings.txt` and no `state.txt`), a short setup comes before the home screen: language, clock, home Wi-Fi and how to add books, each with Skip. Finishing it saves `setup_done=1` in `settings.txt`; Settings › Setup again runs it once more. With `--card`, an empty folder shows it.
+
 ### Adding books over Wi-Fi
 
 **Add books** on the home screen starts a Wi-Fi network named `Vellum-XXXX` with a new password each time, and shows it with two QR codes. Join the network (scan the first code), then open `http://192.168.4.1` (the second code) in any browser and choose EPUB files; they are saved to the card's `books` folder. Press Home on the reader to finish: Wi-Fi turns off and the library picks up the new books.

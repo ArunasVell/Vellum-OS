@@ -153,6 +153,7 @@ void load_settings(Storage& storage, Settings& out) {
     if (!value.empty() && value.back() == '\r') value.remove_suffix(1);
     if (key == "book_font" && !value.empty()) textfile::copy(value, out.book_font, sizeof(out.book_font));
     if (key == "menu_font" && !value.empty()) textfile::copy(value, out.menu_font, sizeof(out.menu_font));
+    if (key == "setup_done") out.setup_done = value != "0";
     if (key == kButtonKeys[0]) parse_buttons(value, true, out.buttons.reader);
     if (key == kButtonKeys[1]) parse_buttons(value, false, out.buttons.menu);
     for (const SettingKey& k : kKeys) {
@@ -176,8 +177,8 @@ bool save_settings(Storage& storage, const Settings& s) {
                          static_cast<int>(set[i]));
     }
   }
-  n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "book_font=%s\nmenu_font=%s\n", s.book_font,
-                     s.menu_font);
+  n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "book_font=%s\nmenu_font=%s\nsetup_done=%d\n",
+                     s.book_font, s.menu_font, s.setup_done ? 1 : 0);
   if (n >= static_cast<int>(sizeof(buf))) return false;
   return storage.write(kSettingsPath, buf, static_cast<uint32_t>(n));
 }

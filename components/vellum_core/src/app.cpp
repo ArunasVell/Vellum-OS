@@ -199,6 +199,13 @@ void draw_tick_box(Framebuffer& fb, int x, int y, bool on, Color c) {
 
 int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
 
+bool file_exists(Storage& storage, const char* path) {
+  File* f = storage.open(path);
+  if (f == nullptr) return false;
+  storage.close(f);
+  return true;
+}
+
 // One line on the settings screen: a name and a value that Power cycles.
 enum class Row : uint8_t {
   Language,
@@ -229,14 +236,15 @@ enum class Row : uint8_t {
   Buttons,       // opens the buttons screen
   Orientation,   // which way up the screen is
   AutoTurn,      // seconds between pages turned by themselves
-  FullRefresh    // how often the reader clears ghosting
+  FullRefresh,   // how often the reader clears ghosting
+  SetupAgain     // runs the first-time setup again
 };
 // Settings has two pages: general, with a way to the reading page, and
 // reading, with a preview of the text below its rows.
 constexpr Row kGeneralRows[] = {Row::Language,    Row::MenuFont, Row::Clock,       Row::SleepAfter,
                                 Row::SleepScreen, Row::Light,    Row::Battery,     Row::Updates,
                                 Row::Stats,       Row::Check,    Row::LibraryView, Row::MoveFinished,
-                                Row::ReadingPage, Row::Buttons,  Row::Orientation};
+                                Row::ReadingPage, Row::Buttons,  Row::Orientation, Row::SetupAgain};
 constexpr Row kReadingRows[] = {Row::BookFont,  Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins,
                                 Row::Alignment, Row::Hyphenation, Row::Footer,      Row::Indent,      Row::BookStyles,
                                 Row::Focus,     Row::Night,       Row::AutoTurn,    Row::FullRefresh};
@@ -322,6 +330,7 @@ int get(const Settings& s, Row r) {
     case Row::Check:
     case Row::Stats:
     case Row::SleepScreen:
+    case Row::SetupAgain:
       break;
   }
   return 0;
@@ -396,6 +405,7 @@ void set(Settings& s, Row r, int v) {
     case Row::Check:
     case Row::Stats:
     case Row::SleepScreen:
+    case Row::SetupAgain:
       break;
   }
 }
@@ -460,6 +470,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.auto_turn;
     case Row::FullRefresh:
       return t.full_refresh;
+    case Row::SetupAgain:
+      return t.setup_again;
   }
   return "";
 }
@@ -509,6 +521,7 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::Check:
     case Row::Stats:
     case Row::SleepScreen:
+    case Row::SetupAgain:
       break;
   }
   return "";
@@ -527,7 +540,12 @@ App::App(Board& board)
   small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   fb_.set_rotation(board.rotation);
   if (board_.storage != nullptr) {
+    // A card Vellum has never used (no settings, and it has never slept
+    // with it): the first-time setup comes first. Older cards without the
+    // settings file have the state file, so they are left alone.
+    const bool first_run = !file_exists(*board_.storage, kSettingsPath) && !file_exists(*board_.storage, kStatePath);
     load_settings(*board_.storage, settings_);
+    if (first_run) settings_.setup_done = false;
     char state[16];
     const int32_t n = textfile::read(*board_.storage, kStatePath, state, sizeof(state) - 1);
     // After a crash, home rather than the book: it may be what crashed.
@@ -1320,7 +1338,7 @@ void App::draw_settings() {
       std::snprintf(value, sizeof(value), t.every_seconds, kAutoTurnSeconds[settings_.auto_turn]);
     } else if (row == Row::SleepScreen) {
       std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", t.sleep_kinds[static_cast<int>(settings_.sleep_screen)]);
-    } else if (row == Row::Check || row == Row::ReadingPage || row == Row::Buttons) {
+    } else if (row == Row::Check || row == Row::ReadingPage || row == Row::Buttons || row == Row::SetupAgain) {
       std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
     } else if (row == Row::MenuFont || row == Row::BookFont) {
       std::snprintf(value, sizeof(value), "%s", row == Row::MenuFont ? settings_.menu_font : settings_.book_font);
@@ -1378,6 +1396,7 @@ void App::settings_activate() {
   if (row == Row::ReadingPage) return open_settings(true);
   if (row == Row::Buttons) return open_buttons();
   if (row == Row::SleepScreen) return open_sleep_setup();
+  if (row == Row::SetupAgain) return open_setup(0);
   if (row == Row::MenuFont || row == Row::BookFont) {
     // The next typeface in the list, Literata after the last.
     char* name = row == Row::MenuFont ? settings_.menu_font : settings_.book_font;
@@ -1495,7 +1514,12 @@ void App::close_transfer() {
   // The phone page may have changed notes or sent dictionaries.
   if (board_.storage != nullptr && !transfer_setup_) highlights_.load(*board_.storage);
   dictionaries_scanned_ = false;
-  if (transfer_setup_) {
+  if (setup_transfer_) {
+    // Opened from the first-time setup: on to its next step.
+    setup_transfer_ = transfer_setup_ = false;
+    if (received) rescan_library();
+    open_setup(setup_step_ + 1);
+  } else if (transfer_setup_) {
     transfer_setup_ = false;
     show(Screen::Updates);
   } else if (received) {
@@ -2910,6 +2934,9 @@ void App::draw() {
     case Screen::SleepSetup:
       draw_sleep_setup();
       break;
+    case Screen::Setup:
+      draw_setup();
+      break;
     case Screen::Pictures:
       draw_pictures();
       break;
@@ -2931,6 +2958,12 @@ void App::start() {
   apply_light();
   record_battery(BatterySample::Kind::Wake);
   save_battery();
+  if (!settings_.setup_done && board_.storage != nullptr) {
+    // Saved at once, so a restart part way through comes back to it.
+    save_settings(*board_.storage, settings_);
+    resume_reader_ = false;
+    return open_setup(0);
+  }
   // After sleep (a restart on the device), carry on reading where we were.
   if (resume_reader_ && library_.count() > 0) {
     resume_reader_ = false;
@@ -3405,6 +3438,7 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Send) close_send();
       if (screen_ == Screen::Store) return store_back(), false;  // up a level
       if (screen_ == Screen::SleepSetup) return close_sleep_setup(), false;
+      if (screen_ == Screen::Setup) return setup_back(), false;
       if (screen_ == Screen::Pictures || screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;
       if (screen_ == Screen::Folders) return folder_up(), false;
       if (screen_ == Screen::Picture) return open_folder(folder_path_, folder_items_[picture_item_].name), false;
@@ -3485,6 +3519,8 @@ bool App::handle_key(Key key) {
       buttons_sel_ = wrap_index(buttons_sel_ + step, kButtonInputs + 2);
       buttons_refused_ = false;
       return true;
+    case Screen::Setup:
+      return setup_key(key);
     case Screen::SleepSetup:
       if (key == Key::Power) return sleep_setup_activate(), false;
       sleep_sel_ = wrap_index(sleep_sel_ + step, kSleepSetupRows);
@@ -3644,6 +3680,9 @@ bool App::handle_gesture(const Gesture& g) {
       return true;
     case Screen::Transfer:
       return handle_key(Key::Power);  // the row that switches networks
+    case Screen::Setup:
+      setup_sel_ = item;
+      return setup_activate();
     case Screen::Reader:
     case Screen::Battery:
     case Screen::Light:
