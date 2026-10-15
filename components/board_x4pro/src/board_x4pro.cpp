@@ -219,10 +219,10 @@ class Input : public vellum::InputSource {
       if (bus_found_ == 0 && n > 0 && static_cast<size_t>(n) < size) std::snprintf(out + n, size - n, " none");
       return true;
     }
-    std::snprintf(out, size, "%02X v%d %dx%d · irq %s · %lu ok %lu err · %02X", touch_.address(),
-                  touch_.config_version(), touch_.max_x(), touch_.max_y(), touch_irq_seen_ ? "yes" : "no",
-                  static_cast<unsigned long>(touch_.reports()), static_cast<unsigned long>(touch_.failures()),
-                  touch_.last_status());
+    std::snprintf(out, size, "%02X v%d %dx%d r%d · irq %s · %lu ok %lu err · %02X", touch_.address(),
+                  touch_.config_version(), touch_.max_x(), touch_.max_y(), touch_.resets(),
+                  touch_irq_seen_ ? "yes" : "no", static_cast<unsigned long>(touch_.reports()),
+                  static_cast<unsigned long>(touch_.failures()), touch_.last_status());
     return true;
   }
 
