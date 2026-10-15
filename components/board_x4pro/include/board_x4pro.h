@@ -32,11 +32,12 @@ constexpr int kTouchInt = 10;
 constexpr int kTouchRst = 4;
 constexpr int kTouchPowerN = 2;  // active low
 // The GT911 is mounted portrait (X 0-480, Y 0-800) on the landscape panel.
-// FreeInk swaps the axes; the flips are still to be confirmed with a
-// corner-tap test on a device (the log prints raw points).
+// FreeInk swaps the axes. A corner tap on a device (2026-10-15, panel at
+// R270) showed left and right mirrored and up and down right: in panel axes
+// that is Y.
 constexpr bool kTouchSwapXY = true;
 constexpr bool kTouchFlipX = false;  // applied after the swap, in panel axes
-constexpr bool kTouchFlipY = false;
+constexpr bool kTouchFlipY = true;
 
 // Frontlight PWM, active high.
 constexpr int kLightCool = 8;
