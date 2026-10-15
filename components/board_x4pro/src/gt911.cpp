@@ -1,7 +1,6 @@
 #include "gt911.h"
 
 #include <cstring>
-#include <initializer_list>
 
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -35,28 +34,33 @@ bool Gt911::write_reg(uint16_t reg, uint8_t value) {
   return i2c_master_transmit(dev_, buf, sizeof(buf), kTimeoutMs) == ESP_OK;
 }
 
-bool Gt911::reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio, uint8_t address) {
+bool Gt911::reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio, uint8_t address,
+                            int slow, bool need_config) {
   const auto rst = static_cast<gpio_num_t>(rst_gpio);
   const auto irq = static_cast<gpio_num_t>(int_gpio);
 
-  // Reset: the interrupt pin's level as RST rises selects the address (low:
-  // 0x5D, high: 0x14). Too short a reset and the controller never loads its
-  // configuration, so keep the FreeInk SDK's timings (10 / 10 / 50 / 50 ms).
+  // Reset as the FreeInk SDK does (10 / 10 / 50 / 50 ms): the interrupt
+  // pin's level as RST rises selects the address (low: 0x5D, high: 0x14),
+  // then it is held low a while before being let go. Cut that short and the
+  // controller answers but never loads its configuration (it reads back as
+  // zeros and never scans). `slow` stretches every wait on later attempts.
   gpio_config_t out = {};
   out.pin_bit_mask = (1ULL << rst_gpio) | (1ULL << int_gpio);
   out.mode = GPIO_MODE_OUTPUT;
   gpio_config(&out);
   gpio_set_level(rst, 0);
   gpio_set_level(irq, address == kAltAddress ? 1 : 0);
-  delay_ms(10);
+  delay_ms(10 * slow);
   gpio_set_level(rst, 1);
-  delay_ms(10);
+  delay_ms(10 * slow);
+  gpio_set_level(irq, 0);
+  delay_ms(50 * slow);
   gpio_config_t in = {};
   in.pin_bit_mask = 1ULL << int_gpio;
   in.mode = GPIO_MODE_INPUT;
   in.pull_up_en = GPIO_PULLUP_ENABLE;
   gpio_config(&in);
-  delay_ms(100);
+  delay_ms(50 * slow);
 
   i2c_device_config_t cfg = {};
   cfg.dev_addr_length = I2C_ADDR_BIT_LEN_7;
@@ -71,24 +75,34 @@ bool Gt911::reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rs
     return false;
   }
   uint8_t c[5] = {};
-  if (read_reg(kRegConfig, c, sizeof(c))) {
-    max_x_ = c[1] | (c[2] << 8);
-    max_y_ = c[3] | (c[4] << 8);
-  }
+  read_reg(kRegConfig, c, sizeof(c));
+  max_x_ = c[1] | (c[2] << 8);
+  max_y_ = c[3] | (c[4] << 8);
   address_ = address;
   config_version_ = c[0];
   ESP_LOGI(kTag, "product %s at 0x%02X, config v%d, area %dx%d, INT pin %d", id, address, c[0], max_x_, max_y_,
            gpio_get_level(irq));
+  if (need_config && max_x_ == 0 && max_y_ == 0) {
+    // It answers but has not loaded its configuration: reset again.
+    ESP_LOGW(kTag, "no configuration loaded at 0x%02X", address);
+    i2c_master_bus_rm_device(dev_);
+    dev_ = nullptr;
+    return false;
+  }
   return true;
 }
 
 bool Gt911::attach(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio) {
   int_gpio_ = int_gpio;
   // A controller that has only just been powered may miss the first reset:
-  // try both addresses a few times before giving up.
-  for (int attempt = 0; attempt < 3; ++attempt) {
-    for (uint8_t address : {kAddress, kAltAddress}) {
-      if (reset_and_probe(bus, scl_hz, rst_gpio, int_gpio, address)) {
+  // try both addresses a few times, each time more slowly, and insist on a
+  // loaded configuration until the last try.
+  constexpr int kAttempts = 4;
+  constexpr uint8_t kAddresses[] = {kAddress, kAltAddress};
+  for (int attempt = 0; attempt < kAttempts; ++attempt) {
+    resets_ = attempt + 1;
+    for (uint8_t address : kAddresses) {
+      if (reset_and_probe(bus, scl_hz, rst_gpio, int_gpio, address, attempt + 1, attempt + 1 < kAttempts)) {
         write_reg(kRegStatus, 0);
         return true;
       }

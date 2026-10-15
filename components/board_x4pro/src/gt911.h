@@ -49,9 +49,11 @@ class Gt911 {
   uint32_t reports() const { return reports_; }
   uint32_t failures() const { return failures_; }
   uint8_t last_status() const { return last_status_; }
+  int resets() const { return resets_; }  // resets it took to start
 
  private:
-  bool reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio, uint8_t address);
+  bool reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio, uint8_t address,
+                       int slow, bool need_config);
   bool read_reg(uint16_t reg, uint8_t* buf, size_t len);
   bool write_reg(uint16_t reg, uint8_t value);
 
@@ -64,4 +66,5 @@ class Gt911 {
   uint32_t reports_ = 0;
   uint32_t failures_ = 0;
   uint8_t last_status_ = 0;
+  int resets_ = 0;
 };
