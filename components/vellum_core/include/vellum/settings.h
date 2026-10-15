@@ -78,6 +78,7 @@ struct Settings {
   // Typefaces by family name (vellum/font_library.h); a missing one falls back to Literata.
   char book_font[48] = "Literata";
   char menu_font[48] = "Literata";
+  bool large_menu_text = true;  // menus in larger type (Settings › Menu text)
 
   bool operator==(const Settings&) const = default;
 };

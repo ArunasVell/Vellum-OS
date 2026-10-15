@@ -613,6 +613,7 @@ vellum::Board& board_x4pro_init() {
       "XTEINK X4 Pro",        display, input,     power, &light, &clock, have_card ? &card : nullptr,
       vellum::Rotation::R270, fb,      &transfer, &peers};
   board.version = esp_app_get_description()->version;
+  board.builtin_books = false;  // only the card's own books
   board.memory = memory_info;
   static OtaUpdater updater;
   board.updater = &updater;

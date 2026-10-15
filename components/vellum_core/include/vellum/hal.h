@@ -353,6 +353,10 @@ struct Board {
   Network* network = nullptr;    // nullptr when it cannot reach the internet
   // Fills in the free memory now; nullptr when the board does not tell.
   void (*memory)(MemoryInfo& out) = nullptr;
+  // Whether the library lists the few public-domain books built into the
+  // software (the simulators keep them as samples; a reader shows only the
+  // card's own books).
+  bool builtin_books = true;
 };
 
 }  // namespace vellum

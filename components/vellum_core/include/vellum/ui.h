@@ -30,6 +30,8 @@ inline const Font& large_font() { return *menu_fonts().large; }                /
 inline const Font& small_italic_font() { return *menu_fonts().small_italic; }  // 20 px
 inline const Font& italic_font() { return *menu_fonts().italic; }              // 26 px
 inline const Font& screen_title_font() { return *menu_fonts().title; }         // 40 px italic
+// The label font, or the small one when `text` would not fit in max_w px.
+const Font& label_font_for(std::string_view text, int max_w);
 
 void draw_centered(Framebuffer& fb, const Font& font, int baseline, std::string_view text, Color c = Color::Black);
 void draw_right(Framebuffer& fb, const Font& font, int right, int baseline, std::string_view text,

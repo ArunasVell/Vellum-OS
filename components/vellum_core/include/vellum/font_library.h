@@ -34,6 +34,7 @@ struct MenuFonts {
   const Font* small_italic;  // 20 px
   const Font* italic;        // 26 px
   const Font* title;         // 40 px italic: screen titles
+  const Font* small;         // 16 px: a hint or line too wide for the label size
 };
 
 // Fonts for reading: the body text and the chapter headings' italics.
@@ -47,7 +48,7 @@ struct BookFonts {
 };
 
 // Literata's built-in sets.
-MenuFonts literata_menu();
+MenuFonts literata_menu(bool large = false);
 BookFonts literata_book(int px);  // px is one of the reading sizes, 23, 26, 30 or 34
 
 // Turns a font file's name into its family and style: "PlayfairDisplay-Italic.ttf"
@@ -76,7 +77,7 @@ class FontLibrary {
   // Renders (or looks up) the fonts in `family`; false when its file cannot
   // be used, and `out` is left as it was. Pointers stay valid until the next
   // call of the same kind with another family or size.
-  bool menu(int family, MenuFonts& out);
+  bool menu(int family, bool large, MenuFonts& out);
   bool book(int family, int px, BookFonts& out);
 
  private:
@@ -110,9 +111,12 @@ class FontLibrary {
   Loaded faces_[4];
   uint32_t face_used_[4] = {};
   uint32_t clock_ = 0;
-  RasterFont menu_fonts_[6];
+  RasterFont menu_fonts_[7];
   RasterFont book_fonts_[3];
   int menu_family_ = -1;
+  bool menu_large_ = false;
+  static constexpr int kMenuSizes[7] = {16, 20, 26, 20, 26, 40, 16};
+  static constexpr int kLargeMenuSizes[7] = {19, 24, 30, 20, 26, 40, 16};
   int book_family_ = -1;
   int book_px_ = 0;
   uint32_t book_generation_ = 0;
