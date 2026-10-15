@@ -43,3 +43,10 @@ add_test(NAME sim-words COMMAND vellum-sim --headless --time 14:05 --keys "o[400
 # top), Gutenberg, Most popular, a book, Download.
 add_test(NAME sim-store COMMAND vellum-sim --headless --demo-store --time 14:05 --card sim-store-card
          --keys nnnonnnnoonooo --screenshot sim-store.png)
+# Its card has settings saved, as a card in use does, so it starts at home
+# rather than in the first-time setup.
+add_test(NAME sim-store-card COMMAND ${CMAKE_COMMAND} -E make_directory sim-store-card/vellum)
+add_test(NAME sim-store-settings COMMAND ${CMAKE_COMMAND} -E touch sim-store-card/vellum/settings.txt)
+set_tests_properties(sim-store-card PROPERTIES FIXTURES_SETUP store-card)
+set_tests_properties(sim-store-settings PROPERTIES FIXTURES_SETUP store-card DEPENDS sim-store-card)
+set_tests_properties(sim-store PROPERTIES FIXTURES_REQUIRED store-card)

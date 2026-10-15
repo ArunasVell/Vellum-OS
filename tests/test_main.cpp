@@ -285,7 +285,9 @@ void test_interface_text_fits() {
                              t.hint_pictures_shuffle,
                              t.hint_pictures_one,
                              t.hint_preview,
-                             t.hint_picture}) {
+                             t.hint_picture,
+                             t.hint_welcome,
+                             t.hint_welcome_first}) {
       const int w = text_width_px(fonts::literata_16, hint);
       if (w > kH - 2 * 28) std::printf("too wide (%d px): %s\n", w, hint);
       CHECK(w <= kH - 2 * 28);
@@ -621,6 +623,10 @@ class FixedPower : public Power {
   bool charging() override { return false; }
 };
 
+// A card with settings saved, as any card the reader has used: the app starts
+// at home rather than in the first-time setup.
+void settled(StdioStorage& card) { card.write("vellum/settings.txt", "", 0); }
+
 void tap(App& app, int x, int y) {
   app.handle(touch_at(InputEvent::Type::TouchDown, x, y));
   app.handle(touch_at(InputEvent::Type::TouchUp, x, y));
@@ -746,6 +752,7 @@ void test_app_transfer() {
   StdioStorage card("test-card");
   FakeTransfer transfer;
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
+  settled(card);
   auto* app = new App(board);
   app->start();
 
@@ -787,6 +794,7 @@ void test_app_update() {
   FakeTransfer transfer;
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
   board.version = "0.1.42";
+  settled(card);
   auto* app = new App(board);
   app->start();
   tap(*app, 240, 700);  // Settings
@@ -844,6 +852,7 @@ void test_app_sleep() {
   StdioStorage card("test-card");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
   {
+    settled(card);
     auto* app = new App(board);
     app->start();
     // A short Power press opens the current book (on release).
@@ -906,6 +915,7 @@ void test_app_contents_and_bookmarks() {
   const char* progress = "books/sample.epub\t0\t0\t0\t0\t1\n";  // the book read last
   CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
   auto* app = new App(board);
   app->start();
   press(*app, Key::Power);  // open the book
@@ -1138,6 +1148,7 @@ void test_app_front_light() {
   StdioStorage card("test-card");
   Board board{"test", panel, input, power, &light, nullptr, &card, Rotation::R90, buf.data()};
   {
+    settled(card);
     App app(board);
     app.start();
     CHECK(light.level == 0);  // off until asked for
@@ -1191,6 +1202,7 @@ void test_app_opens_fb2() {
   CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
   std::remove("test-card-app-fb2/vellum/library.txt");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
   auto* app = new App(board);
   app->start();
   press(*app, Key::Power);  // open the book
@@ -1673,6 +1685,7 @@ void test_app_fonts() {
   std::remove("test-card/vellum/state.txt");
   StdioStorage card("test-card");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
   auto* app = new App(board);
   app->start();
   CHECK(ui::menu_fonts().label == &fonts::literata_19);
@@ -1807,6 +1820,7 @@ void test_app_updates_screen() {
   Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data(), &transfer};
   board.version = "0.1.42";
   board.updater = &updater;
+  settled(card);
   auto* app = new App(board);
   app->start();
 
@@ -1855,6 +1869,129 @@ void test_app_updates_screen() {
   std::remove("test-card/vellum/update.txt");
 }
 
+// The first-time setup: a card Vellum has never used shows it before home.
+void test_app_first_setup() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  TestClock clock;
+  FakeTransfer transfer;
+  FakeUpdater updater;
+  updater.check_result = UpdateResult::UpToDate;
+  std::filesystem::remove_all("test-card-setup");
+  StdioStorage card("test-card-setup");
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data(), &transfer};
+  board.version = "0.1.42";
+  board.updater = &updater;
+  const auto settings = [] { return read_all("test-card-setup/vellum/settings.txt"); };
+  // Home's Settings link, the Updates row and Check now: only home has them there.
+  const auto at_home = [&](App& app) {
+    const int checks = updater.checks;
+    tap(app, 240, 700);
+    tap(app, 240, 394);
+    tap(app, 240, 325);
+    const bool home = updater.checks == checks + 1;
+    press(app, Key::Home);
+    return home;
+  };
+  constexpr int kSkipX = 130, kNextX = 350, kButtonY = 720;  // the buttons above the hint
+
+  {
+    // Buttons only: choose Lietuvių and 12-hour, open the phone page and Add books.
+    App app(board);
+    app.start();
+    CHECK(settings().find("setup_done=0\n") != std::string::npos);  // saved at once: a restart comes back
+    const std::vector<uint8_t> english = buf;
+    press(app, Key::Next);   // Lietuvių
+    press(app, Key::Power);  // applies at once
+    CHECK(settings().find("language=1\n") != std::string::npos);
+    CHECK(buf != english);   // the screen in Lithuanian
+    press(app, Key::Power);  // Next was put in hand
+    press(app, Key::Next);   // 12-hour
+    press(app, Key::Power);
+    CHECK(settings().find("clock=1\n") != std::string::npos);
+    press(app, Key::Power);  // Next: the menu text, Large to begin with
+    CHECK(ui::menu_fonts().label == &fonts::literata_19);
+    press(app, Key::Prev);   // Normal
+    press(app, Key::Power);  // smaller at once
+    CHECK(settings().find("menu_text=0\n") != std::string::npos);
+    CHECK(ui::menu_fonts().label == &fonts::literata_16);
+    press(app, Key::Power);  // Next: home Wi-Fi
+    CHECK(transfer.starts == 0);
+    press(app, Key::Power);  // Set up now: the phone page on the reader's own network
+    CHECK(transfer.starts == 1 && !transfer.last_home);
+    press(app, Key::Home);  // back to the setup, at Add books
+    CHECK(transfer.stops == 1);
+    press(app, Key::Power);  // Open Add books
+    CHECK(transfer.starts == 2);
+    press(app, Key::Home);  // leaving it finishes the setup
+    CHECK(settings().find("setup_done=1\n") != std::string::npos);
+    CHECK(at_home(app));
+  }
+  {
+    // Done is remembered: the next start goes home.
+    App app(board);
+    app.start();
+    CHECK(at_home(app));
+  }
+
+  // Skip on every step reaches home and saves that the setup is done.
+  std::filesystem::remove_all("test-card-setup");
+  transfer.starts = 0;
+  {
+    App app(board);
+    app.start();
+    press(app, Key::Home);  // the first step has no way back
+    for (int step = 0; step < 5; ++step) tap(app, kSkipX, kButtonY);
+    CHECK(transfer.starts == 0);
+    CHECK(settings().find("setup_done=1\n") != std::string::npos);
+    CHECK(settings().find("language=0\n") != std::string::npos);
+    CHECK(at_home(app));
+
+    // Settings › Setup again, the last row of the general page, runs it again.
+    tap(app, 240, 700);  // Settings
+    tap(app, 240, 718);  // Setup again
+    tap(app, kNextX, kButtonY);
+    tap(app, kNextX, kButtonY);
+    tap(app, kNextX, kButtonY);  // to the home Wi-Fi step
+    press(app, Key::Home);       // back a step...
+    tap(app, kNextX, kButtonY);  // ...and on again
+    tap(app, 240, 400);          // the Set up now row (under the network saved), by touch
+    CHECK(transfer.starts == 1);
+    press(app, Key::Home);
+    tap(app, kNextX, kButtonY);  // Done
+    CHECK(at_home(app));
+  }
+
+  // A settings file from before the setup existed: no setup.
+  std::filesystem::remove_all("test-card-setup");
+  card.write("vellum/settings.txt", "language=0\nclock=1\n", 18);
+  {
+    App app(board);
+    app.start();
+    CHECK(at_home(app));
+    CHECK(settings().find("setup_done=0") == std::string::npos);
+  }
+  // Nor a card the reader has slept with, without settings saved.
+  std::filesystem::remove_all("test-card-setup");
+  card.write("vellum/state.txt", "home\n", 5);
+  {
+    App app(board);
+    app.start();
+    CHECK(at_home(app));
+  }
+  // Nor without a card: there is nowhere to keep it.
+  std::filesystem::remove_all("test-card-setup");
+  board.storage = nullptr;
+  {
+    App app(board);
+    app.start();
+    CHECK(at_home(app));
+  }
+  std::filesystem::remove_all("test-card-setup");
+}
+
 void test_app_night_update() {
   std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
   CountingPanel panel;
@@ -1873,6 +2010,7 @@ void test_app_night_update() {
   // The timer wakes it at night: a newer version is installed without
   // touching the screen, and the reader restarts into it.
   power.timer = true;
+  settled(card);
   auto* app = new App(board);
   app->start();
   CHECK(updater.checks == 1 && updater.installs == 1 && power.restarts == 1);
@@ -2136,6 +2274,7 @@ void test_app_empty_battery() {
 
   // Woken with an empty battery: straight back to sleep, asking for a charge.
   power.level = 2;
+  settled(card);
   auto* app = new App(board);
   app->start();
   CHECK(power.sleeps == 1);
@@ -2385,6 +2524,8 @@ void test_app_send_book() {
                 &card_a, Rotation::R90, buf_a.data(), nullptr, &desk.ends[0]};
   Board board_b{"b",     panel_b,       input,        power,     nullptr,      nullptr,
                 &card_b, Rotation::R90, buf_b.data(), &transfer, &desk.ends[1]};
+  settled(card_a);
+  settled(card_b);
   auto* a = new App(board_a);
   auto* b = new App(board_b);
   a->start();
@@ -2815,6 +2956,7 @@ void test_app_words() {
   std::filesystem::remove_all("test-card-words/vellum/dictionaries");  // indexes from earlier runs
   copy_sample_dictionary(card, "dictionaries");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
   auto* app = new App(board);
   app->start();
   press(*app, Key::Power);  // open Alice, the first book
@@ -3156,6 +3298,7 @@ void test_app_reading_stats() {
       for (int x = 150; x < 330; ++x) bits += view.pixel(x, y) == Color::Black ? '#' : '.';
     return bits;
   };
+  settled(card);
   auto* app = new App(board);
   app->start();
   press(*app, Key::Power);  // open the current book
@@ -3501,6 +3644,7 @@ void test_app_store() {
   FakeNetwork net;
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
   board.network = &net;
+  settled(card);
   auto* app = new App(board);
   app->start();
 
@@ -3773,6 +3917,7 @@ void test_app_library() {
   const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
   CHECK(card.write("books/sample.epub", book.data(), static_cast<uint32_t>(book.size())));
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
   auto* app = new App(board);
   app->start();
   const auto file = [](const char* name) {
@@ -3921,6 +4066,7 @@ void test_app_store_search() {
   FakeNetwork net;
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
   board.network = &net;
+  settled(card);
   auto* app = new App(board);
   app->start();
   Keyboard kb;
@@ -4365,6 +4511,7 @@ void test_app_home_wifi_transfer() {
   FakeUpdater updater;
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
   board.updater = &updater;
+  settled(card);
   auto* app = new App(board);
   app->start();
 
@@ -4431,6 +4578,7 @@ void test_app_sync() {
   auto progress_has = [](const char* fields) {
     return read_all("test-card-sync/vellum/progress.txt").find(fields) != std::string::npos;
   };
+  settled(card);
   auto* app = new App(board);
   app->start();
   press(*app, Key::Power);  // open the book
@@ -4518,6 +4666,7 @@ void test_app_own_catalogue() {
   net.pages["https://books.example.org/get/epub/9"] = read_all(VELLUM_TEST_DATA "/sample.epub");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
   board.network = &net;
+  settled(card);
   auto* app = new App(board);
   app->start();
   Keyboard kb;
@@ -4746,10 +4895,10 @@ void test_app_buttons() {
   press(*app, Key::Next);  // wake
   press(*app, Key::Home);  // a short Home: home, as always
 
-  // Settings › Buttons: the third row from the end of the general page.
+  // Settings › Buttons: the fourth row from the end of the general page.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 3; ++i) press(*app, Key::Prev);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Prev);
   full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -5767,6 +5916,7 @@ void test_app_folders_and_pictures() {
   write_file(card, "pictures/c.jpg", std::string("\xFF\xD8\xFF\x00junk", 8));  // cannot be shown
   write_file(card, "pictures/readme.md", "not shown");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
   auto* app = new App(board);
   app->start();
   // The selected row of the folder list is inverted; rows are 76 px from y = 160.
@@ -6113,6 +6263,7 @@ void test_app_reading_extras() {
   const char* progress = "books/extras.epub\t1\t0\t0\t50\t1\n";
   CHECK(card.write("vellum/progress.txt", progress, static_cast<uint32_t>(std::strlen(progress))));
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
   auto* app = new App(board);
   app->start();
   const auto line = [&]() {
@@ -6243,6 +6394,7 @@ int main() {
   test_font_library();
   test_app_fonts();
   test_app_updates_screen();
+  test_app_first_setup();
   test_app_night_update();
   test_app_device_check_memory();
   test_app_empty_battery();

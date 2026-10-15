@@ -125,6 +125,11 @@ namespace vellum {
 // back to sleep. A version found but not installed shows as a small notice
 // on the home screen. The same screen opens a phone page (the transfer
 // network again) to set the home Wi-Fi or send an update file.
+//
+// The first time the reader starts with a memory card that Vellum has never
+// used, a short setup comes before the home screen (app_setup.cpp): the
+// language, the clock, the home Wi-Fi (the phone page above) and how books
+// are added, each with Skip. Settings › Setup again runs it once more.
 class App {
  public:
   explicit App(Board& board);
@@ -170,7 +175,8 @@ class App {
     SleepSetup,    // Settings › Sleep screen
     Pictures,      // the reader's own sleep pictures, to mark
     SleepPreview,  // the sleep screen, until a button is pressed
-    Buttons        // what each button does
+    Buttons,       // what each button does
+    Setup          // a step of the first-time setup
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -279,6 +285,16 @@ class App {
   void take_phone_settings();
   // An update arrived from the phone page: restart into it.
   void finish_update();
+  // The first-time setup: shows step `step` (finishing after the last).
+  void open_setup(int step);
+  // Saves that the setup is done and shows the home screen.
+  void finish_setup();
+  // Home in the setup: the step before, if any.
+  void setup_back();
+  // These return true when the screen needs a redraw.
+  bool setup_key(Key key);
+  bool setup_activate();
+  void draw_setup();
   // Software updates (Settings › Updates).
   void open_updates();
   void draw_updates();
@@ -656,8 +672,11 @@ class App {
   UpdateResult update_result_ = UpdateResult::UpToDate;
   int install_percent_ = 0;
   int updates_sel_ = 0;
-  bool power_held_ = false;   // Power is down and has not acted yet
-  bool power_quiet_ = false;  // and its press only stopped the pages turning
+  int setup_step_ = 0;           // the setup's step shown
+  int setup_sel_ = 0;            // the row or button in hand on it
+  bool setup_transfer_ = false;  // the setup opened the transfer screen: back to it afterwards
+  bool power_held_ = false;      // Power is down and has not acted yet
+  bool power_quiet_ = false;     // and its press only stopped the pages turning
   // A side or Home button is down and its held press does something: the
   // press acts on release, or the held one after kHoldKeyMs.
   bool key_waiting_ = false;
