@@ -919,6 +919,7 @@ void test_app_contents_and_bookmarks() {
   press(*app, Key::Power);  // contents
   CHECK(panel.full == full + 1);
   press(*app, Key::Next);
+  press(*app, Key::Next);
   press(*app, Key::Power);  // bookmark this page; back in the book
   const std::string marks = read_all("test-card/vellum/bookmarks.txt");
   CHECK(count_lines(marks) == 1 && marks.starts_with("books/sample.epub\t0\t0\t0\t"));
@@ -927,21 +928,23 @@ void test_app_contents_and_bookmarks() {
   // Rows now: back, remove, light, look up, turn pages, add to shelf, go to, night mode, BOOKMARKS, the bookmark,
   // CHAPTERS, three entries.
   press(*app, Key::Power);
-  for (int i = 0; i < 11; ++i) press(*app, Key::Next);  // labels are skipped
+  for (int i = 0; i < 12; ++i) press(*app, Key::Next);  // labels are skipped
   press(*app, Key::Power);                              // "Second"
   CHECK(progress_has("books/sample.epub\t1\t0\t0\t"));
 
   press(*app, Key::Power);
+  press(*app, Key::Next);
   press(*app, Key::Next);
   press(*app, Key::Power);  // bookmark this page too
   CHECK(count_lines(read_all("test-card/vellum/bookmarks.txt")) == 2);
 
   // Back to the first bookmark (the bookmarks come in reading order), then remove it.
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(progress_has("books/sample.epub\t0\t0\t0\t"));
   press(*app, Key::Power);
+  press(*app, Key::Next);
   press(*app, Key::Next);
   press(*app, Key::Power);  // remove this bookmark
   const std::string left = read_all("test-card/vellum/bookmarks.txt");
@@ -1142,6 +1145,7 @@ void test_app_front_light() {
     press(app, Key::Power);   // contents
     press(app, Key::Next);
     press(app, Key::Next);
+    press(app, Key::Next);
     press(app, Key::Power);  // front light
     for (int i = 0; i < 4; ++i) press(app, Key::Next);
     CHECK(light.level == 4 * 255 / 10);  // applied at once
@@ -1197,7 +1201,7 @@ void test_app_opens_fb2() {
   // Contents: back, bookmark, light, look up, turn pages, add to shelf, go to, night mode, CHAPTERS, then the book's
   // five entries.
   press(*app, Key::Power);
-  for (int i = 0; i < 11; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 12; ++i) press(*app, Key::Next);
   press(*app, Key::Power);  // "Antras skyrius", the fifth chapter
   CHECK(progress_has("books/sample.fb2\t4\t0\t0\t"));
   delete app;
@@ -2390,7 +2394,7 @@ void test_app_send_book() {
 
   press(*a, Key::Power);  // open the book
   press(*a, Key::Power);  // contents: back, bookmark, light, look up, turn pages, send
-  for (int i = 0; i < 5; ++i) press(*a, Key::Next);
+  for (int i = 0; i < 6; ++i) press(*a, Key::Next);
   const int full = panel_a.full;
   press(*a, Key::Power);
   CHECK(panel_a.full == full + 1);  // the send screen
@@ -2838,7 +2842,7 @@ void test_app_words() {
   const int full = panel.full;
   press(*app,
         Key::Power);  // rows: back, bookmark, light, look up, turn pages, add to shelf, go to, night, HIGHLIGHTS, ...
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);  // contents, then the page
 
@@ -2853,16 +2857,19 @@ void test_app_words() {
   press(*app, Key::Home);
   press(*app, Key::Power);  // back to Alice
   press(*app, Key::Power);  // contents: the note follows its highlight and is skipped
-  // Rows from y = 186, 50 px each: the note (row 10) wears a bar at its left.
-  CHECK(screen.pixel(38, 696) == Color::Black && screen.pixel(38, 721) == Color::Black);
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
-  CHECK(screen.pixel(20, 661) == Color::Black);  // row 12, the chapter, is selected, on the next page
-  press(*app, Key::Power);                       // the chapter, not the note
+  // Rows from y = 186, 50 px each, 11 to a page. Past the highlight (row 10) to the chapter (row 13): the
+  // note (row 11) heads the second page with a bar at its left.
+  for (int i = 0; i < 10; ++i) press(*app, Key::Next);
+  CHECK(screen.pixel(20, 311) == Color::Black);  // the chapter is selected
+  CHECK(screen.pixel(38, 196) == Color::Black && screen.pixel(38, 221) == Color::Black);
+  press(*app, Key::Prev);  // back past the note, to its highlight
+  CHECK(screen.pixel(20, 711) == Color::Black);
+  press(*app, Key::Power);  // the highlight, not the note
   CHECK(read_all("test-card-words/vellum/highlights.txt").find("\tBored, like me.\n") != std::string::npos);
 
   // Without touch: look up a word, pick its line and word, highlight to the third.
   press(*app, Key::Power);
-  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
   press(*app, Key::Power);  // Look up a word: the first line is boxed
   press(*app, Key::Power);  // that line; its first word, "Alice"
   CHECK(black_run(screen, alice.x, alice.x + alice.w, alice.y, alice.y + alice.h));
@@ -4426,7 +4433,7 @@ void test_app_sync() {
   app->start();
   press(*app, Key::Power);  // open the book
   press(*app, Key::Power);  // contents: back, bookmark, light, look up, auto turn, shelves, sync
-  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);  // Sync progress: register first (asked for), then send
   CHECK(net.methods == (std::vector<std::string>{"POST", "PUT"}));
   CHECK(net.sent.find("\"document\":\"9f06430a0700212493289d3aa92738b1\",\"percentage\":0.0000,\"progress\":\"/body/"
@@ -4450,7 +4457,7 @@ void test_app_sync() {
   // Behind this page: this one is sent. A wrong login says so.
   net.remote = "{\"percentage\":0.0,\"progress\":\"/body/DocFragment[1]/body\",\"device_id\":\"OTHER\"}";
   press(*app, Key::Power);
-  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(net.methods.size() == 7 && net.methods.back() == "PUT");
   net.login_ok = false;
@@ -4582,7 +4589,7 @@ void test_button_sets() {
 
   // In menus: something selects, something goes back, something moves.
   ButtonAction menu[kButtonInputs];
-  std::copy(std::begin(kDefaultButtons.menu), std::end(kDefaultButtons.menu), menu);
+  std::copy(std::begin(kFormerDefaultButtons.menu), std::end(kFormerDefaultButtons.menu), menu);
   CHECK(next_button_action(menu, false, 2) == A::Select);  // Power is the only Select: it stays
   CHECK(next_button_action(menu, false, 3) == A::Back);    // and Home the only Back
   CHECK(next_button_action(menu, false, 0) == A::Down);    // Prev may leave Up: Next still moves
@@ -4610,7 +4617,7 @@ void test_button_sets() {
   CHECK(save_settings(card, s));
   const std::string saved = read_all("test-card-buttons/vellum/settings.txt");
   CHECK(saved.find("buttons_reading=1,2,5,6,3,4,0\n") != std::string::npos);
-  CHECK(saved.find("buttons_menus=15,16,17,18,0,0,13\n") != std::string::npos);
+  CHECK(saved.find("buttons_menus=15,16,17,18,18,18,13\n") != std::string::npos);
   Settings back;
   load_settings(card, back);
   CHECK(back == s);
@@ -4624,6 +4631,13 @@ void test_button_sets() {
     load_settings(card, loaded);
     CHECK(loaded.buttons == kDefaultButtons);
   }
+  // The former defaults, saved before holding a side button went back, load as today's.
+  const char* former = "buttons_reading=1,2,5,6,0,0,0\nbuttons_menus=15,16,17,18,0,0,0\n";
+  card.write("vellum/settings.txt", former, static_cast<uint32_t>(std::strlen(former)));
+  Settings migrated;
+  load_settings(card, migrated);
+  CHECK(migrated.buttons == kDefaultButtons);
+  CHECK(migrated.buttons.menu[static_cast<int>(ButtonInput::NextHeld)] == A::Back);
   std::filesystem::remove_all("test-card-buttons");
 }
 
@@ -4755,7 +4769,7 @@ void test_app_buttons() {
   press(*app, Key::Power);                             // In menus
   for (int i = 0; i < 3; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
-  CHECK(saved().find("buttons_menus=15,16,17,18,0,0,0\n") != std::string::npos);
+  CHECK(saved().find("buttons_menus=15,16,17,18,18,18,0\n") != std::string::npos);
   // Reset to default, the last row.
   press(*app, Key::Prev);
   press(*app, Key::Prev);
@@ -4872,7 +4886,7 @@ void test_app_auto_turn() {
   app->start();
   press(*app, Key::Power);  // open the book
   press(*app, Key::Power);  // contents: back, bookmark, light, look up, turn pages
-  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(app->wait_ms() == 2500);  // the notice goes first
   int fast = panel.fast;
@@ -4915,7 +4929,7 @@ void test_app_auto_turn() {
   app->start();
   press(*app, Key::Power);
   press(*app, Key::Power);
-  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   for (int i = 0; i < 20 && app->wait_ms() <= 5000; ++i) {
     input.ms += app->wait_ms();
@@ -6134,7 +6148,7 @@ void test_app_reading_extras() {
   // Without touch: Contents › Links on this page, then the side buttons pick one.
   // Rows: back, bookmark, light, look up, turn pages, add to shelf, go to, night mode, links on this page.
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   press(*app, Key::Next);
   press(*app, Key::Next);  // the third: "the second part"
@@ -6147,18 +6161,18 @@ void test_app_reading_extras() {
 
   // Night mode from Contents: saved, and the page is white on black.
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(read_all("test-card-reading/vellum/settings.txt").find("night=1") != std::string::npos);
   CHECK(screen.pixel(4, 4) == Color::Black);
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(screen.pixel(4, 4) == Color::White);
 
   // Go to: Prev lowers it 10 at a time, Power makes the steps finer, Power again goes.
   press(*app, Key::Power);
-  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(panel_up());
   for (int i = 0; i < 12; ++i) press(*app, Key::Prev);  // 0%
@@ -6168,7 +6182,7 @@ void test_app_reading_extras() {
   CHECK(line().starts_with("books/extras.epub\t0\t0\t0\t"));
   // Home leaves Go to as it was. (Contents now has Back to where you were, too.)
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   press(*app, Key::Next);
   press(*app, Key::Home);

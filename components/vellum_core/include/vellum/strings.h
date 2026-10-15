@@ -76,6 +76,7 @@ struct Strings {
   // Contents and bookmarks, opened from the reader
   const char* contents;  // screen title
   const char* back_to_book;
+  const char* to_home_screen;  // a Contents row: closes the book
   const char* add_bookmark;
   const char* remove_bookmark;
   const char* bookmarks_label;  // uppercase label

@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 
 #include "bm8563.h"
 #include "cw2017.h"
@@ -177,6 +178,10 @@ class Input : public vellum::InputSource {
     vTaskDelay(pdMS_TO_TICKS(50));
     if (!touch_.attach(i2c, x4pro::kI2cHz, x4pro::kTouchRst, x4pro::kTouchInt)) {
       ESP_LOGW(kTag, "touch controller not found; buttons only");
+      // What does answer on the bus, for the device check.
+      for (uint16_t a = 0x08; a < 0x78 && bus_found_ < kBusSeen; ++a) {
+        if (i2c_master_probe(i2c, a, 20) == ESP_OK) bus_seen_[bus_found_++] = static_cast<uint8_t>(a);
+      }
       return;
     }
     have_touch_ = true;
@@ -204,6 +209,22 @@ class Input : public vellum::InputSource {
   }
 
   uint32_t now_ms() override { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+
+  bool touch_status(char* out, size_t size) override {
+    if (!have_touch_) {
+      int n = std::snprintf(out, size, "Not found. Bus:");
+      for (int i = 0; i < bus_found_ && n > 0 && static_cast<size_t>(n) < size; ++i) {
+        n += std::snprintf(out + n, size - n, " %02X", bus_seen_[i]);
+      }
+      if (bus_found_ == 0 && n > 0 && static_cast<size_t>(n) < size) std::snprintf(out + n, size - n, " none");
+      return true;
+    }
+    std::snprintf(out, size, "%02X v%d %dx%d · irq %s · %lu ok %lu err · %02X", touch_.address(),
+                  touch_.config_version(), touch_.max_x(), touch_.max_y(), touch_irq_seen_ ? "yes" : "no",
+                  static_cast<unsigned long>(touch_.reports()), static_cast<unsigned long>(touch_.failures()),
+                  touch_.last_status());
+    return true;
+  }
 
   bool wait(vellum::InputEvent& out, uint32_t timeout_ms) override {
     log_memory(!summary_logged_);
@@ -344,6 +365,9 @@ class Input : public vellum::InputSource {
   bool pressed_[kCount] = {};
   Gt911 touch_;
   bool have_touch_ = false;
+  static constexpr int kBusSeen = 8;
+  uint8_t bus_seen_[kBusSeen] = {};  // I2C addresses that answered, when the touch controller did not
+  int bus_found_ = 0;
   bool touch_irq_seen_ = false;
   bool no_irq_logged_ = false;
   bool touching_ = false;

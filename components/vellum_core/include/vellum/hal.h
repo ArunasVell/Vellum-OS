@@ -65,6 +65,14 @@ class InputSource {
   // unaffected by setting the clock; it may wrap. 0 when the board keeps no
   // such count: the app then times reading with the Clock.
   virtual uint32_t now_ms() { return 0; }
+  // A line on the touch controller for the device check (whether it was
+  // found, and what it has sent since); false when the board has nothing
+  // to say.
+  virtual bool touch_status(char* out, size_t size) {
+    (void)out;
+    (void)size;
+    return false;
+  }
 };
 
 class Power {
