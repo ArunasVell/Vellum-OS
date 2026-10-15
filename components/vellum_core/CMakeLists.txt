@@ -62,8 +62,10 @@ set(VELLUM_CORE_SRCS
   src/fonts/atkinson_ttf.cpp
   src/fonts/ebgaramond_ttf.cpp
   src/fonts/literata_16.cpp
+  src/fonts/literata_19.cpp
   src/fonts/literata_20.cpp
   src/fonts/literata_23.cpp
+  src/fonts/literata_24.cpp
   src/fonts/literata_26.cpp
   src/fonts/literata_30.cpp
   src/fonts/literata_34.cpp

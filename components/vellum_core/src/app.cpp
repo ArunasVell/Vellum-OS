@@ -203,6 +203,7 @@ int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) %
 enum class Row : uint8_t {
   Language,
   MenuFont,     // cycles through the typefaces
+  MenuText,     // normal or large menu type
   BookFont,     // the same, for reading
   ReadingPage,  // opens the reading settings
   Clock,
@@ -236,7 +237,7 @@ enum class Row : uint8_t {
 constexpr Row kGeneralRows[] = {Row::Language,    Row::MenuFont, Row::Clock,       Row::SleepAfter,
                                 Row::SleepScreen, Row::Light,    Row::Battery,     Row::Updates,
                                 Row::Stats,       Row::Check,    Row::LibraryView, Row::MoveFinished,
-                                Row::ReadingPage, Row::Buttons,  Row::Orientation};
+                                Row::ReadingPage, Row::Buttons,  Row::Orientation, Row::MenuText};
 constexpr Row kReadingRows[] = {Row::BookFont,  Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins,
                                 Row::Alignment, Row::Hyphenation, Row::Footer,      Row::Indent,      Row::BookStyles,
                                 Row::Focus,     Row::Night,       Row::AutoTurn,    Row::FullRefresh};
@@ -276,6 +277,8 @@ int get(const Settings& s, Row r) {
   switch (r) {
     case Row::Language:
       return static_cast<int>(s.language);
+    case Row::MenuText:
+      return s.large_menu_text ? 1 : 0;
     case Row::Clock:
       return static_cast<int>(s.time_format);
     case Row::SleepAfter:
@@ -331,6 +334,9 @@ void set(Settings& s, Row r, int v) {
   switch (r) {
     case Row::Language:
       s.language = static_cast<Language>(v);
+      break;
+    case Row::MenuText:
+      s.large_menu_text = v != 0;
       break;
     case Row::Clock:
       s.time_format = static_cast<TimeFormat>(v);
@@ -404,6 +410,8 @@ const char* row_name(const Strings& t, Row r) {
   switch (r) {
     case Row::Language:
       return t.language;
+    case Row::MenuText:
+      return t.menu_text;
     case Row::Clock:
       return t.clock;
     case Row::SleepAfter:
@@ -468,6 +476,8 @@ const char* value_name(const Strings& t, Row r, int v) {
   switch (r) {
     case Row::Language:
       return strings(static_cast<Language>(v)).language_name;
+    case Row::MenuText:
+      return t.menu_text_names[v];
     case Row::Clock:
       return v == 0 ? t.clock_24 : t.clock_12;
     case Row::SleepAfter:
@@ -540,7 +550,7 @@ App::App(Board& board)
     kosync::load_account(*board_.storage, sync_account_);
   }
   fb_.set_rotation(rotation_for(screen_));  // Settings › Screen
-  library_.load(builtin_books(), board_.storage, epub_, &text_book_);
+  library_.load(shipped_books(), board_.storage, epub_, &text_book_);
   fonts_.scan(board_.storage);
   apply_fonts();
 }
@@ -579,7 +589,7 @@ void App::rescan_library() {
   finished_count_ = 0;
   // The Folders tab may come or go: keep the same shelf shown.
   const int shelf = library_on_shelf() ? library_tab_ - library_first_shelf() : -1;
-  library_.load(builtin_books(), board_.storage, epub_, &text_book_);
+  library_.load(shipped_books(), board_.storage, epub_, &text_book_);
   if (shelf >= 0) library_tab_ = library_first_shelf() + shelf;
   fonts_.scan(board_.storage);  // fonts may have arrived with the books
   apply_fonts();
@@ -1395,12 +1405,13 @@ void App::apply_fonts() {
   book_fonts_ready_ = false;  // rendered when a page is first set (book_fonts())
   if (safe_fonts_) {
     // Started after a crash: Literata, built in, until a typeface is chosen again.
-    ui::set_menu_fonts(literata_menu());
+    ui::set_menu_fonts(literata_menu(settings_.large_menu_text));
     return;
   }
-  MenuFonts menu = literata_menu();
+  const bool large = settings_.large_menu_text;
+  MenuFonts menu = literata_menu(large);
   const int menu_family = fonts_.find(settings_.menu_font);
-  if (menu_family < 0 || !fonts_.menu(menu_family, menu)) menu = literata_menu();
+  if (menu_family < 0 || !fonts_.menu(menu_family, large, menu)) menu = literata_menu(large);
   ui::set_menu_fonts(menu);
 }
 
@@ -1574,7 +1585,8 @@ void App::draw_transfer() {
   const int w = fb_.width();
   const Strings& t = text();
   draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, transfer_setup_ ? t.updates : t.add_books);
-  draw_text(fb_, ui::label_font(), kSide * 64, kSubtitleBase, transfer_setup_ ? t.setup_lead : t.transfer_lead);
+  const char* lead = transfer_setup_ ? t.setup_lead : t.transfer_lead;
+  ui::draw_fitted(fb_, ui::label_font_for(lead, w - 2 * kSide), kSide, kSubtitleBase, w - 2 * kSide, lead);
 
   const char* message = nullptr;
   switch (transfer_state_) {

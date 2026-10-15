@@ -15,6 +15,8 @@ make_font literata_italic_26 'Literata-Italic[opsz,wght].ttf' 26
 make_font literata_20 'Literata[opsz,wght].ttf' 20
 make_font literata_italic_20 'Literata-Italic[opsz,wght].ttf' 20
 make_font literata_16 'Literata[opsz,wght].ttf' 16
+make_font literata_19 'Literata[opsz,wght].ttf' 19
+make_font literata_24 'Literata[opsz,wght].ttf' 24
 make_font literata_italic_40 'Literata-Italic[opsz,wght].ttf' 40
 make_font literata_23 'Literata[opsz,wght].ttf' 23
 make_font literata_30 'Literata[opsz,wght].ttf' 30

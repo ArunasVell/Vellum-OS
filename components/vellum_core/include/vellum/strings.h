@@ -28,6 +28,8 @@ struct Strings {
   // Settings
   const char* reading;  // reading settings: row and screen title
   const char* menu_font;
+  const char* menu_text;
+  const char* menu_text_names[2];  // normal, large
   const char* book_font;
   const char* preview_label;  // uppercase label
   const char* language;

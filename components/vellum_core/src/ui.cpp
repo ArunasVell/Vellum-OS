@@ -126,8 +126,12 @@ void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent
   fb.hline(kSide, kStatusRule, fb.width() - 2 * kSide, Color::Black);
 }
 
+const Font& label_font_for(std::string_view text, int max_w) {
+  return text_width_px(label_font(), text) <= max_w ? label_font() : *menu_fonts().small;
+}
+
 void draw_hint(Framebuffer& fb, std::string_view text) {
-  draw_centered(fb, label_font(), fb.height() - kHintBase, text);
+  draw_centered(fb, label_font_for(text, fb.width() - 2 * kSide), fb.height() - kHintBase, text);
 }
 
 void draw_progress(Framebuffer& fb, int x, int y, int w, int done, int total) {
@@ -232,8 +236,8 @@ void draw_cover(Framebuffer& fb, Rect r, std::string_view title, std::string_vie
                                  title, true, fg);
   const int rule = page ? 40 : 20;
   fb.hline(r.x + (r.w - rule) / 2, after - cover_title.line_height + (page ? 44 : 18), rule, fg);
-  const Font& author_font = page ? text_font() : label_font();
   const int author_w = inner.w - 4;
+  const Font& author_font = page ? text_font() : label_font_for(author, author_w);
   const Fit f = fit(author_font, author, author_w);
   draw_fit(fb, author_font, inner.x + 2 + (author_w - fit_width_px(author_font, author, f)) / 2,
            inner.y + inner.h - (page ? 48 : 14), author, f, fg);

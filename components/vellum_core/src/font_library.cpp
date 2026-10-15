@@ -8,9 +8,13 @@
 
 namespace vellum {
 
-MenuFonts literata_menu() {
-  return {&fonts::literata_16,        &fonts::literata_20,        &fonts::literata_26,
-          &fonts::literata_italic_20, &fonts::literata_italic_26, &fonts::literata_italic_40};
+MenuFonts literata_menu(bool large) {
+  if (large) {
+    return {&fonts::literata_19,        &fonts::literata_24,        &fonts::literata_30, &fonts::literata_italic_20,
+            &fonts::literata_italic_26, &fonts::literata_italic_40, &fonts::literata_16};
+  }
+  return {&fonts::literata_16,        &fonts::literata_20,        &fonts::literata_26, &fonts::literata_italic_20,
+          &fonts::literata_italic_26, &fonts::literata_italic_40, &fonts::literata_16};
 }
 
 BookFonts literata_book(int px) {
@@ -207,26 +211,27 @@ FontLibrary::Loaded* FontLibrary::face(int family, bool italic) {
   return faces_[slot].load(families_[family], italic, card_, family) ? &faces_[slot] : nullptr;
 }
 
-bool FontLibrary::menu(int family, MenuFonts& out) {
+bool FontLibrary::menu(int family, bool large, MenuFonts& out) {
   if (family < 0 || family >= count_) return false;
   const Family& f = families_[family];
   if (f.literata) {
-    out = literata_menu();
+    out = literata_menu(large);
     return true;
   }
-  if (family != menu_family_) {
-    constexpr int kSizes[] = {16, 20, 26, 20, 26, 40};
-    for (int i = 0; i < 6; ++i) {
-      Loaded* l = face(family, i >= 3);
-      if (l == nullptr || !menu_fonts_[i].build(l->face, kSizes[i], f.name)) {
+  if (family != menu_family_ || large != menu_large_) {
+    const int* sizes = large ? kLargeMenuSizes : kMenuSizes;
+    for (int i = 0; i < 7; ++i) {
+      Loaded* l = face(family, i >= 3 && i < 6);
+      if (l == nullptr || !menu_fonts_[i].build(l->face, sizes[i], f.name)) {
         menu_family_ = -1;
         return false;
       }
     }
     menu_family_ = family;
+    menu_large_ = large;
   }
-  out = {&menu_fonts_[0].font(), &menu_fonts_[1].font(), &menu_fonts_[2].font(),
-         &menu_fonts_[3].font(), &menu_fonts_[4].font(), &menu_fonts_[5].font()};
+  out = {&menu_fonts_[0].font(), &menu_fonts_[1].font(), &menu_fonts_[2].font(), &menu_fonts_[3].font(),
+         &menu_fonts_[4].font(), &menu_fonts_[5].font(), &menu_fonts_[6].font()};
   return true;
 }
 
