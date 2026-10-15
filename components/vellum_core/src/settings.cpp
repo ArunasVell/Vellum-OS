@@ -1,5 +1,6 @@
 #include "vellum/settings.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -96,6 +97,11 @@ void parse_buttons(std::string_view value, bool reading, ButtonAction (&out)[kBu
     if (comma != std::string_view::npos) value.remove_prefix(comma + 1);
   }
   if (!buttons_safe(set, reading)) return;
+  const ButtonAction* former = reading ? kFormerDefaultButtons.reader : kFormerDefaultButtons.menu;
+  if (std::equal(set, set + kButtonInputs, former)) {
+    const ButtonAction* now = reading ? kDefaultButtons.reader : kDefaultButtons.menu;
+    std::copy(now, now + kButtonInputs, set);
+  }
   for (int i = 0; i < kButtonInputs; ++i) out[i] = set[i];
 }
 

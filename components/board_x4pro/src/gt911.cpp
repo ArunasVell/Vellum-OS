@@ -75,6 +75,8 @@ bool Gt911::reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rs
     max_x_ = c[1] | (c[2] << 8);
     max_y_ = c[3] | (c[4] << 8);
   }
+  address_ = address;
+  config_version_ = c[0];
   ESP_LOGI(kTag, "product %s at 0x%02X, config v%d, area %dx%d, INT pin %d", id, address, c[0], max_x_, max_y_,
            gpio_get_level(irq));
   return true;
@@ -99,7 +101,13 @@ bool Gt911::attach(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, i
 bool Gt911::read(Report& out) {
   if (dev_ == nullptr) return false;
   uint8_t status;
-  if (!read_reg(kRegStatus, &status, 1) || !(status & kReady)) return false;
+  if (!read_reg(kRegStatus, &status, 1)) {
+    ++failures_;
+    return false;
+  }
+  last_status_ = status;
+  if (!(status & kReady)) return false;
+  ++reports_;
   const int fingers = status & 0x0F;
   out.home = (status & kKey) != 0;
   out.touching = fingers > 0 && fingers <= 5;

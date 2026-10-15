@@ -49,10 +49,21 @@ struct ButtonMap {
   bool operator==(const ButtonMap&) const = default;
 };
 
-// As the buttons always worked: the side buttons turn pages and move the
-// highlight, Power opens the contents or the highlighted item, Home goes
-// back or home; holding a button does nothing more.
+// The side buttons turn pages and move the highlight, Power opens the
+// contents or the highlighted item, Home goes back or home. In menus,
+// holding a side button goes back too, so the buttons alone always lead out
+// (the Home pad needs the touch controller; while reading, the contents
+// lead home). Page turns stay on the press, not waiting to see if it's held.
 constexpr ButtonMap kDefaultButtons = {
+    {ButtonAction::PrevPage, ButtonAction::NextPage, ButtonAction::Contents, ButtonAction::Home, ButtonAction::None,
+     ButtonAction::None, ButtonAction::None},
+    {ButtonAction::Up, ButtonAction::Down, ButtonAction::Select, ButtonAction::Back, ButtonAction::Back,
+     ButtonAction::Back, ButtonAction::None},
+};
+
+// The defaults before holding a side button went back in menus: a saved
+// set equal to one of these was never chosen, and loads as the new default.
+constexpr ButtonMap kFormerDefaultButtons = {
     {ButtonAction::PrevPage, ButtonAction::NextPage, ButtonAction::Contents, ButtonAction::Home, ButtonAction::None,
      ButtonAction::None, ButtonAction::None},
     {ButtonAction::Up, ButtonAction::Down, ButtonAction::Select, ButtonAction::Back, ButtonAction::None,

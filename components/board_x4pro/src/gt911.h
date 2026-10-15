@@ -41,6 +41,15 @@ class Gt911 {
   int max_x() const { return max_x_; }
   int max_y() const { return max_y_; }
 
+  // For the device check: the address that answered (0: none), its
+  // configuration version, reads that brought a report or failed, and the
+  // last status byte read.
+  uint8_t address() const { return address_; }
+  int config_version() const { return config_version_; }
+  uint32_t reports() const { return reports_; }
+  uint32_t failures() const { return failures_; }
+  uint8_t last_status() const { return last_status_; }
+
  private:
   bool reset_and_probe(i2c_master_bus_handle_t bus, uint32_t scl_hz, int rst_gpio, int int_gpio, uint8_t address);
   bool read_reg(uint16_t reg, uint8_t* buf, size_t len);
@@ -50,4 +59,9 @@ class Gt911 {
   int int_gpio_ = -1;
   int max_x_ = 0;
   int max_y_ = 0;
+  uint8_t address_ = 0;
+  int config_version_ = 0;
+  uint32_t reports_ = 0;
+  uint32_t failures_ = 0;
+  uint8_t last_status_ = 0;
 };

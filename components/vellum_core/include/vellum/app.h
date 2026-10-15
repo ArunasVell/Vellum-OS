@@ -171,7 +171,8 @@ class App {
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
     Back,
-    Return,  // back to the page left by a link or Go to
+    HomeScreen,  // closes the book, as the Home button does
+    Return,      // back to the page left by a link or Go to
     Mark,
     Light,
     Night,  // night mode on or off

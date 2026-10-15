@@ -2102,6 +2102,7 @@ int App::contents_actions(ContentsRow* out) const {
   int n = 0;
   out[n++] = ContentsRow::Back;
   if (link_back_book_ == reading_) out[n++] = ContentsRow::Return;
+  out[n++] = ContentsRow::HomeScreen;
   out[n++] = ContentsRow::Mark;
   out[n++] = ContentsRow::Light;
   out[n++] = ContentsRow::LookUp;
@@ -2194,6 +2195,9 @@ void App::contents_activate() {
   switch (contents_row(contents_sel_, index)) {
     case ContentsRow::Back:
       return show(Screen::Reader);
+    case ContentsRow::HomeScreen:
+      handle_key(Key::Home);
+      return;
     case ContentsRow::Mark:
       toggle_bookmark();
       return show(Screen::Reader);
@@ -2289,13 +2293,15 @@ void App::draw_contents() {
                                                               : t.chapters_label);
         continue;
       case ContentsRow::Back:
+      case ContentsRow::HomeScreen:
       case ContentsRow::Mark:
       case ContentsRow::Light:
         draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight},
-                  kind == ContentsRow::Back    ? t.back_to_book
-                  : kind == ContentsRow::Light ? t.front_light
-                  : mark >= 0                  ? t.remove_bookmark
-                                               : t.add_bookmark,
+                  kind == ContentsRow::Back         ? t.back_to_book
+                  : kind == ContentsRow::HomeScreen ? t.to_home_screen
+                  : kind == ContentsRow::Light      ? t.front_light
+                  : mark >= 0                       ? t.remove_bookmark
+                                                    : t.add_bookmark,
                   selected);
         break;
       case ContentsRow::LookUp:
@@ -3074,6 +3080,12 @@ bool App::check_event(const InputEvent& ev) {
         show(Screen::Settings);  // the second Home press leaves
         return false;
       }
+      if ((ev.key == Key::Prev || ev.key == Key::Next) &&
+          (check_.down & static_cast<uint8_t>(1u << static_cast<int>(ev.key == Key::Prev ? Key::Next : Key::Prev))) !=
+              0) {
+        show(Screen::Settings);  // both side buttons at once leave too, for when Home does not work
+        return false;
+      }
       if (ev.key == Key::Power) power_held_ = true;  // holding it still sleeps
       check_.pressed |= bit;
       check_.down |= bit;
@@ -3158,8 +3170,13 @@ void App::draw_check() {
   ui::draw_label(fb_, kSide, kTouchLabelBase, t.touch_label);
   const Rect box{kSide, kTouchTop, w - 2 * kSide, kTouchHeight};
   fb_.draw_rect(box, Color::Black);
+  char chip[96];
+  if (board_.input.touch_status(chip, sizeof(chip))) {
+    // What the board knows of the touch controller, at the foot of the box.
+    ui::draw_fitted(fb_, ui::label_font(), box.x + 16, box.y + box.h - 12, box.w - 32, chip);
+  }
   if (!check_.touched) {
-    ui::draw_wrapped(fb_, ui::text_font(), box.x + 16, box.y + 50, box.w - 32, 2, t.touch_here, false);
+    ui::draw_wrapped(fb_, ui::text_font(), box.x + 16, box.y + 44, box.w - 32, 2, t.touch_here, false);
   } else {
     char where[64];
     std::snprintf(where, sizeof(where), "x %d  y %d", check_.x, check_.y);
