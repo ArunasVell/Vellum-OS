@@ -526,6 +526,7 @@ class App {
     Sleep
   };
   static constexpr int kQuickItems = 10;
+  static constexpr int kQuickEdge = 80;  // a swipe down starting this close to the top opens it
   bool quick_can_open() const;
   // Its buttons in order (the light's only when the device has one).
   int quick_items(QuickItem* out) const;

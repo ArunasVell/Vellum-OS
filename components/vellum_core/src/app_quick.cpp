@@ -20,7 +20,6 @@ namespace {
 
 using ui::kSide;
 
-constexpr int kEdge = 80;          // a swipe down starting this close to the top opens the panel
 constexpr int kSliderTop = 66;     // first slider block, under the status line
 constexpr int kSliderBlock = 104;  // name and value, then − track +
 constexpr int kRound = 56;         // the − and + buttons

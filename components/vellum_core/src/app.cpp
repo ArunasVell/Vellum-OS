@@ -3738,7 +3738,7 @@ bool App::handle_gesture(const Gesture& g) {
   // A swipe down from the top edge, or a tap on a menu's status bar, opens
   // the quick panel. (Page up from a button is a swipe from nowhere: y < 0.)
   if (g.y >= 0 && quick_can_open() &&
-      ((g.kind == K::SwipeDown && g.y < 80) ||
+      ((g.kind == K::SwipeDown && g.y < kQuickEdge) ||
        (g.kind == K::Tap && g.y < ui::kStatusRule && screen_ != Screen::Reader && screen_ != Screen::Picture))) {
     open_quick();
     return false;
