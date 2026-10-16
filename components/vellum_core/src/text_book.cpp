@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <new>
 
+#include "vellum/covers.h"
 #include "vellum/text.h"
 #include "vellum/xml.h"
 
@@ -18,6 +19,44 @@ constexpr uint32_t kTextBytes = 3 * TextBook::kChapterBytes + TextBook::kSpare;
 constexpr uint32_t kMaxHeadingLine = 120;                        // bytes of UTF-8; longer lines are text
 constexpr uint32_t kHardSplit = TextBook::kChapterBytes - 4096;  // cut at any tag past this
 constexpr char kTitleBreak = '\x1F';                             // between the lines of a captured title
+constexpr uint32_t kPicturePathBytes = 16 * 1024;
+// Converted books are made again when the converters change: part of their name.
+constexpr uint32_t kConverterVersion = 1;
+constexpr uint32_t kComicScratch = 4096;  // a comic chapter's paragraphs; the rest of text_ holds a picture
+
+uint32_t fnv(std::string_view s, uint32_t h = 2166136261u) {
+  for (char c : s) h = (h ^ static_cast<uint8_t>(c)) * 16777619u;
+  return h;
+}
+
+char lower_ascii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
+
+// Compares file names as people do: "page2" before "page10", any case.
+bool natural_less(std::string_view a, std::string_view b) {
+  size_t i = 0, j = 0;
+  while (i < a.size() && j < b.size()) {
+    const bool da = a[i] >= '0' && a[i] <= '9', db = b[j] >= '0' && b[j] <= '9';
+    if (da && db) {
+      size_t ie = i, je = j;
+      while (ie < a.size() && a[ie] == '0') ++ie;
+      while (je < b.size() && b[je] == '0') ++je;
+      size_t ae = ie, be = je;
+      while (ae < a.size() && a[ae] >= '0' && a[ae] <= '9') ++ae;
+      while (be < b.size() && b[be] >= '0' && b[be] <= '9') ++be;
+      if (ae - ie != be - je) return ae - ie < be - je;
+      const int c = a.substr(ie, ae - ie).compare(b.substr(je, be - je));
+      if (c != 0) return c < 0;
+      i = ae;
+      j = be;
+      continue;
+    }
+    const char ca = lower_ascii(a[i]), cb = lower_ascii(b[j]);
+    if (ca != cb) return ca < cb;
+    ++i;
+    ++j;
+  }
+  return a.size() - i < b.size() - j;
+}
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v'; }
 
@@ -52,7 +91,7 @@ void copy_utf8(std::string_view s, char* out, size_t size) {
   if (n < s.size()) {
     while (n > 0 && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;
   }
-  std::memcpy(out, s.data(), n);
+  if (n > 0) std::memcpy(out, s.data(), n);
   out[n] = '\0';
 }
 
@@ -282,6 +321,21 @@ TextBook::Format TextBook::format_of(const char* path) {
   if (ends_with(p, ".fb2")) return Format::Fb2;
   if (ends_with(p, ".fb2.zip")) return Format::Fb2Zip;
   if (ends_with(p, ".html") || ends_with(p, ".htm")) return Format::Html;
+  if (ends_with(p, ".cbz")) return Format::Comic;
+  switch (convert::kind_of(path)) {
+    case convert::Kind::Mobi:
+      return Format::Mobi;
+    case convert::Kind::Pdf:
+      return Format::Pdf;
+    case convert::Kind::Docx:
+      return Format::Docx;
+    case convert::Kind::Markdown:
+      return Format::Markdown;
+    case convert::Kind::Rtf:
+      return Format::Rtf;
+    case convert::Kind::None:
+      break;
+  }
   return Format::None;
 }
 
@@ -291,7 +345,11 @@ TextBook::TextBook()
       paragraphs_(new(std::nothrow) const char*[kMaxParagraphs]),
       parts_(new(std::nothrow) Part[kMaxChapters]),
       toc_(new(std::nothrow) TocEntry[kMaxToc]),
-      toc_section_(new(std::nothrow) uint16_t[kMaxToc]) {}
+      toc_section_(new(std::nothrow) uint16_t[kMaxToc]),
+      runs_(new(std::nothrow) StyleRun[kMaxRuns]),
+      pictures_(new(std::nothrow) Picture[kMaxPictures]),
+      picture_paths_(new(std::nothrow) char[kPicturePathBytes]),
+      comic_(new(std::nothrow) uint16_t[Zip::kMaxEntries]) {}
 
 TextBook::~TextBook() {
   close();
@@ -301,6 +359,10 @@ TextBook::~TextBook() {
   delete[] parts_;
   delete[] toc_;
   delete[] toc_section_;
+  delete[] runs_;
+  delete[] pictures_;
+  delete[] picture_paths_;
+  delete[] comic_;
 }
 
 void TextBook::close() {
@@ -318,6 +380,11 @@ void TextBook::close() {
   toc_count_ = 0;
   heading_[0][0] = heading_[1][0] = '\0';
   info_ = {};
+  run_count_ = picture_count_ = picture_paths_used_ = 0;
+  base_[0] = cover_[0] = '\0';
+  comic_count_ = 0;
+  contents_from_marks_ = false;
+  zip_.close();
 }
 
 bool TextBook::open(Storage& storage, const char* path) {
@@ -329,11 +396,30 @@ bool TextBook::open(Storage& storage, const char* path) {
   const Format format = format_of(path);
   if (format == Format::None) return false;
   storage_ = &storage;
+  key_ = fnv(path);
+  if (format == Format::Comic) {
+    if (!open_comic(path)) {
+      close();
+      return false;
+    }
+    format_ = format;
+    if (info_.title[0] == '\0') title_from_name(path);
+    return true;
+  }
+  const convert::Kind kind = convert::kind_of(path);
   if (format == Format::Fb2Zip) {
     if (!open_zipped(path)) return false;
+  } else if (kind != convert::Kind::None) {
+    if (!open_converted(path, kind)) {
+      close();
+      return false;
+    }
   } else {
     file_ = storage.open(path);
     if (file_ == nullptr) return false;
+    // Pictures a web page names are found from its folder.
+    const char* slash = std::strrchr(path, '/');
+    std::snprintf(base_, sizeof(base_), "%.*s", slash == nullptr ? 0 : static_cast<int>(slash - path), path);
   }
   format_ = format;
   bool ok = false;
@@ -346,8 +432,14 @@ bool TextBook::open(Storage& storage, const char* path) {
       ok = scan_fb2();
       break;
     case Format::Html:
+    case Format::Mobi:
+    case Format::Pdf:
+    case Format::Docx:
+    case Format::Markdown:
+    case Format::Rtf:
       ok = scan_html();
       break;
+    case Format::Comic:
     case Format::None:
       break;
   }
@@ -395,6 +487,311 @@ bool TextBook::open_zipped(const char* path) {
   return ok;
 }
 
+bool TextBook::open_converted(const char* path, convert::Kind kind) {
+  File* in = storage_->open(path);
+  if (in == nullptr) return false;
+  // One converted copy per book, named by its path, size and the converters' version.
+  uint32_t h = fnv(path);
+  for (int i = 0; i < 4; ++i) h = (h ^ ((in->size() >> (8 * i)) & 0xFF)) * 16777619u;
+  h = (h ^ kConverterVersion) * 16777619u;
+  char page[64], note[64], pictures[64], scratch[64];
+  std::snprintf(page, sizeof(page), "%s/%08lx.html", kConvertFolder, static_cast<unsigned long>(h));
+  std::snprintf(note, sizeof(note), "%s/%08lx.no", kConvertFolder, static_cast<unsigned long>(h));
+  std::snprintf(pictures, sizeof(pictures), "%s/%08lx-", kConvertFolder, static_cast<unsigned long>(h));
+  std::snprintf(scratch, sizeof(scratch), "%s/%08lx.tmp", kConvertFolder, static_cast<unsigned long>(h));
+  last_convert_ = convert::Result::Ok;
+  file_ = storage_->open(page);
+  if (file_ == nullptr) {
+    // Tried before and could not be read: a note says why, so it is not tried at every start.
+    if (File* no = storage_->open(note)) {
+      uint8_t why = 0;
+      no->read_at(0, &why, 1);
+      storage_->close(no);
+      last_convert_ = why >= '1' && why <= '4' ? static_cast<convert::Result>(why - '0') : convert::Result::Unreadable;
+      storage_->close(in);
+      return false;
+    }
+    if (convert_fn_ != nullptr) convert_fn_(convert_ctx_, path);
+    auto* work = new (std::nothrow) uint8_t[convert::kWorkBytes];
+    convert::Result r = convert::Result::NoMemory;
+    if (work != nullptr) {
+      convert::Job job;
+      job.storage = storage_;
+      job.in = in;
+      job.in_path = path;
+      job.out_path = page;
+      job.pictures = pictures;
+      job.work = work;
+      job.work_size = convert::kWorkBytes;
+      job.zip = &zip_;
+      job.scratch_path = scratch;
+      r = convert::run(kind, job);
+      zip_.close();
+    }
+    delete[] work;
+    last_convert_ = r;
+    storage_->remove(scratch);
+    if (r == convert::Result::Ok) {
+      file_ = storage_->open(page);
+    } else if (r != convert::Result::NoMemory) {
+      const char why = static_cast<char>('0' + static_cast<int>(r));
+      storage_->write(note, &why, 1);
+    }
+  }
+  storage_->close(in);
+  std::snprintf(base_, sizeof(base_), "%s", kConvertFolder);
+  return file_ != nullptr;
+}
+
+bool TextBook::open_comic(const char* path) {
+  if (comic_ == nullptr || pictures_ == nullptr) return false;
+  file_ = storage_->open(path);
+  if (file_ == nullptr || !zip_.open(file_)) return false;
+  int about = -1;  // ComicInfo.xml
+  for (int i = 0; i < zip_.count() && comic_count_ < Zip::kMaxEntries; ++i) {
+    const std::string_view name = zip_.name(i);
+    const size_t slash = name.rfind('/');
+    const std::string_view base = slash == std::string_view::npos ? name : name.substr(slash + 1);
+    if (base.empty() || base[0] == '.' || name.starts_with("__MACOSX")) continue;
+    if (ends_with(base, ".jpg") || ends_with(base, ".jpeg") || ends_with(base, ".png")) {
+      comic_[comic_count_++] = static_cast<uint16_t>(i);
+    } else if (ends_with(base, "comicinfo.xml")) {
+      about = i;
+    }
+  }
+  if (comic_count_ == 0) return false;
+  std::sort(comic_, comic_ + comic_count_,
+            [&](uint16_t a, uint16_t b) { return natural_less(zip_.name(a), zip_.name(b)); });
+
+  // Title, writer and language from ComicInfo.xml.
+  if (about >= 0 && zip_.size(about) < kChapterBytes) {
+    const int32_t n = zip_.extract(about, raw_, kChapterBytes - 1);
+    const std::string_view x(reinterpret_cast<const char*>(raw_), n > 0 ? static_cast<size_t>(n) : 0);
+    char series[96] = "", number[16] = "";
+    size_t pos = 0, start = 0, before = 0;
+    xml::Tag tag;
+    while (xml::next_tag(x, pos, tag, start)) {
+      const std::string_view text = x.substr(before, start - before);
+      before = pos;
+      if (!tag.closing) continue;
+      char* out = xml::name_is(tag.name, "title")         ? info_.title
+                  : xml::name_is(tag.name, "writer")      ? info_.author
+                  : xml::name_is(tag.name, "languageiso") ? info_.language
+                  : xml::name_is(tag.name, "series")      ? series
+                  : xml::name_is(tag.name, "number")      ? number
+                                                          : nullptr;
+      const size_t size = out == info_.title      ? sizeof(info_.title)
+                          : out == info_.author   ? sizeof(info_.author)
+                          : out == info_.language ? sizeof(info_.language)
+                          : out == series         ? sizeof(series)
+                                                  : sizeof(number);
+      if (out != nullptr) clean_text(text, Encoding::Utf8, true, out, size, text_);
+    }
+    if (info_.title[0] == '\0' && series[0] != '\0') {
+      std::snprintf(info_.title, sizeof(info_.title), "%s%s%s", series, number[0] != '\0' ? " " : "", number);
+    }
+  }
+
+  // Chapters: a folder each, cut every kComicPages pictures.
+  std::string_view dir_before;
+  int in_part = 0;
+  bool folders = false;
+  for (int k = 0; k < comic_count_; ++k) {
+    const std::string_view name = zip_.name(comic_[k]);
+    const size_t slash = name.rfind('/');
+    folders |= slash != std::string_view::npos;
+  }
+  for (int k = 0; k < comic_count_; ++k) {
+    const std::string_view name = zip_.name(comic_[k]);
+    const size_t slash = name.rfind('/');
+    const std::string_view dir = slash == std::string_view::npos ? std::string_view{} : name.substr(0, slash);
+    const bool new_dir = k == 0 || dir != dir_before;
+    if (new_dir || in_part == kComicPages) {
+      if (part_count_ >= kMaxChapters) break;
+      parts_[part_count_++] = {static_cast<uint32_t>(k), 0};
+      in_part = 0;
+      char title[96];
+      const size_t last = dir.rfind('/');
+      if (folders && new_dir && !dir.empty()) {
+        copy_utf8(last == std::string_view::npos ? dir : dir.substr(last + 1), title, sizeof(title));
+      } else {
+        const int to = std::min(k + kComicPages, comic_count_);
+        std::snprintf(title, sizeof(title), "%d\xE2\x80\x93%d", k + 1, to);  // 1–20
+      }
+      if (!folders || new_dir) add_toc(title, 0, 0);
+    }
+    ++parts_[part_count_ - 1].length;
+    ++in_part;
+    dir_before = dir;
+  }
+  return part_count_ > 0;
+}
+
+void TextBook::load_comic(int i) {
+  const Part& p = parts_[i];
+  paragraph_count_ = picture_count_ = run_count_ = 0;
+  char* w = text_;
+  for (uint32_t k = p.offset; k < p.offset + p.length && picture_count_ < kMaxPictures; ++k) {
+    paragraphs_[paragraph_count_] = w;
+    *w++ = kPictureMark;
+    *w++ = '\0';
+    pictures_[picture_count_++] = {paragraph_count_, comic_[k], 0, 0};
+    ++paragraph_count_;
+  }
+  measure_pictures();
+}
+
+const char* TextBook::picture_file(int32_t entry) const {
+  if (entry < 0 || static_cast<uint32_t>(entry) >= kMaxPictures || picture_paths_ == nullptr) return nullptr;
+  return picture_paths_ + picture_at_[entry];
+}
+
+int TextBook::picture_entry(void* ctx, std::string_view src) {
+  auto& b = *static_cast<TextBook*>(ctx);
+  // Only pictures on the card: not on the web, not inline data.
+  if (b.picture_paths_ == nullptr || src.empty() || src.find("://") != std::string_view::npos ||
+      src.starts_with("data:")) {
+    return -1;
+  }
+  if (const size_t cut = src.find_first_of("?#"); cut != std::string_view::npos) src = src.substr(0, cut);
+  // Where it is: the page's folder, then the source, its %20s decoded, its ".." followed.
+  char path[256];
+  size_t n = 0;
+  auto put = [&](char c) {
+    if (n + 1 < sizeof(path)) path[n++] = c;
+  };
+  if (src[0] == '/') {
+    src.remove_prefix(1);
+  } else {
+    for (const char* c = b.base_; *c; ++c) put(*c);
+    if (n > 0) put('/');
+  }
+  for (size_t k = 0; k < src.size(); ++k) {
+    if (src[k] == '%' && k + 2 < src.size()) {
+      auto hex = [](char c) {
+        return c >= '0' && c <= '9' ? c - '0' : (c | 32) >= 'a' && (c | 32) <= 'f' ? (c | 32) - 'a' + 10 : -1;
+      };
+      const int hi = hex(src[k + 1]), lo = hex(src[k + 2]);
+      if (hi >= 0 && lo >= 0) {
+        put(static_cast<char>(hi << 4 | lo));
+        k += 2;
+        continue;
+      }
+    }
+    put(src[k]);
+  }
+  path[n] = '\0';
+  // Segments: "." dropped, ".." takes the one before away.
+  char clean[256];
+  size_t w = 0;
+  for (size_t k = 0; k <= n;) {
+    size_t e = k;
+    while (e < n && path[e] != '/') ++e;
+    const std::string_view seg(path + k, e - k);
+    if (seg == "..") {
+      while (w > 0 && clean[w - 1] != '/') --w;
+      if (w > 0) --w;
+    } else if (!seg.empty() && seg != ".") {
+      if (w > 0) clean[w++] = '/';
+      std::memcpy(clean + w, seg.data(), seg.size());
+      w += seg.size();
+    }
+    k = e + 1;
+  }
+  clean[w] = '\0';
+  if (w == 0 || b.picture_paths_used_ + w + 1 > kPicturePathBytes) return -1;
+  // The index of the picture being added.
+  const uint32_t entry = b.picture_count_now_;
+  if (entry >= kMaxPictures) return -1;
+  b.picture_at_[entry] = b.picture_paths_used_;
+  std::memcpy(b.picture_paths_ + b.picture_paths_used_, clean, w + 1);
+  b.picture_paths_used_ += static_cast<uint32_t>(w + 1);
+  ++b.picture_count_now_;
+  return static_cast<int>(entry);
+}
+
+void TextBook::measure_pictures() {
+  for (uint32_t k = 0; k < picture_count_; ++k) {
+    Picture& p = pictures_[k];
+    if (p.entry < 0) continue;
+    int w = 0, h = 0, found = -1;
+    if (format_ == Format::Comic) {
+      for (uint32_t want : {uint32_t{4096}, uint32_t{65536}}) {
+        const int32_t n = zip_.extract_head(p.entry, raw_, want);
+        if (n <= 0) break;
+        found = covers::picture_size(raw_, static_cast<uint32_t>(n), w, h);
+        if (found >= 0 || static_cast<uint32_t>(n) < want) break;
+      }
+    } else if (const char* path = picture_file(p.entry)) {
+      File* f = storage_->open(path);
+      if (f == nullptr) continue;
+      for (uint32_t want : {uint32_t{4096}, uint32_t{65536}}) {
+        const uint32_t n = std::min(want, f->size());
+        if (n == 0 || f->read_at(0, raw_, n) != static_cast<int32_t>(n)) break;
+        found = covers::picture_size(raw_, n, w, h);
+        if (found >= 0 || n < want) break;
+      }
+      storage_->close(f);
+    }
+    if (found == 1) {
+      p.w = static_cast<uint16_t>(w);
+      p.h = static_cast<uint16_t>(h);
+    }
+  }
+}
+
+ChapterMarkup TextBook::markup() const {
+  if (loaded_ < 0) return {};
+  return {runs_, run_count_, nullptr, 0, pictures_, picture_count_};
+}
+
+bool TextBook::draw_picture(Framebuffer& fb, const Picture& p, Rect r) {
+  if (p.entry < 0 || loaded_ < 0 || storage_ == nullptr || file_ == nullptr) return false;
+  // Kept on the card once drawn; raw_ is free while pages are drawn.
+  char keep[96];
+  if (format_ == Format::Comic) {
+    covers::picture_path(key_, p.entry, r.w, r.h, keep, sizeof(keep));
+    if (covers::draw_kept(*storage_, keep, fb, r, raw_, kChapterBytes)) return true;
+    const uint32_t at = zip_.stored_at(p.entry);
+    if (at > 0) return covers::draw_file(storage_, keep, fb, r, *file_, at, zip_.size(p.entry), raw_, kChapterBytes);
+    auto* data = reinterpret_cast<uint8_t*>(text_) + kComicScratch;
+    const int32_t n = zip_.extract(p.entry, data, kTextBytes - kComicScratch);
+    return n > 0 && covers::draw_new(storage_, keep, fb, r, data, static_cast<uint32_t>(n), raw_, kChapterBytes);
+  }
+  const char* path = picture_file(p.entry);
+  if (path == nullptr) return false;
+  covers::picture_path(key_, static_cast<int>(fnv(path) & 0x7FFFFFFF), r.w, r.h, keep, sizeof(keep));
+  if (covers::draw_kept(*storage_, keep, fb, r, raw_, kChapterBytes)) return true;
+  File* f = storage_->open(path);
+  if (f == nullptr) return false;
+  const bool ok = covers::draw_file(storage_, keep, fb, r, *f, 0, f->size(), raw_, kChapterBytes);
+  storage_->close(f);
+  return ok;
+}
+
+bool TextBook::make_cover(const char* cover_path) {
+  if (file_ == nullptr || storage_ == nullptr) return false;
+  if (format_ == Format::Comic) {
+    const int e = comic_[0];
+    const uint32_t at = zip_.stored_at(e);
+    if (at > 0) return covers::make_file(*storage_, cover_path, *file_, at, zip_.size(e));
+    loaded_ = -1;  // unpacked into the chapter's buffer
+    auto* data = reinterpret_cast<uint8_t*>(text_);
+    const int32_t n = zip_.extract(e, data, kTextBytes);
+    return n > 0 && covers::make(*storage_, cover_path, data, static_cast<uint32_t>(n));
+  }
+  if (cover_[0] != '\0') {
+    File* f = storage_->open(cover_);
+    if (f == nullptr) return false;
+    const bool ok = covers::make_file(*storage_, cover_path, *f, 0, f->size());
+    storage_->close(f);
+    return ok;
+  }
+  const uint8_t* data = nullptr;
+  const int32_t n = read_cover(&data);
+  return n > 0 && covers::make(*storage_, cover_path, data, static_cast<uint32_t>(n));
+}
+
 bool TextBook::begin_part(uint32_t offset) {
   if (part_count_ >= kMaxChapters) return false;  // the last part goes on
   end_part(offset);
@@ -425,7 +822,8 @@ void TextBook::add_toc(std::string_view title, int depth, uint32_t paragraph, ui
 void TextBook::title_from_name(const char* path) {
   const char* slash = std::strrchr(path, '/');
   std::string_view name(slash != nullptr ? slash + 1 : path);
-  for (const char* ext : {".fb2.zip", ".fb2", ".txt", ".html", ".htm"}) {
+  for (const char* ext : {".fb2.zip", ".fb2", ".txt", ".html", ".htm", ".mobi", ".azw3", ".azw", ".prc", ".pdb", ".pdf",
+                          ".docx", ".markdown", ".md", ".rtf", ".cbz"}) {
     if (ends_with(name, ext)) {
       name.remove_suffix(std::strlen(ext));
       break;
@@ -1172,6 +1570,7 @@ bool TextBook::scan_html() {
         }
         if (in_body && skip == 0 && !part_text && has_text(text)) part_text = true;
         const std::string_view name = tag.name;
+        if (in_body && skip == 0 && (xml::name_is(name, "img") || xml::name_is(name, "image"))) part_text = true;
         const bool heading =
             name.size() == 2 && (name[0] == 'h' || name[0] == 'H') && (name[1] == '1' || name[1] == '2');
         auto part_len = [&](uint32_t offset) { return part_open_ ? offset - parts_[part_count_ - 1].offset : 0; };
@@ -1188,7 +1587,7 @@ bool TextBook::scan_html() {
           } else if (capturing && heading && name[1] - '0' == level) {
             char title[96];
             clean_text({cap, cap_len}, encoding_, true, title, sizeof(title), text_);
-            add_toc(title, level - 1, 0);
+            if (!contents_from_marks_) add_toc(title, level - 1, 0);
             if (title[0] != '\0') min_depth = std::min(min_depth, level - 1);
             capturing = false;
           } else if (in_body && part_text && part_len(end) >= kSplitBytes &&
@@ -1206,11 +1605,33 @@ bool TextBook::scan_html() {
           cap_len = 0;
         } else if (xml::name_is(name, "meta") && xml::attr(tag.attrs, "name") == "author") {
           clean_text(xml::attr(tag.attrs, "content"), encoding_, true, info_.author, sizeof(info_.author), text_);
+        } else if (xml::name_is(name, "meta") && xml::attr(tag.attrs, "name") == "cover") {
+          const std::string_view file = xml::attr(tag.attrs, "content");
+          std::snprintf(cover_, sizeof(cover_), "%s%s%.*s", base_, base_[0] != '\0' ? "/" : "",
+                        static_cast<int>(file.size()), file.data());
+        } else if (xml::name_is(name, "meta") && xml::attr(tag.attrs, "name") == "vellum-contents") {
+          contents_from_marks_ = xml::attr(tag.attrs, "content") == "marks";
+        } else if (xml::name_is(name, convert::kChapterTag)) {
+          // A converted book's own contents: a chapter starts here.
+          in_body = true;
+          if (part_text && begin_part(start)) part_text = false;
+          char title[96];
+          clean_text(xml::attr(tag.attrs, "title"), encoding_, true, title, sizeof(title), text_);
+          int depth = 0;
+          for (char c : xml::attr(tag.attrs, "depth")) {
+            if (c >= '0' && c <= '9') depth = depth * 10 + (c - '0');
+          }
+          add_toc(title, std::min(depth, 8), 0);
+          if (title[0] != '\0') min_depth = std::min(min_depth, depth);
+        } else if (xml::name_is(name, "pagebreak")) {
+          // <mbp:pagebreak/>: Kindle books start their chapters on a new page.
+          if (in_body && part_text && begin_part(start)) part_text = false;
         } else if (xml::name_is(name, "body")) {
           in_body = true;
         } else if (heading && !tag.self_closing) {
           in_body = true;
-          if (part_text && begin_part(start)) part_text = false;
+          // Books with their own contents start chapters at its entries only.
+          if (part_text && !contents_from_marks_ && begin_part(start)) part_text = false;
           capturing = true;
           level = name[1] - '0';
           cap_len = 0;
@@ -1223,6 +1644,11 @@ bool TextBook::scan_html() {
       });
   if (!ok) return false;
   end_part(size);
+  if (!part_text && part_count_ > 1) {
+    // Nothing after the last break (Kindle books end with one): no empty chapter.
+    --part_count_;
+    for (int i = 0; i < toc_count_; ++i) toc_[i].chapter = std::min<uint16_t>(toc_[i].chapter, part_count_ - 1);
+  }
   if (min_depth > 0 && min_depth < 255) {
     for (int i = 0; i < toc_count_; ++i) toc_[i].depth = static_cast<uint8_t>(toc_[i].depth - min_depth);
   }
@@ -1243,8 +1669,12 @@ uint32_t TextBook::chapter_weight(int i) const { return (i >= 0 && i < part_coun
 
 bool TextBook::load_chapter(int i, Chapter& out) {
   if (i < 0 || i >= part_count_ || file_ == nullptr) return false;
-  if (loaded_ != i) {
+  if (loaded_ != i && format_ == Format::Comic) {
+    load_comic(i);
+    loaded_ = i;
+  } else if (loaded_ != i) {
     loaded_ = -1;
+    run_count_ = picture_count_ = 0;
     const Part& p = parts_[i];
     const uint32_t len = std::min(p.length, kChapterBytes);
     if (len > 0 && file_->read_at(p.offset, raw_, len) != static_cast<int32_t>(len)) return false;
@@ -1283,12 +1713,33 @@ bool TextBook::load_chapter(int i, Chapter& out) {
             first + fb2_paragraphs(text_, n, paragraphs_ + first, kMaxParagraphs - first, found, &sections);
         break;
       }
-      case Format::Html: {
+      case Format::Html:
+      case Format::Mobi:
+      case Format::Pdf:
+      case Format::Docx:
+      case Format::Markdown:
+      case Format::Rtf: {
         const uint32_t n = charset::to_utf8(encoding_, raw_, len, text_, kTextBytes);
         text_[n] = '\0';
-        paragraph_count_ = Epub::to_paragraphs(text_, n, paragraphs_, kMaxParagraphs);
+        // Bold, italics and pictures too.
+        Markup m;
+        if (runs_ != nullptr && pictures_ != nullptr) {
+          m.runs = runs_;
+          m.max_runs = kMaxRuns;
+          m.pictures = pictures_;
+          m.max_pictures = kMaxPictures;
+          m.entry_of = picture_entry;
+          m.ctx = this;
+        }
+        picture_paths_used_ = 0;
+        picture_count_now_ = 0;
+        paragraph_count_ = Epub::to_paragraphs(text_, n, paragraphs_, kMaxParagraphs, {}, &m);
+        run_count_ = m.run_count;
+        picture_count_ = m.picture_count;
+        measure_pictures();
         break;
       }
+      case Format::Comic:
       case Format::None:
         return false;
     }

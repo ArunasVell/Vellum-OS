@@ -100,6 +100,7 @@ struct JpegInput {
   uint32_t pos;
   Shrinker* shrink;
   File* file = nullptr;  // read from here instead of data
+  uint32_t base = 0;     // where in the file the picture starts
 };
 
 size_t jpeg_in(JDEC* jd, uint8_t* buf, size_t n) {
@@ -107,7 +108,7 @@ size_t jpeg_in(JDEC* jd, uint8_t* buf, size_t n) {
   n = std::min<size_t>(n, in->len - in->pos);
   if (buf != nullptr && in->file != nullptr) {
     // A picture file, read as the decoder goes.
-    if (in->file->read_at(in->pos, buf, static_cast<uint32_t>(n)) != static_cast<int32_t>(n)) return 0;
+    if (in->file->read_at(in->base + in->pos, buf, static_cast<uint32_t>(n)) != static_cast<int32_t>(n)) return 0;
   } else if (buf != nullptr) {
     std::memcpy(buf, in->data + in->pos, n);
   }
@@ -128,15 +129,16 @@ int jpeg_out(JDEC* jd, void* bitmap, JRECT* r) {
 }
 
 // Decodes into `out`, kLargeW x kLargeH at most (wk.large unless given);
-// sets its size. A JPEG may come from `file` (`data` unused, `len` its size).
+// sets its size. A JPEG may come from `file` (`data` unused, `len` its size,
+// starting at `base`).
 bool decode_large(const uint8_t* data, uint32_t len, Work& wk, int& w, int& h, uint8_t* out = nullptr,
-                  File* file = nullptr) {
+                  File* file = nullptr, uint32_t base = 0) {
   Shrinker s;
   s.sum = wk.sum;
   const bool png = file == nullptr && len >= 8 && std::memcmp(data, "\x89PNG", 4) == 0;
   if (!png) {
     JDEC jd;
-    JpegInput in{data, len, 0, &s, file};
+    JpegInput in{data, len, 0, &s, file, base};
     if (jd_prepare(&jd, jpeg_in, wk.pool, kPoolBytes, &in) != JDR_OK) return false;
     fit(jd.width, jd.height, kLargeW, kLargeH, w, h);
     // Let the decoder shrink as far as it can while staying above the thumbnail.
@@ -213,11 +215,10 @@ void path_for(const char* book_path, uint32_t file_size, char* out, size_t size)
   std::snprintf(out, size, "%s/%08lx.cov", kFolder, static_cast<unsigned long>(h));
 }
 
-bool make(Storage& storage, const char* cover_path, const uint8_t* data, uint32_t len) {
-  Work& wk = work();
-  int lw, lh;
-  if (!wk.ok() || len == 0 || !decode_large(data, len, wk, lw, lh)) return false;
+namespace {
 
+// Writes the thumbnails of the picture decoded into wk.large.
+bool make_from_large(Storage& storage, const char* cover_path, Work& wk, int lw, int lh) {
   // The small thumbnail, from the large one.
   int sw, sh;
   fit(lw, lh, kSmallW, kSmallH, sw, sh);
@@ -238,6 +239,35 @@ bool make(Storage& storage, const char* cover_path, const uint8_t* data, uint32_
   std::memcpy(out + kHeader, wk.large, static_cast<size_t>(lw) * lh);
   std::memcpy(out + kHeader + lw * lh, wk.small, static_cast<size_t>(sw) * sh);
   return storage.write(cover_path, out, static_cast<uint32_t>(kHeader + lw * lh + sw * sh));
+}
+
+// A JPEG read from the file as it decodes; a PNG read whole first.
+bool decode_file(File& f, uint32_t at, uint32_t len, Work& wk, int& w, int& h) {
+  uint8_t head[8] = {};
+  if (len < 8 || f.read_at(at, head, sizeof(head)) != static_cast<int32_t>(sizeof(head))) return false;
+  if (head[0] == 0xFF && head[1] == 0xD8) return decode_large(nullptr, len, wk, w, h, nullptr, &f, at);
+  if (std::memcmp(head, "\x89PNG", 4) != 0 || len > kMaxViewerPng) return false;
+  auto* data = new (std::nothrow) uint8_t[len];
+  const bool ok =
+      data != nullptr && f.read_at(at, data, len) == static_cast<int32_t>(len) && decode_large(data, len, wk, w, h);
+  delete[] data;
+  return ok;
+}
+
+}  // namespace
+
+bool make(Storage& storage, const char* cover_path, const uint8_t* data, uint32_t len) {
+  Work& wk = work();
+  int lw, lh;
+  if (!wk.ok() || len == 0 || !decode_large(data, len, wk, lw, lh)) return false;
+  return make_from_large(storage, cover_path, wk, lw, lh);
+}
+
+bool make_file(Storage& storage, const char* cover_path, File& f, uint32_t at, uint32_t len) {
+  Work& wk = work();
+  int lw, lh;
+  if (!wk.ok() || !decode_file(f, at, len, wk, lw, lh)) return false;
+  return make_from_large(storage, cover_path, wk, lw, lh);
 }
 
 bool load(Storage& storage, const char* cover_path, bool large, CoverImage& out) {
@@ -333,11 +363,11 @@ bool draw_kept(Storage& storage, const char* path, Framebuffer& fb, Rect r, uint
   return true;
 }
 
-bool draw_new(Storage* storage, const char* path, Framebuffer& fb, Rect r, const uint8_t* data, uint32_t len,
-              uint8_t* scratch, uint32_t scratch_size) {
-  Work& wk = work();
-  int w, h;
-  if (!wk.ok() || len == 0 || r.empty() || !decode_large(data, len, wk, w, h)) return false;
+namespace {
+
+// Draws the picture decoded into wk.large and keeps it, as drawn, at `path`.
+bool draw_decoded(Storage* storage, const char* path, Framebuffer& fb, Rect r, Work& wk, int w, int h, uint8_t* scratch,
+                  uint32_t scratch_size) {
   const CoverImage picture{w, h, wk.large};
   ui::draw_picture(fb, r, picture);
   // Keep it as drawn: one bit a pixel, rows top to bottom. The data was
@@ -357,6 +387,24 @@ bool draw_new(Storage* storage, const char* path, Framebuffer& fb, Rect r, const
   }
   storage->write(path, scratch, static_cast<uint32_t>(kPictureHeader + bytes));
   return true;
+}
+
+}  // namespace
+
+bool draw_new(Storage* storage, const char* path, Framebuffer& fb, Rect r, const uint8_t* data, uint32_t len,
+              uint8_t* scratch, uint32_t scratch_size) {
+  Work& wk = work();
+  int w, h;
+  if (!wk.ok() || len == 0 || r.empty() || !decode_large(data, len, wk, w, h)) return false;
+  return draw_decoded(storage, path, fb, r, wk, w, h, scratch, scratch_size);
+}
+
+bool draw_file(Storage* storage, const char* path, Framebuffer& fb, Rect r, File& f, uint32_t at, uint32_t len,
+               uint8_t* scratch, uint32_t scratch_size) {
+  Work& wk = work();
+  int w, h;
+  if (!wk.ok() || r.empty() || !decode_file(f, at, len, wk, w, h)) return false;
+  return draw_decoded(storage, path, fb, r, wk, w, h, scratch, scratch_size);
 }
 
 // ---- Full-screen pictures ----------------------------------------------------

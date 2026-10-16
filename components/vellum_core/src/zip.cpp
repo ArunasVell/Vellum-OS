@@ -145,6 +145,11 @@ int32_t Zip::unpack(int i, uint8_t* out, uint32_t cap, bool head) {
   }
 }
 
+uint32_t Zip::stored_at(int i) {
+  if (file_ == nullptr || i < 0 || i >= count_ || entries_[i].method != kStored) return 0;
+  return data_offset(i);
+}
+
 bool Zip::extract_to(int i, Writer& out, uint8_t* window) {
   if (file_ == nullptr || i < 0 || i >= count_) return false;
   const Entry& e = entries_[i];

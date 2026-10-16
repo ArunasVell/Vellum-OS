@@ -289,6 +289,8 @@ struct Strings {
   const char* preview;                // row: shows the sleep screen
   const char* no_pictures;            // the sleep folder is empty
   const char* preparing_pictures;     // while converting them
+  const char* preparing_book;         // a book in a new format, converted the first time
+  const char* preparing_book_once;    // under it
   const char* picture_broken;         // under a picture that cannot be shown
   const char* pictures_shuffle_lead;  // line under the pictures' title
   const char* pictures_one_lead;

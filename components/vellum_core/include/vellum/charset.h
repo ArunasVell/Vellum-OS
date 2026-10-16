@@ -37,4 +37,8 @@ inline uint32_t unit(Encoding e) { return (e == Encoding::Utf16LE || e == Encodi
 // end is dropped. Returns the bytes written (no NUL is added).
 uint32_t to_utf8(Encoding e, const uint8_t* in, uint32_t len, char* out, uint32_t cap);
 
+// The code point of one byte in a one-byte encoding (Latin1 for the others);
+// U+FFFD where the code page leaves the byte unused.
+uint32_t code_point(Encoding e, uint8_t byte);
+
 }  // namespace vellum::charset

@@ -320,11 +320,15 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBoo
         std::memcpy(e.language, info.language, sizeof(e.language));
       }
       // The cover, once: decoded and shrunk now so screens only read thumbnails.
-      const uint8_t* picture = nullptr;
-      const int32_t len = is_epub ? epub.read_cover(&picture) : text->read_cover(&picture);
       char cover_path[64];
       covers::path_for(e.path, e.file_size, cover_path, sizeof(cover_path));
-      e.cover = len > 0 && covers::make(storage, cover_path, picture, static_cast<uint32_t>(len)) ? 1 : 0;
+      if (is_epub) {
+        const uint8_t* picture = nullptr;
+        const int32_t len = epub.read_cover(&picture);
+        e.cover = len > 0 && covers::make(storage, cover_path, picture, static_cast<uint32_t>(len)) ? 1 : 0;
+      } else {
+        e.cover = text->make_cover(cover_path) ? 1 : 0;
+      }
       is_epub ? epub.close() : text->close();
       cache_dirty_ = true;
     }

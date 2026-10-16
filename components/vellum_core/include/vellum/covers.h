@@ -38,6 +38,10 @@ void path_for(const char* book_path, uint32_t file_size, char* out, size_t size)
 // `cover_path`. Returns false when the picture cannot be decoded.
 bool make(Storage& storage, const char* cover_path, const uint8_t* data, uint32_t len);
 
+// The same from a picture inside a file: `len` bytes from `at` (a JPEG
+// is read as it decodes, a PNG of up to 1 MB whole).
+bool make_file(Storage& storage, const char* cover_path, File& f, uint32_t at, uint32_t len);
+
 // Reads one thumbnail into out.px, which must hold kLargeW*kLargeH (large)
 // or kSmallW*kSmallH (small) bytes. Returns false when there is none.
 bool load(Storage& storage, const char* cover_path, bool large, CoverImage& out);
@@ -93,6 +97,10 @@ bool draw_kept(Storage& storage, const char* path, Framebuffer& fb, Rect r, uint
 // the picture's own data. False when it cannot be decoded.
 bool draw_new(Storage* storage, const char* path, Framebuffer& fb, Rect r, const uint8_t* data, uint32_t len,
               uint8_t* scratch, uint32_t scratch_size);
+// The same for a picture inside a file, `len` bytes from `at`: a picture
+// file next to a book, or one stored in a comic's archive.
+bool draw_file(Storage* storage, const char* path, Framebuffer& fb, Rect r, File& f, uint32_t at, uint32_t len,
+               uint8_t* scratch, uint32_t scratch_size);
 
 }  // namespace covers
 }  // namespace vellum

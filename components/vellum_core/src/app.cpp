@@ -594,6 +594,7 @@ App::App(Board& board)
   large_cover_.px = new (std::nothrow) uint8_t[covers::kLargeW * covers::kLargeH];
   small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   fb_.set_rotation(board.rotation);
+  text_book_.on_convert(&App::book_converting, this);
   if (board_.storage != nullptr) {
     // A card Vellum has never used (no settings, and it has never slept
     // with it): the first-time setup comes first. Older cards without the
@@ -635,6 +636,28 @@ const CoverImage* App::cover_of(int book, bool large) {
   char path[64];
   covers::path_for(e.path, e.file_size, path, sizeof(path));
   return covers::load(*board_.storage, path, large, img) ? &img : nullptr;
+}
+
+// A book in a new format (Kindle, PDF, Word, ...) is converted the first
+// time the library sees it, which can take a while: the screen says so.
+void App::book_converting(void* ctx, const char* path) {
+  App& app = *static_cast<App*>(ctx);
+  const char* slash = std::strrchr(path, '/');
+  std::string_view name = slash != nullptr ? slash + 1 : path;
+  if (name.size() > 60) {
+    size_t n = 57;
+    while (n > 0 && (static_cast<uint8_t>(name[n]) & 0xC0) == 0x80) --n;  // a whole character
+    name = name.substr(0, n);
+  }
+  char cut[64];
+  std::snprintf(cut, sizeof(cut), "%.*s%s", static_cast<int>(name.size()), name.data(),
+                name.size() < std::strlen(slash != nullptr ? slash + 1 : path) ? "\xE2\x80\xA6" : "");
+  const int mid = app.fb_.height() / 2;
+  app.fb_.clear(Color::White);
+  ui::draw_centered(app.fb_, ui::large_font(), mid - 30, app.text().preparing_book);
+  ui::draw_centered(app.fb_, ui::text_font(), mid + 14, cut);
+  ui::draw_centered(app.fb_, ui::small_italic_font(), mid + 52, app.text().preparing_book_once);
+  app.queue_.submit();
 }
 
 void App::reload_library() {

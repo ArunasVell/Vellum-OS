@@ -686,7 +686,7 @@ void test_upload_helpers() {
   CHECK(safe("../../vellum/settings.epub") == "settings.epub");
   CHECK(safe("..hidden.epub") == "hidden.epub");
   CHECK(safe("What? Why: \"Now\".epub") == "What_ Why_ _Now_.epub");
-  CHECK(safe("notes.pdf") == "<rejected>");
+  CHECK(safe("notes.djvu") == "<rejected>");
   CHECK(safe(".epub") == "<rejected>");
   CHECK(safe("") == "<rejected>");
   CHECK(safe_picture_name("C:\\fakepath\\Sea.JPG", buf, sizeof(buf)) && std::string(buf) == "Sea.JPG");
@@ -1673,6 +1673,197 @@ void test_html_book() {
   CHECK(std::string(ch.paragraphs[0]) == "\x01Morning" && std::string(ch.paragraphs[1]) == "Coffee at the café.");
 }
 
+// The words of a paragraph, without its leading marks.
+std::string words_of(const char* p) {
+  while (*p != '\0' && static_cast<uint8_t>(*p) < 0x20) ++p;
+  return p;
+}
+
+// Finds a paragraph whose words start with `start`, in any chapter: (chapter, paragraph) or (-1, -1).
+std::pair<int, int> find_paragraph(TextBook& book, const std::string& start) {
+  for (int c = 0; c < book.chapter_count(); ++c) {
+    Chapter ch{};
+    if (!book.load_chapter(c, ch)) continue;
+    for (uint32_t i = 0; i < ch.paragraph_count; ++i) {
+      if (words_of(ch.paragraphs[i]).rfind(start, 0) == 0) return {c, static_cast<int>(i)};
+    }
+  }
+  return {-1, -1};
+}
+
+void test_converted_books() {
+  std::filesystem::remove_all("test-card-convert");
+  StdioStorage card("test-card-convert");
+  for (const char* name :
+       {"sample.mobi", "sample.azw3", "sample.docx", "sample.rtf", "sample.pdf", "locked.pdf", "scan.pdf"}) {
+    const std::string data = read_all((std::string(VELLUM_TEST_DATA "/formats/") + name).c_str());
+    CHECK(card.write((std::string("books/") + name).c_str(), data.data(), static_cast<uint32_t>(data.size())));
+  }
+  int converted = 0;
+  struct Want {
+    const char* name;
+    TextBook::Format format;
+    bool picture, cover;
+  };
+  for (const Want& w : {Want{"sample.mobi", TextBook::Format::Mobi, true, true},
+                        Want{"sample.azw3", TextBook::Format::Mobi, true, true},
+                        Want{"sample.docx", TextBook::Format::Docx, true, false},
+                        Want{"sample.rtf", TextBook::Format::Rtf, false, false},
+                        Want{"sample.pdf", TextBook::Format::Pdf, false, false}}) {
+    const std::string path = std::string("books/") + w.name;
+    for (int pass = 0; pass < 2; ++pass) {  // converted once, then the copy is read
+      TextBook book;
+      book.on_convert([](void* ctx, const char*) { ++*static_cast<int*>(ctx); }, &converted);
+      const int before = converted;
+      CHECK(book.open(card, path.c_str()));
+      CHECK(converted == before + (pass == 0 ? 1 : 0));
+      CHECK(book.format() == w.format);
+      CHECK(std::string(book.info().title) == "Formats Test");
+      CHECK(std::string(book.info().author).rfind("Ona Ra", 0) == 0);
+      CHECK(book.toc_count() >= 2);
+      if (book.toc_count() >= 2) {
+        CHECK(std::string(book.toc(0).title) == "Chapter One" && book.toc(0).chapter == 0);
+        CHECK(std::string(book.toc(1).title) == "Chapter Two" && book.toc(1).chapter == 1);
+      }
+      Chapter ch{};
+      CHECK(book.load_chapter(0, ch) && ch.paragraph_count >= 2);
+      if (ch.paragraph_count >= 2) {
+        CHECK(std::string(ch.paragraphs[0]) ==
+              "\x01"
+              "Chapter One");
+        CHECK(words_of(ch.paragraphs[1]).rfind("The first paragraph has bold and italic words.", 0) == 0);
+      }
+      CHECK(book.markup().run_count >= 4);  // bold, then italic, each on and off
+      CHECK((book.markup().picture_count == 1) == w.picture);
+      if (w.picture && book.markup().picture_count == 1) {
+        const Picture& pic = book.markup().pictures[0];
+        CHECK(pic.w == 200 && pic.h == 120);
+        CHECK(std::string(ch.paragraphs[pic.paragraph]).rfind("\x02", 0) == 0);
+      }
+      const std::string lt = w.format == TextBook::Format::Pdf ? "Short." : "Ąžuolas ėjo per šilą.";
+      CHECK(find_paragraph(book, lt).first == book.toc(book.toc_count() - 1).chapter);
+      char cover[64];
+      covers::path_for(path.c_str(), 1, cover, sizeof(cover));
+      CHECK(book.make_cover(cover) == w.cover);
+    }
+  }
+
+  // Locked and scanned PDFs cannot be read, and are not tried again.
+  for (const char* name : {"books/locked.pdf", "books/scan.pdf"}) {
+    for (int pass = 0; pass < 2; ++pass) {
+      TextBook book;
+      book.on_convert([](void* ctx, const char*) { ++*static_cast<int*>(ctx); }, &converted);
+      const int before = converted;
+      CHECK(!book.open(card, name));
+      CHECK(converted == before + (pass == 0 ? 1 : 0));
+      CHECK(book.last_convert() ==
+            (std::string(name) == "books/locked.pdf" ? convert::Result::Protected : convert::Result::NoText));
+    }
+  }
+  std::filesystem::remove_all("test-card-convert");
+}
+
+void test_markdown_book() {
+  std::filesystem::remove_all("test-card-md");
+  StdioStorage card("test-card-md");
+  const std::string md =
+      "---\ntitle: \"Notes & Ideas\"\nauthor: Rūta\n---\n\n"
+      "# First Part\n\nSome *italic* and **bold** text,\nwith `code` and a [link](http://x.org).\n\n"
+      "![A picture](pics/a.png)\n\n## Lists\n\n- one\n- two\n\n1. first\n2. second\n\n> A quote\n\n"
+      "| Name | Value |\n|---|---|\n| a | 1 |\n\n```\n<code> & more\n```\n\nSetext\n======\n\nLast.\n";
+  CHECK(card.write("books/notes/ideas.md", md.data(), static_cast<uint32_t>(md.size())));
+  const std::string png = read_all(VELLUM_TEST_DATA "/sleep/field.png");
+  CHECK(card.write("books/notes/pics/a.png", png.data(), static_cast<uint32_t>(png.size())));
+  TextBook book;
+  CHECK(book.open(card, "books/notes/ideas.md"));
+  CHECK(book.format() == TextBook::Format::Markdown);
+  CHECK(std::string(book.info().title) == "Notes & Ideas");
+  CHECK(std::string(book.info().author) == "Rūta");
+  CHECK(book.toc_count() == 3);
+  if (book.toc_count() == 3) {
+    CHECK(std::string(book.toc(1).title) == "Lists" && book.toc(1).depth == 1);
+    CHECK(std::string(book.toc(2).title) == "Setext" && book.toc(2).depth == 0);
+  }
+  Chapter ch{};
+  CHECK(book.load_chapter(0, ch) && ch.paragraph_count == 3);
+  if (ch.paragraph_count == 3) {
+    CHECK(std::string(ch.paragraphs[0]) ==
+          "\x01"
+          "First Part");
+    CHECK(words_of(ch.paragraphs[1]) == "Some italic and bold text, with code and a link.");
+    CHECK(std::string(ch.paragraphs[2]) ==
+          "\x02"
+          "A picture");
+  }
+  CHECK(book.markup().run_count >= 4);
+  CHECK(book.markup().picture_count == 1 && book.markup().pictures[0].entry >= 0 && book.markup().pictures[0].w == 900);
+  CHECK(book.load_chapter(1, ch) && ch.paragraph_count >= 7);
+  if (ch.paragraph_count >= 7) {
+    CHECK(words_of(ch.paragraphs[1]) == "• one");
+    CHECK(words_of(ch.paragraphs[3]) == "1. first");
+  }
+  CHECK(find_paragraph(book, "<code> & more").first == 1);
+  CHECK(find_paragraph(book, "Last.").first == 2);
+  std::filesystem::remove_all("test-card-md");
+}
+
+void test_rtf_book() {
+  std::filesystem::remove_all("test-card-rtf");
+  StdioStorage card("test-card-rtf");
+  // Windows-1251, a hidden destination, a picture to skip, a field's result, \uN with a fallback.
+  const std::string rtf =
+      "{\\rtf1\\ansi\\ansicpg1251\\deff0{\\fonttbl{\\f0 Times;}}{\\*\\generator X;}"
+      "{\\info{\\title \\'cf\\'f0\\'e8\\'e2\\'e5\\'f2}}"
+      "{\\pard\\outlinelevel0 \\'c3\\'eb\\'e0\\'e2\\'e0 1\\par}"
+      "{\\pard Text with {\\b bold}{\\pict\\pngblip 89504e47} and "
+      "{\\field{\\*\\fldinst HYPERLINK \"x\"}{\\fldrslt a link}}.\\line Next \\u8212? line.\\par}"
+      "}";
+  CHECK(card.write("books/ru.rtf", rtf.data(), static_cast<uint32_t>(rtf.size())));
+  TextBook book;
+  CHECK(book.open(card, "books/ru.rtf"));
+  CHECK(std::string(book.info().title) == "Привет");
+  CHECK(book.toc_count() == 1 && std::string(book.toc(0).title) == "Глава 1");
+  Chapter ch{};
+  CHECK(book.load_chapter(0, ch) && ch.paragraph_count == 3);  // \line goes on in a line of its own
+  if (ch.paragraph_count == 3) {
+    CHECK(words_of(ch.paragraphs[1]) == "Text with bold and a link.");
+    CHECK(words_of(ch.paragraphs[2]) == "Next — line.");
+  }
+  std::filesystem::remove_all("test-card-rtf");
+}
+
+void test_comic_book() {
+  std::filesystem::remove_all("test-card-cbz");
+  StdioStorage card("test-card-cbz");
+  const std::string cbz = read_all(VELLUM_TEST_DATA "/formats/sample.cbz");
+  CHECK(card.write("books/comic.cbz", cbz.data(), static_cast<uint32_t>(cbz.size())));
+  TextBook book;
+  CHECK(book.open(card, "books/comic.cbz"));
+  CHECK(book.format() == TextBook::Format::Comic);
+  CHECK(std::string(book.info().title).find("Test Comic") != std::string::npos);
+  CHECK(std::string(book.info().author) == "Comic Writer");
+  CHECK(std::string(book.info().language) == "lt");
+  CHECK(book.chapter_count() == 2 && book.toc_count() == 2);
+  if (book.toc_count() == 2) CHECK(std::string(book.toc(1).title) == "Vol 2" && book.toc(1).chapter == 1);
+  Chapter ch{};
+  CHECK(book.load_chapter(0, ch) && ch.paragraph_count == 3);
+  const ChapterMarkup m = book.markup();
+  CHECK(m.picture_count == 3);
+  if (m.picture_count == 3) {
+    CHECK(m.pictures[0].w == 120 && m.pictures[0].h == 180);
+    // page1 (black at the top) first, then page2 and page10 (black at the bottom).
+    for (int i = 0; i < 3; ++i) {
+      Fixture f;
+      f.fb.clear(Color::White);
+      CHECK(book.draw_picture(f.fb, m.pictures[i], Rect{0, 0, 120, 180}));
+      CHECK((f.fb.pixel(60, 20) == Color::Black) == (i == 0));
+      CHECK((f.fb.pixel(60, 160) == Color::Black) == (i != 0));
+    }
+  }
+  CHECK(book.make_cover("vellum/covers/comic.bin"));
+  std::filesystem::remove_all("test-card-cbz");
+}
+
 void test_library_finds_other_formats() {
   StdioStorage card("test-card-formats");
   std::remove("test-card-formats/vellum/library.txt");
@@ -1680,7 +1871,7 @@ void test_library_finds_other_formats() {
     const std::string data = read_all((std::string(VELLUM_TEST_DATA "/") + name).c_str());
     CHECK(card.write((std::string("books/") + name).c_str(), data.data(), static_cast<uint32_t>(data.size())));
   }
-  CHECK(card.write("books/notes.pdf", "%PDF", 4));
+  CHECK(card.write("books/notes.pdf", "%PDF", 4));  // a PDF that cannot be read: left out
   Epub epub;
   TextBook text;
   Library lib;
@@ -1713,7 +1904,10 @@ void test_book_upload_names() {
   CHECK(safe("Knyga.fb2.zip") == "Knyga.fb2.zip");
   CHECK(safe("page.html") == "page.html");
   CHECK(safe("page.htm") == "page.htm");
-  for (const char* no : {"x.zip", "x.pdf", "x.mobi", "x.azw3", "x.docx", ".txt"}) CHECK(safe(no) == "<rejected>");
+  for (const char* yes : {"x.pdf", "x.mobi", "x.AZW3", "x.azw", "x.prc", "x.docx", "x.md", "x.rtf", "x.cbz"}) {
+    CHECK(safe(yes) == yes);
+  }
+  for (const char* no : {"x.zip", "x.doc", "x.kfx", "x.cbr", "x.djvu", ".txt", ".pdf"}) CHECK(safe(no) == "<rejected>");
   // A long name is cut, keeping the whole of a two-part extension.
   const std::string longer = std::string(200, 'a') + ".fb2.zip";
   const std::string cut = safe(longer.c_str());
@@ -2647,8 +2841,8 @@ void test_peer_transfer() {
     PeerSender tx;
     PeerReceiver rx;
     rx.begin(desk.ends[1], card_b);
-    CHECK(card_a.write("books/notes.pdf", "hi", 2));
-    CHECK(tx.begin(desk.ends[0], card_a, "books/notes.pdf"));
+    CHECK(card_a.write("books/notes.djvu", "hi", 2));
+    CHECK(tx.begin(desk.ends[0], card_a, "books/notes.djvu"));
     run_desk(desk, tx, rx, 50);
     CHECK(tx.state() == PeerSender::State::Failed && tx.error() == PeerSender::Error::Refused);
   }
@@ -6070,7 +6264,7 @@ void test_app_folders_and_pictures() {
   write_file(card, "pictures/a.bmp", make_half_bmp(600, 300, 24, false));  // black top
   write_file(card, "pictures/b.bmp", make_half_bmp(600, 300, 8, true));
   write_file(card, "pictures/c.jpg", std::string("\xFF\xD8\xFF\x00junk", 8));  // cannot be shown
-  write_file(card, "pictures/readme.md", "not shown");
+  write_file(card, "pictures/notes.dat", "not shown");
   Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
   settled(card);
   auto* app = new App(board);
@@ -6088,7 +6282,7 @@ void test_app_folders_and_pictures() {
   press(*app, Key::Next);
   press(*app, Key::Power);  // pictures: up, a.bmp, b.bmp, c.jpg
   CHECK(row_selected(1));
-  CHECK(screen.pixel(455, 160 + 4 * 76 + 38) == Color::White);  // no row for readme.md
+  CHECK(screen.pixel(455, 160 + 4 * 76 + 38) == Color::White);  // no row for notes.dat
 
   // A picture fills the width, in the middle; the side buttons step through them.
   press(*app, Key::Power);
@@ -6581,6 +6775,10 @@ int main() {
   test_fb2_book();
   test_fb2_zip_book();
   test_html_book();
+  test_converted_books();
+  test_markdown_book();
+  test_rtf_book();
+  test_comic_book();
   test_library_finds_other_formats();
   test_book_upload_names();
   test_app_opens_fb2();

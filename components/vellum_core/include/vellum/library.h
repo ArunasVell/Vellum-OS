@@ -24,8 +24,8 @@
 
 namespace vellum {
 
-// Whether a file is a book by its name: .epub, .txt, .fb2, .fb2.zip,
-// .html or .htm (any case).
+// Whether a file is a book by its name: .epub, or one TextBook reads
+// (TextBook::format_of; any case).
 bool is_book_file(const char* name);
 // Whether a file is a picture the viewer shows: .jpg, .jpeg, .png or .bmp.
 bool is_picture_file(const char* name);
