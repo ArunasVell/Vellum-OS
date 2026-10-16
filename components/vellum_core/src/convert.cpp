@@ -33,7 +33,7 @@ bool same_lower(std::string_view a, std::string_view lower) {
 
 // Copies s into out (NUL-terminated), cut at a character boundary to fit.
 void copy_utf8(std::string_view s, char* out, size_t size) {
-  size_t n = std::min(s.size(), size - 1);
+  size_t n = std::min<size_t>(s.size(), size - 1);
   if (n < s.size()) {
     while (n > 0 && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;
   }
@@ -203,7 +203,7 @@ class Markdown {
     if (line.empty()) return;
     // A hard break: two spaces or a backslash at the end of the line.
     if (para_len_ > 0 && para_len_ + 1 < sizeof(para_)) para_[para_len_++] = ' ';
-    const size_t n = std::min(line.size(), sizeof(para_) - 1 - para_len_);
+    const size_t n = std::min<size_t>(line.size(), sizeof(para_) - 1 - para_len_);
     std::memcpy(para_ + para_len_, line.data(), n);
     para_len_ += n;
   }
@@ -689,7 +689,7 @@ class Rtf {
       if (!name.empty() && name.back() == ';') name = trim(name.substr(0, name.size() - 1));
       int level = 0;
       char lower[64];
-      const size_t n = std::min(name.size(), sizeof(lower));
+      const size_t n = std::min<size_t>(name.size(), sizeof(lower));
       for (size_t k = 0; k < n; ++k) lower[k] = ascii_lower(name[k]);
       const std::string_view l(lower, n);
       if (l == "title") level = 1;
@@ -741,7 +741,7 @@ class Rtf {
   }
 
   void raw_para(std::string_view s) {
-    const size_t n = std::min(s.size(), sizeof(para_) - 16 - para_len_);
+    const size_t n = std::min<size_t>(s.size(), sizeof(para_) - 16 - para_len_);
     std::memcpy(para_ + para_len_, s.data(), n);
     para_len_ += n;
   }
@@ -1082,7 +1082,7 @@ Result docx(Job& job) {
   int level = 0;
   int pictures = 0;
   auto raw = [&](std::string_view s) {
-    const size_t n = std::min(s.size(), kPara - 16 - para_len);
+    const size_t n = std::min<size_t>(s.size(), kPara - 16 - para_len);
     std::memcpy(para + para_len, s.data(), n);
     para_len += n;
   };

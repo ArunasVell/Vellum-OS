@@ -87,7 +87,7 @@ bool ends_with(std::string_view s, std::string_view ext) {
 
 // Copies s into out (NUL-terminated), cut at a character boundary to fit.
 void copy_utf8(std::string_view s, char* out, size_t size) {
-  size_t n = std::min(s.size(), size - 1);
+  size_t n = std::min<size_t>(s.size(), size - 1);
   if (n < s.size()) {
     while (n > 0 && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;
   }
@@ -274,7 +274,7 @@ bool walk_tags(File& file, uint32_t from, uint8_t* buf, uint32_t cap, Fn&& fn) {
   const uint32_t size = file.size();
   uint32_t w = from;
   while (w < size) {
-    const uint32_t want = std::min(size - w, cap);
+    const uint32_t want = std::min<uint32_t>(size - w, cap);
     if (file.read_at(w, buf, want) != static_cast<int32_t>(want)) return false;
     const std::string_view s(reinterpret_cast<const char*>(buf), want);
     size_t pos = 0;
@@ -726,7 +726,7 @@ void TextBook::measure_pictures() {
       File* f = storage_->open(path);
       if (f == nullptr) continue;
       for (uint32_t want : {uint32_t{4096}, uint32_t{65536}}) {
-        const uint32_t n = std::min(want, f->size());
+        const uint32_t n = std::min<uint32_t>(want, f->size());
         if (n == 0 || f->read_at(0, raw_, n) != static_cast<int32_t>(n)) break;
         found = covers::picture_size(raw_, n, w, h);
         if (found >= 0 || n < want) break;
@@ -1007,7 +1007,7 @@ uint32_t TextBook::split_text(const char* in, uint32_t len, char* out, const cha
 
 bool TextBook::scan_text() {
   const uint32_t size = file_->size();
-  const uint32_t first = std::min(size, kChapterBytes);
+  const uint32_t first = std::min<uint32_t>(size, kChapterBytes);
   if (file_->read_at(0, raw_, first) != static_cast<int32_t>(first)) return false;
   uint32_t bom = 0;
   encoding_ = charset::detect(raw_, first, bom);
@@ -1090,7 +1090,7 @@ bool TextBook::scan_text() {
   bool headings = false;
   uint32_t w = bom;
   while (w < size) {
-    const uint32_t n = std::min(size - w, kChapterBytes);
+    const uint32_t n = std::min<uint32_t>(size - w, kChapterBytes);
     if (file_->read_at(w, raw_, n) != static_cast<int32_t>(n)) return false;
     const bool last = w + n >= size;
     uint32_t pos = 0;
@@ -1372,7 +1372,7 @@ bool TextBook::scan_fb2() {
   const bool ok = walk_tags(
       *file_, bom, raw_, kChapterBytes, [&](const xml::Tag& tag, std::string_view text, uint32_t start, uint32_t end) {
         if (capture != Capture::None) {
-          const size_t n = std::min(text.size(), sizeof(cap) - cap_len);
+          const size_t n = std::min<size_t>(text.size(), sizeof(cap) - cap_len);
           std::memcpy(cap + cap_len, text.data(), n);
           cap_len += n;
         }
@@ -1564,7 +1564,7 @@ bool TextBook::scan_html() {
   const bool ok = walk_tags(
       *file_, bom, raw_, kChapterBytes, [&](const xml::Tag& tag, std::string_view text, uint32_t start, uint32_t end) {
         if (capturing) {
-          const size_t n = std::min(text.size(), sizeof(cap) - cap_len);
+          const size_t n = std::min<size_t>(text.size(), sizeof(cap) - cap_len);
           std::memcpy(cap + cap_len, text.data(), n);
           cap_len += n;
         }
@@ -1676,7 +1676,7 @@ bool TextBook::load_chapter(int i, Chapter& out) {
     loaded_ = -1;
     run_count_ = picture_count_ = 0;
     const Part& p = parts_[i];
-    const uint32_t len = std::min(p.length, kChapterBytes);
+    const uint32_t len = std::min<uint32_t>(p.length, kChapterBytes);
     if (len > 0 && file_->read_at(p.offset, raw_, len) != static_cast<int32_t>(len)) return false;
     switch (format_) {
       case Format::Text: {
@@ -1760,7 +1760,7 @@ int32_t TextBook::read_cover(const uint8_t** data) {
   uint32_t acc = 0;
   int bits = 0;
   for (uint32_t done = 0; done < cover_len_;) {
-    const uint32_t want = std::min(cover_len_ - done, kChapterBytes);
+    const uint32_t want = std::min<uint32_t>(cover_len_ - done, kChapterBytes);
     if (file_->read_at(cover_at_ + done, raw_, want) != static_cast<int32_t>(want)) return -1;
     for (uint32_t k = 0; k < want; ++k) {
       const int v = base64_value(raw_[k]);

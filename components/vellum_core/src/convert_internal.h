@@ -57,7 +57,7 @@ class Page {
   void raw(std::string_view s) {
     while (!s.empty() && ok_) {
       if (n_ == sizeof(buf_)) flush();
-      const size_t k = std::min(s.size(), sizeof(buf_) - n_);
+      const size_t k = std::min<size_t>(s.size(), sizeof(buf_) - n_);
       std::memcpy(buf_ + n_, s.data(), k);
       n_ += k;
       s.remove_prefix(k);
@@ -157,7 +157,7 @@ class Bytes {
   Bytes(File& f, uint8_t* buf, uint32_t cap, uint32_t from = 0)
       : f_(f), buf_(buf), cap_(cap), end_(f.size()), at_(from) {}
   Bytes(File& f, uint8_t* buf, uint32_t cap, uint32_t from, uint32_t end)
-      : f_(f), buf_(buf), cap_(cap), end_(std::min(end, f.size())), at_(from) {}
+      : f_(f), buf_(buf), cap_(cap), end_(std::min<uint32_t>(end, f.size())), at_(from) {}
 
   // The next byte, or -1 at the end (or on a read error).
   int get() {
@@ -174,7 +174,7 @@ class Bytes {
  private:
   bool fill() {
     if (at_ >= end_) return false;
-    const uint32_t want = std::min(cap_, end_ - at_);
+    const uint32_t want = std::min<uint32_t>(cap_, end_ - at_);
     if (f_.read_at(at_, buf_, want) != static_cast<int32_t>(want)) {
       failed_ = true;
       return false;
@@ -204,7 +204,7 @@ bool walk_tags(File& file, uint32_t from, uint8_t* buf, uint32_t cap, Fn&& fn) {
   const uint32_t size = file.size();
   uint32_t w = from;
   while (w < size) {
-    const uint32_t want = std::min(size - w, cap);
+    const uint32_t want = std::min<uint32_t>(size - w, cap);
     if (file.read_at(w, buf, want) != static_cast<int32_t>(want)) return false;
     const std::string_view s(reinterpret_cast<const char*>(buf), want);
     size_t pos = 0;

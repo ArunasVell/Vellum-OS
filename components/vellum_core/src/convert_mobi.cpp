@@ -67,7 +67,7 @@ class Pdb {
   // Reads record i into buf (at most cap bytes); its length, or -1.
   int32_t read(uint32_t i, uint8_t* buf, uint32_t cap) const {
     if (i >= count_) return -1;
-    const uint32_t n = std::min(size(i), cap);
+    const uint32_t n = std::min<uint32_t>(size(i), cap);
     return f_.read_at(off_[i], buf, n) == static_cast<int32_t>(n) ? static_cast<int32_t>(n) : -1;
   }
   bool is(const char* type8) const { return std::memcmp(type_, type8, 8) == 0; }
@@ -208,10 +208,10 @@ class Huff {
       const uint32_t at = index_[r];
       if (at + 2 > pool_used_) return;
       const uint32_t head = be16(pool_ + at);
-      const uint32_t plen = std::min(head & 0x7FFF, pool_used_ - at - 2);
+      const uint32_t plen = std::min<uint32_t>(head & 0x7FFF, pool_used_ - at - 2);
       const uint8_t* phrase = pool_ + at + 2;
       if (head & 0x8000) {
-        const uint32_t k = std::min(plen, cap_ - w_);
+        const uint32_t k = std::min<uint32_t>(plen, cap_ - w_);
         std::memcpy(out_ + w_, phrase, k);
         w_ += k;
       } else {
@@ -332,7 +332,7 @@ class Index {
     const uint32_t end = static_cast<uint32_t>(cncx_len_);
     if (at >= end) return;
     const uint32_t len = varint(cncx_, end, at);
-    const uint32_t n = std::min(len, end - at);
+    const uint32_t n = std::min<uint32_t>(len, end - at);
     if (utf8_) {
       size_t k = std::min<size_t>(n, size - 1);
       while (k > 0 && k < n && (cncx_[at + k] & 0xC0) == 0x80) --k;
@@ -565,7 +565,7 @@ class Mobi {
         mobi_header_ ? text_length(record_, static_cast<uint32_t>(n), extra_flags_) : static_cast<uint32_t>(n);
     switch (compression_) {
       case 1: {
-        const uint32_t k = std::min(len, kTextBytes);
+        const uint32_t k = std::min<uint32_t>(len, kTextBytes);
         std::memcpy(text_, record_, k);
         return static_cast<int32_t>(k);
       }
@@ -922,7 +922,7 @@ class Mobi {
         ok = false;
         break;
       }
-      const uint32_t len = std::min(static_cast<uint32_t>(n), text_length_ - pos);
+      const uint32_t len = std::min<uint32_t>(static_cast<uint32_t>(n), text_length_ - pos);
       rw->feed(text_, len, pos);
       pos += len;
     }
@@ -989,7 +989,7 @@ class Mobi {
     if (fdst_ != kNone) {
       const int32_t n = pdb_.read(base_ + fdst_, record_, kRecordBytes);
       if (n >= 20 && std::memcmp(record_, "FDST", 4) == 0 && be32(record_ + 8) > 0) {
-        flow_end = std::min(flow_end, be32(record_ + 16));
+        flow_end = std::min<uint32_t>(flow_end, be32(record_ + 16));
       }
     }
     // The text, unpacked to the card: files are put together from pieces
@@ -1005,7 +1005,7 @@ class Mobi {
         ok = false;
         break;
       }
-      const uint32_t len = std::min(static_cast<uint32_t>(n), flow_end - pos);
+      const uint32_t len = std::min<uint32_t>(static_cast<uint32_t>(n), flow_end - pos);
       ok = w->write(text_, len);
       pos += len;
     }
@@ -1084,7 +1084,7 @@ class Mobi {
       // No skeletons: the text as it is.
       rw->set_marks(nullptr, 0);
       for (uint32_t at = 0; at < raw_size && ok;) {
-        const uint32_t n = std::min(raw_size - at, file_cap);
+        const uint32_t n = std::min<uint32_t>(raw_size - at, file_cap);
         ok = raw.read_at(at, file_buf, n) == static_cast<int32_t>(n);
         if (ok) rw->feed(file_buf, n, at);
         at += n;
@@ -1095,7 +1095,7 @@ class Mobi {
       for (uint32_t s = 0; s < skel_count && ok; ++s) {
         const Skel& sk = skels[s];
         // The skeleton, then each fragment inserted where it belongs.
-        uint32_t len = std::min(sk.length, file_cap);
+        uint32_t len = std::min<uint32_t>(sk.length, file_cap);
         ok = sk.start + len <= raw_size && raw.read_at(sk.start, file_buf, len) == static_cast<int32_t>(len);
         uint32_t from = sk.start + sk.length;
         for (uint32_t k = 0; k < sk.frags && next_frag < frag_count && ok; ++k, ++next_frag) {

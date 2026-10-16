@@ -480,10 +480,10 @@ class Lex {
         if (d == ')' && --depth == 0) break;
         ++i_;
       }
-      const size_t end = std::min(i_, n);
+      const size_t end = std::min<size_t>(i_, n);
       t.kind = Tok::String;
       t.text = s_.substr(start + 1, end - start - 1);
-      i_ = std::min(end + 1, n);
+      i_ = std::min<size_t>(end + 1, n);
       return t;
     }
     if (c == '<') {
@@ -496,7 +496,7 @@ class Lex {
       const size_t end = gt == std::string_view::npos ? n : gt;
       t.kind = Tok::Hex;
       t.text = s_.substr(start + 1, end - start - 1);
-      i_ = std::min(end + 1, n);
+      i_ = std::min<size_t>(end + 1, n);
       return t;
     }
     if (c == '>') {
@@ -998,7 +998,7 @@ class Pdf {
 
   // Undoes PNG row filters in place; returns the bytes left.
   static int32_t unpredict(uint8_t* d, uint32_t n, int columns, int colors, int bpc) {
-    const uint32_t bpp = std::max(1, colors * bpc / 8);
+    const uint32_t bpp = static_cast<uint32_t>(std::max(1, colors * bpc / 8));
     const uint32_t row = static_cast<uint32_t>((columns * colors * bpc + 7) / 8);
     if (row == 0) return 0;
     uint32_t w = 0;
@@ -1052,7 +1052,7 @@ class Pdf {
   int32_t pull(Source& s, uint8_t* out, uint32_t cap) {
     if (s.done || cap == 0) return 0;
     if (s.ascii == 0) {
-      const uint32_t want = std::min(s.end - s.at, cap);
+      const uint32_t want = std::min<uint32_t>(s.end - s.at, cap);
       if (want == 0 || f_.read_at(s.at, out, want) != static_cast<int32_t>(want)) {
         s.done = true;
         return want == 0 ? 0 : -1;
@@ -1155,7 +1155,7 @@ class Pdf {
     if (x.type == 1) {
       const uint32_t size = f_.size();
       if (x.at >= size) return false;
-      const uint32_t want = std::min(kSlotBytes, size - x.at);
+      const uint32_t want = std::min<uint32_t>(kSlotBytes, size - x.at);
       if (f_.read_at(x.at, reinterpret_cast<uint8_t*>(buf), want) != static_cast<int32_t>(want)) return false;
       const std::string_view all(buf, want);
       Lex l(all);
@@ -1221,7 +1221,7 @@ class Pdf {
       uint32_t to = next != kNoObject ? objstm_first_ + next : objstm_len_;
       if (from >= objstm_len_) return false;
       to = std::min(std::max(to, from), objstm_len_);
-      const uint32_t n = std::min(to - from, kSlotBytes);
+      const uint32_t n = std::min<uint32_t>(to - from, kSlotBytes);
       std::memcpy(buf, objstm_ + from, n);
       Lex l2(std::string_view(buf, n));
       out.text = l2.value();
@@ -1249,7 +1249,7 @@ class Pdf {
   double find_endstream(uint32_t from) {
     const uint32_t size = f_.size();
     for (uint32_t at = from; at < size;) {
-      const uint32_t n = std::min(kChunk, size - at);
+      const uint32_t n = std::min<uint32_t>(kChunk, size - at);
       if (f_.read_at(at, chunk_, n) != static_cast<int32_t>(n)) return -1;
       const std::string_view s(reinterpret_cast<char*>(chunk_), n);
       const size_t k = s.find("endstream");
@@ -1315,7 +1315,7 @@ class Pdf {
   bool read_xref_section(uint32_t at, uint32_t& prev) {
     char* buf = slot_[0];
     const uint32_t size = f_.size();
-    const uint32_t want = std::min(kSlotBytes, size - at);
+    const uint32_t want = std::min<uint32_t>(kSlotBytes, size - at);
     if (f_.read_at(at, reinterpret_cast<uint8_t*>(buf), want) != static_cast<int32_t>(want)) return false;
     std::string_view s(buf, want);
     size_t p = 0;
@@ -1324,7 +1324,7 @@ class Pdf {
       // A classic table, read as it goes: it can be longer than the slot.
       uint32_t pos = at + static_cast<uint32_t>(p) + 4;
       for (;;) {
-        const uint32_t n = std::min(kSlotBytes, size - pos);
+        const uint32_t n = std::min<uint32_t>(kSlotBytes, size - pos);
         if (n == 0 || f_.read_at(pos, reinterpret_cast<uint8_t*>(buf), n) != static_cast<int32_t>(n)) return false;
         s = std::string_view(buf, n);
         Lex l(s);
@@ -1344,7 +1344,7 @@ class Pdf {
           if (q + 18 > s.size()) {
             // Read on from here.
             pos += static_cast<uint32_t>(q);
-            const uint32_t m = std::min(kSlotBytes, size - pos);
+            const uint32_t m = std::min<uint32_t>(kSlotBytes, size - pos);
             if (m < 18 || f_.read_at(pos, reinterpret_cast<uint8_t*>(buf), m) != static_cast<int32_t>(m)) return false;
             s = std::string_view(buf, m);
             q = 0;
@@ -1437,7 +1437,7 @@ class Pdf {
     const uint32_t size = f_.size();
     uint32_t at = 0;
     while (at < size) {
-      const uint32_t n = std::min(kSlotBytes, size - at);
+      const uint32_t n = std::min<uint32_t>(kSlotBytes, size - at);
       char* buf = slot_[0];
       if (f_.read_at(at, reinterpret_cast<uint8_t*>(buf), n) != static_cast<int32_t>(n)) return false;
       const std::string_view s(buf, n);
@@ -1590,7 +1590,7 @@ class Pdf {
       const std::string_view dests = resolve(dict_get(cat.text, "Dests"), 3);
       const std::string_view d = dict_get(dests, name);
       char copy[512];
-      const size_t n = std::min(d.size(), sizeof(copy));
+      const size_t n = std::min<size_t>(d.size(), sizeof(copy));
       std::memcpy(copy, d.data(), n);
       return destination_page(std::string_view(copy, n), depth + 1);
     }
@@ -1625,7 +1625,7 @@ class Pdf {
         is_key = !is_key;
       });
       char copy[256];
-      const size_t n = std::min(result.size(), sizeof(copy));
+      const size_t n = std::min<size_t>(result.size(), sizeof(copy));
       std::memcpy(copy, result.data(), n);
       return destination_page(std::string_view(copy, n), depth + 1);
     }
@@ -1682,7 +1682,7 @@ class Pdf {
       if (!fetch(it.obj, 0, o)) continue;
       // Copied out: the slot is needed to follow the destination.
       char text[2048];
-      const size_t len = std::min(o.text.size(), sizeof(text));
+      const size_t len = std::min<size_t>(o.text.size(), sizeof(text));
       std::memcpy(text, o.text.data(), len);
       const std::string_view item(text, len);
       uint32_t next, child;
@@ -1694,20 +1694,20 @@ class Pdf {
       if (dest.empty()) {
         const std::string_view action = resolve(dict_get(item, "A"), 1);
         char act[1024];
-        const size_t an = std::min(action.size(), sizeof(act));
+        const size_t an = std::min<size_t>(action.size(), sizeof(act));
         std::memcpy(act, action.data(), an);
         const std::string_view a(act, an);
         if (name_of(dict_get(a, "S")) == "GoTo") {
           const std::string_view d = dict_get(a, "D");
           char dbuf[512];
-          const size_t dn = std::min(d.size(), sizeof(dbuf));
+          const size_t dn = std::min<size_t>(d.size(), sizeof(dbuf));
           std::memcpy(dbuf, d.data(), dn);
           add_outline(item, destination_page(std::string_view(dbuf, dn)), it.depth);
         }
         continue;
       }
       char dbuf[512];
-      const size_t dn = std::min(dest.size(), sizeof(dbuf));
+      const size_t dn = std::min<size_t>(dest.size(), sizeof(dbuf));
       std::memcpy(dbuf, dest.data(), dn);
       add_outline(item, destination_page(std::string_view(dbuf, dn)), it.depth);
     }
@@ -1726,7 +1726,7 @@ class Pdf {
     char title[256];
     text_string(t, title, sizeof(title));
     const std::string_view s = trim(title);
-    size_t n = std::min(s.size(), sizeof(o.title) - 1);
+    size_t n = std::min<size_t>(s.size(), sizeof(o.title) - 1);
     while (n > 0 && n < s.size() && (static_cast<uint8_t>(s[n]) & 0xC0) == 0x80) --n;
     std::memcpy(o.title, s.data(), n);
     o.title[n] = '\0';
@@ -1840,13 +1840,13 @@ class Pdf {
     Obj o;
     if (!fetch(obj, 2, o)) return false;
     char dict[4096];
-    const size_t dn = std::min(o.text.size(), sizeof(dict));
+    const size_t dn = std::min<size_t>(o.text.size(), sizeof(dict));
     std::memcpy(dict, o.text.data(), dn);
     const std::string_view d(dict, dn);
     const std::string_view subtype = name_of(dict_get(d, "Subtype"));
     std::string_view base = name_of(dict_get(d, "BaseFont"));
     char base_name[64];
-    const size_t bn = std::min(base.size(), sizeof(base_name));
+    const size_t bn = std::min<size_t>(base.size(), sizeof(base_name));
     std::memcpy(base_name, base.data(), bn);
     base = std::string_view(base_name, bn);
     auto style_of = [](std::string_view b) {
@@ -1880,7 +1880,7 @@ class Pdf {
         f.default_width = static_cast<uint16_t>(std::clamp(num_of(dict_get(c.text, "DW"), 1000), 0.0, 4000.0));
         char wbuf[kSlotBytes / 2];
         const std::string_view wv = resolve(dict_get(c.text, "W"), 3);
-        const size_t wn = std::min(wv.size(), sizeof(wbuf));
+        const size_t wn = std::min<size_t>(wv.size(), sizeof(wbuf));
         std::memcpy(wbuf, wv.data(), wn);
         read_cid_widths(std::string_view(wbuf, wn), f);
       }
@@ -1903,7 +1903,7 @@ class Pdf {
     size_t en = 0;
     if (!enc.empty()) {
       const std::string_view e = resolve(enc, 3);
-      en = std::min(e.size(), sizeof(enc_buf));
+      en = std::min<size_t>(e.size(), sizeof(enc_buf));
       std::memcpy(enc_buf, e.data(), en);
     }
     const std::string_view e(enc_buf, en);
@@ -2216,15 +2216,15 @@ class Pdf {
       if (fetch(pr.res, 0, holder)) {
         const std::string_view res = resolve(dict_get(holder.text, "Resources"), 1);
         char rbuf[8192];
-        const size_t rn = std::min(res.size(), sizeof(rbuf));
+        const size_t rn = std::min<size_t>(res.size(), sizeof(rbuf));
         if (rn > 0) std::memcpy(rbuf, res.data(), rn);
         const std::string_view r(rbuf, rn);
         const std::string_view xo = resolve(dict_get(r, "XObject"), 2);
-        xn = std::min(xo.size(), sizeof(xobjects));
+        xn = std::min<size_t>(xo.size(), sizeof(xobjects));
         if (xn > 0) std::memcpy(xobjects, xo.data(), xn);
         const std::string_view fonts = resolve(dict_get(r, "Font"), 2);
         char fbuf[4096];
-        const size_t fn = std::min(fonts.size(), sizeof(fbuf));
+        const size_t fn = std::min<size_t>(fonts.size(), sizeof(fbuf));
         if (fn > 0) std::memcpy(fbuf, fonts.data(), fn);
         name_count = read_font_names(std::string_view(fbuf, fn), names);
       }
@@ -2409,22 +2409,22 @@ class Pdf {
     size_t xn = 0;
     const std::string_view res_v = dict_get(o.text, "Resources");
     char obuf[2048];
-    const size_t on = std::min(o.text.size(), sizeof(obuf));
+    const size_t on = std::min<size_t>(o.text.size(), sizeof(obuf));
     std::memcpy(obuf, o.text.data(), on);
     Obj copy = o;
     copy.text = std::string_view(obuf, on);
     if (!res_v.empty()) {
       const std::string_view res = resolve(dict_get(copy.text, "Resources"), 2);
       char rbuf[4096];
-      const size_t rn = std::min(res.size(), sizeof(rbuf));
+      const size_t rn = std::min<size_t>(res.size(), sizeof(rbuf));
       std::memcpy(rbuf, res.data(), rn);
       const std::string_view rr(rbuf, rn);
       const std::string_view xo = resolve(dict_get(rr, "XObject"), 3);
-      xn = std::min(xo.size(), sizeof(xbuf));
+      xn = std::min<size_t>(xo.size(), sizeof(xbuf));
       std::memcpy(xbuf, xo.data(), xn);
       const std::string_view fonts = resolve(dict_get(rr, "Font"), 3);
       char fbuf[2048];
-      const size_t fn = std::min(fonts.size(), sizeof(fbuf));
+      const size_t fn = std::min<size_t>(fonts.size(), sizeof(fbuf));
       std::memcpy(fbuf, fonts.data(), fn);
       own_count = read_font_names(std::string_view(fbuf, fn), own);
     }
@@ -2818,7 +2818,7 @@ class Pdf {
   }
 
   void para(std::string_view s) {
-    const size_t n = std::min(s.size(), kParaBytes - 16 - para_len_);
+    const size_t n = std::min<size_t>(s.size(), kParaBytes - 16 - para_len_);
     std::memcpy(para_ + para_len_, s.data(), n);
     para_len_ += n;
   }
