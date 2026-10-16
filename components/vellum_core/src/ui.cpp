@@ -122,6 +122,7 @@ void draw_battery(Framebuffer& fb, int right, int baseline, int percent) {
 
 void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent) {
   draw_text(fb, label_font(), kSide * 64, kStatusBase, time);
+  draw_centered(fb, small_italic_font(), kStatusBase, "Vellum");
   draw_battery(fb, fb.width() - kSide, kStatusBase, battery_percent);
   fb.hline(kSide, kStatusRule, fb.width() - 2 * kSide, Color::Black);
 }

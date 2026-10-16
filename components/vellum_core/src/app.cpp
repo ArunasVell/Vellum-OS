@@ -26,6 +26,7 @@ constexpr int kShelfLabelBase = 410;
 constexpr int kShelfTop = 424;
 constexpr int kHomeRowHeight = 72;
 constexpr int kLinkHeight = 46;
+constexpr int kHomeButtonHeight = 76;  // Home's All books, Add books and Settings
 
 // Library and settings geometry.
 constexpr int kTitleBase = 112;  // large screen title
@@ -48,8 +49,11 @@ constexpr int kGlassRoom = 24;       // the magnifying glass before the search
 constexpr int kTabsBackItem = 2000;  // hit items of those arrows
 constexpr int kTabsMoreItem = 2001;
 constexpr int kSettingsTitleBase = 104;
-constexpr int kSettingsTop = 116;
-constexpr int kSettingRowHeight = 36;
+constexpr int kSettingsTop = 122;
+constexpr int kMainRowHeight = 58;     // a row of the main settings page
+constexpr int kSettingRowHeight = 52;  // a row of the other pages
+constexpr int kGroupGap = 18;          // between groups of rows
+constexpr int kBackItem = 3000;        // hit item of a screen's ‹ before its title
 
 constexpr uint32_t kHoldMs = 1000;   // holding Power this long sleeps
 constexpr uint32_t kToastMs = 2500;  // a notice at the bottom stays this long
@@ -238,24 +242,45 @@ enum class Row : uint8_t {
   Orientation,   // which way up the screen is
   AutoTurn,      // seconds between pages turned by themselves
   FullRefresh,   // how often the reader clears ghosting
-  SetupAgain     // runs the first-time setup again
+  SetupAgain,    // runs the first-time setup again
+  PagePage,      // opens the page settings
+  DisplayPage,   // opens the display and light settings
+  SleepPage,     // opens the sleep and battery settings
+  GeneralPage    // opens the general settings
 };
-// Settings has two pages: general, with a way to the reading page, and
-// reading, with a preview of the text below its rows.
-constexpr Row kGeneralRows[] = {
-    Row::Language,    Row::MenuFont, Row::Clock,       Row::SleepAfter, Row::SleepScreen, Row::Light,
-    Row::Battery,     Row::Updates,  Row::Stats,       Row::Check,      Row::LibraryView, Row::MoveFinished,
-    Row::ReadingPage, Row::Buttons,  Row::Orientation, Row::MenuText,   Row::SetupAgain};
+// Settings is sorted into pages, as on a phone: the main page lists them
+// in groups (with the screens that stand alone), and each holds a few rows.
+// The reading page shows a preview of the text below its rows.
+enum SettingsPage : int { kMainPage, kReadingPage, kPagePage, kDisplayPage, kSleepPage, kGeneralPage, kPageCount };
+constexpr Row kMainRows[] = {Row::ReadingPage, Row::PagePage, Row::DisplayPage, Row::Buttons, Row::SleepPage,
+                             Row::GeneralPage, Row::Stats,    Row::Updates,     Row::Check};
 constexpr Row kReadingRows[] = {Row::BookFont,  Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins,
-                                Row::Alignment, Row::Hyphenation, Row::Footer,      Row::Indent,      Row::BookStyles,
-                                Row::Focus,     Row::Night,       Row::AutoTurn,    Row::FullRefresh};
-constexpr int kGeneralCount = sizeof(kGeneralRows) / sizeof(kGeneralRows[0]);
-constexpr int kReadingCount = sizeof(kReadingRows) / sizeof(kReadingRows[0]);
+                                Row::Alignment, Row::Hyphenation, Row::Indent,      Row::BookStyles};
+constexpr Row kPageRows[] = {Row::Footer, Row::Night, Row::Focus, Row::AutoTurn, Row::FullRefresh};
+constexpr Row kDisplayRows[] = {Row::Light, Row::MenuFont, Row::MenuText, Row::Orientation, Row::LibraryView};
+constexpr Row kSleepRows[] = {Row::SleepAfter, Row::SleepScreen, Row::Battery};
+constexpr Row kGeneralRows[] = {Row::Language, Row::Clock, Row::MoveFinished, Row::SetupAgain};
 
-// Where a row is on the general page.
-constexpr int general_row(Row r) {
-  for (int i = 0; i < kGeneralCount; ++i) {
-    if (kGeneralRows[i] == r) return i;
+struct PageRows {
+  const Row* rows;
+  int count;
+  Row opener;  // the main page's row that opens it
+};
+template <size_t N>
+constexpr PageRows page_rows(const Row (&rows)[N], Row opener) {
+  return {rows, static_cast<int>(N), opener};
+}
+constexpr PageRows kPages[kPageCount] = {
+    page_rows(kMainRows, Row::ReadingPage), page_rows(kReadingRows, Row::ReadingPage),
+    page_rows(kPageRows, Row::PagePage),    page_rows(kDisplayRows, Row::DisplayPage),
+    page_rows(kSleepRows, Row::SleepPage),  page_rows(kGeneralRows, Row::GeneralPage)};
+// The main page's rows come in three groups of three.
+constexpr int kMainGroup = 3;
+
+// Where a row is on its page.
+constexpr int row_index(int page, Row r) {
+  for (int i = 0; i < kPages[page].count; ++i) {
+    if (kPages[page].rows[i] == r) return i;
   }
   return 0;
 }
@@ -334,6 +359,10 @@ int get(const Settings& s, Row r) {
     case Row::Stats:
     case Row::SleepScreen:
     case Row::SetupAgain:
+    case Row::PagePage:
+    case Row::DisplayPage:
+    case Row::SleepPage:
+    case Row::GeneralPage:
       break;
   }
   return 0;
@@ -412,6 +441,10 @@ void set(Settings& s, Row r, int v) {
     case Row::Stats:
     case Row::SleepScreen:
     case Row::SetupAgain:
+    case Row::PagePage:
+    case Row::DisplayPage:
+    case Row::SleepPage:
+    case Row::GeneralPage:
       break;
   }
 }
@@ -480,6 +513,14 @@ const char* row_name(const Strings& t, Row r) {
       return t.full_refresh;
     case Row::SetupAgain:
       return t.setup_again;
+    case Row::PagePage:
+      return t.page_settings;
+    case Row::DisplayPage:
+      return t.display_light;
+    case Row::SleepPage:
+      return t.sleep_battery;
+    case Row::GeneralPage:
+      return t.general;
   }
   return "";
 }
@@ -532,6 +573,10 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::Stats:
     case Row::SleepScreen:
     case Row::SetupAgain:
+    case Row::PagePage:
+    case Row::DisplayPage:
+    case Row::SleepPage:
+    case Row::GeneralPage:
       break;
   }
   return "";
@@ -714,15 +759,42 @@ void App::draw_home() {
     y += kHomeRowHeight;
     ++item;
   }
-  y += 4;
-  const char* links[] = {t.all_books, t.add_books, t.settings};
-  for (int i = 0; i < 3; ++i) {
-    const Rect r = row_rect(fb_, y + i * kLinkHeight, kLinkHeight);
-    draw_link(fb_, r, links[i], home_sel_ == item + i);
-    add_hit(r, item + i);
-  }
-
+  draw_home_buttons(y + 14, item);
   ui::draw_hint(fb_, t.hint_home);
+}
+
+// All books, Add books and Settings: three big buttons side by side.
+void App::draw_home_buttons(int y, int first_item) {
+  const Strings& t = text();
+  const char* names[] = {t.all_books, t.add_books, t.settings};
+  constexpr int kGap = 10;
+  const int bw = (fb_.width() - 2 * kSide - 2 * kGap) / 3;
+  const int room = bw - 12;
+  for (int i = 0; i < 3; ++i) {
+    const Rect r{kSide + i * (bw + kGap), y, bw, kHomeButtonHeight};
+    const bool selected = home_sel_ == first_item + i;
+    fb_.fill_round_rect(r, 14, Color::Black);
+    if (!selected) fb_.fill_round_rect({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, 12, Color::White);
+    const Color fg = selected ? Color::White : Color::Black;
+    add_hit({r.x - kGap / 2, r.y - 6, r.w + kGap, r.h + 12}, first_item + i);
+    // The menu type on one line, or two when a word would not fit beside
+    // another; the smaller type when a word alone is too wide.
+    const std::string_view name = names[i];
+    bool words_fit = true;
+    for (size_t start = 0; start < name.size();) {
+      size_t end = name.find(' ', start);
+      if (end == std::string_view::npos) end = name.size();
+      words_fit = words_fit && text_width_px(ui::text_font(), name.substr(start, end - start)) <= room;
+      start = end + 1;
+    }
+    const Font& font = words_fit ? ui::text_font() : ui::label_font();
+    if (text_width_px(font, name) <= room) {
+      ui::draw_wrapped(fb_, font, r.x + 6, r.y + (r.h + font.ascent * 7 / 10) / 2, room, 1, name, true, fg);
+    } else {
+      const int first = r.y + (r.h - 2 * font.line_height) / 2 + font.ascent * 4 / 5;
+      ui::draw_wrapped(fb_, font, r.x + 6, first, room, 2, name, true, fg);
+    }
+  }
 }
 
 void App::home_activate() {
@@ -1304,41 +1376,78 @@ bool App::finish_typing(bool ok) {
 
 // ---- Settings --------------------------------------------------------------
 
+// The ‹ and title at the top of a screen with a way back; tapping either
+// goes back (as Home does).
+void App::draw_back_title(const char* title, int baseline) {
+  const Font& font = ui::screen_title_font();
+  const char* arrow = "\xE2\x80\xB9";  // ‹
+  const int arrow_w = text_width_px(font, arrow);
+  draw_text(fb_, font, kSide * 64, baseline, arrow);
+  const int x = kSide + arrow_w + 12;
+  ui::draw_fitted(fb_, font, x, baseline, fb_.width() - kSide - x, title);
+  add_hit({0, ui::kStatusRule + 4, std::min(fb_.width(), x + text_width_px(font, title) + kSide),
+           baseline + 14 - ui::kStatusRule - 4},
+          kBackItem);
+}
+
+// A rounded box around a group of rows, as on a phone's settings.
+static void draw_group(Framebuffer& fb, Rect r) {
+  fb.fill_round_rect(r, 14, Color::Black);
+  fb.fill_round_rect({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, 12, Color::White);
+}
+
 void App::draw_settings() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, ui::screen_title_font(), kSide * 64, kSettingsTitleBase, settings_reading_ ? t.reading : t.settings);
+  const bool main = settings_page_ == kMainPage;
+  const char* titles[kPageCount] = {t.settings,      t.reading,       t.page_settings,
+                                    t.display_light, t.sleep_battery, t.general};
+  draw_back_title(titles[settings_page_], kSettingsTitleBase);
 
-  const Row* rows = settings_reading_ ? kReadingRows : kGeneralRows;
-  const int count = settings_reading_ ? kReadingCount : kGeneralCount;
-  int y = kSettingsTop + 8;
-  for (int i = 0; i < count; ++i) {
-    const Row row = rows[i];
+  const PageRows& page = kPages[settings_page_];
+  const int row_h = main ? kMainRowHeight : kSettingRowHeight;
+  const int group = main ? kMainGroup : page.count;
+  int y = kSettingsTop;
+  for (int i = 0; i < page.count; ++i) {
+    if (i % group == 0) {
+      if (i > 0) y += kGroupGap;
+      const int rows = std::min(group, page.count - i);
+      draw_group(fb_, {kSide - kPad, y, w - 2 * (kSide - kPad), rows * row_h + 4});
+      y += 2;
+    }
+    const Row row = page.rows[i];
     const bool selected = i == settings_sel_;
-    const Rect r = row_rect(fb_, y, kSettingRowHeight);
-    add_hit(r, i);
-    const Color fg = highlight(fb_, r, selected);
-    const int base = r.y + 27;
+    const Rect r{kSide - kPad + 4, y, w - 2 * (kSide - kPad) - 8, row_h};
+    add_hit({r.x - 4, r.y, r.w + 8, r.h}, i);
+    if (i % group != 0 && !selected && settings_sel_ != i - 1) {
+      for (int x = r.x + kPad; x < r.x + r.w - kPad; x += 4) fb_.set_pixel(x, r.y, Color::Black);
+    }
+    if (selected) fb_.fill_round_rect({r.x, r.y + 2, r.w, r.h - 4}, 10, Color::Black);
+    const Color fg = selected ? Color::White : Color::Black;
+    const int base = r.y + (r.h + ui::text_font().ascent * 7 / 10) / 2;
     const char* name = row_name(t, row);
     draw_text(fb_, ui::text_font(), (r.x + kPad) * 64, base, name, fg);
     char value[64];
-    if (row == Row::Light) {
-      if (settings_.light == 0) {
-        std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", t.off);  // ›
+    const char* more = "\xE2\x80\xBA";  // ›
+    if (row == Row::Light || row == Row::DisplayPage) {
+      if (board_.frontlight == nullptr && row == Row::DisplayPage) {
+        std::snprintf(value, sizeof(value), "%s", more);
+      } else if (settings_.light == 0) {
+        std::snprintf(value, sizeof(value), "%s %s", t.off, more);
       } else {
-        std::snprintf(value, sizeof(value), "%d%% \xE2\x80\xBA", settings_.light * 100 / kLightSteps);
+        std::snprintf(value, sizeof(value), "%d%% %s", settings_.light * 100 / kLightSteps, more);
       }
-    } else if (row == Row::Battery) {
+    } else if (row == Row::Battery || row == Row::SleepPage) {
       // The level now, and a way in to the history.
-      std::snprintf(value, sizeof(value), "\xE2\x80\x93 \xE2\x80\xBA");  // – ›
+      std::snprintf(value, sizeof(value), "%s", more);
       if (const int percent = board_.power.battery_percent(); percent >= 0) {
-        std::snprintf(value, sizeof(value), "%d%% \xE2\x80\xBA", percent);
+        std::snprintf(value, sizeof(value), "%d%% %s", percent, more);
       }
     } else if (row == Row::Updates) {
-      std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", update_available() ? t.update_new : board_.version);
+      std::snprintf(value, sizeof(value), "%s %s", update_available() ? t.update_new : board_.version, more);
     } else if (row == Row::Stats) {
       // Today's reading so far, and a way in to the rest.
-      std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
+      std::snprintf(value, sizeof(value), "%s", more);
       if (const int day = today(board_.clock); day >= 0 && stats_.seconds_between(day, day) >= 60) {
         format_duration(settings_.language, static_cast<int>(stats_.seconds_between(day, day) / 60), value,
                         sizeof(value) - 4);
@@ -1347,15 +1456,19 @@ void App::draw_settings() {
     } else if (row == Row::AutoTurn) {
       std::snprintf(value, sizeof(value), t.every_seconds, kAutoTurnSeconds[settings_.auto_turn]);
     } else if (row == Row::SleepScreen) {
-      std::snprintf(value, sizeof(value), "%s \xE2\x80\xBA", t.sleep_kinds[static_cast<int>(settings_.sleep_screen)]);
-    } else if (row == Row::Check || row == Row::ReadingPage || row == Row::Buttons || row == Row::SetupAgain) {
-      std::snprintf(value, sizeof(value), "\xE2\x80\xBA");  // ›
+      std::snprintf(value, sizeof(value), "%s %s", t.sleep_kinds[static_cast<int>(settings_.sleep_screen)], more);
+    } else if (row == Row::ReadingPage) {
+      std::snprintf(value, sizeof(value), "%s %s", settings_.book_font, more);
+    } else if (row == Row::GeneralPage) {
+      std::snprintf(value, sizeof(value), "%s %s", t.language_name, more);
+    } else if (row == Row::Check || row == Row::Buttons || row == Row::SetupAgain || row == Row::PagePage) {
+      std::snprintf(value, sizeof(value), "%s", more);
     } else if (row == Row::MenuFont || row == Row::BookFont) {
       std::snprintf(value, sizeof(value), "%s", row == Row::MenuFont ? settings_.menu_font : settings_.book_font);
     } else {
       std::snprintf(value, sizeof(value), "%s", value_name(t, row, get(settings_, row)));
     }
-    // A long font name gives way to the row's name.
+    // A long value gives way to the row's name.
     const int right = r.x + r.w - kPad;
     const int room = right - (r.x + kPad + text_width_px(ui::text_font(), name) + 16);
     if (text_width_px(ui::text_font(), value) <= room) {
@@ -1363,50 +1476,59 @@ void App::draw_settings() {
     } else if (room > 0) {
       ui::draw_fitted(fb_, ui::text_font(), right - room, base, room, value, fg);
     }
-    y += kSettingRowHeight;
+    y += row_h;
   }
 
-  if (settings_reading_) {
+  if (settings_page_ == kReadingPage) {
     // A few lines set exactly as the reader would set them.
-    ui::draw_label(fb_, kSide, y + 34, t.preview_label);
-    const int top = y + 48;
+    ui::draw_label(fb_, kSide, y + 30, t.preview_label);
+    const int top = y + 42;
     const int bottom = fb_.height() - 52;
     dotted_rule(fb_, top);
     dotted_rule(fb_, bottom);
     const char* preview[] = {t.preview_text};
     const ReadingStyle style = reading_style(settings_, &book_fonts());
-    PageStyle page = page_style(style, fb_, t.preview_language, false);
-    page.area = {style.margin, top + 10, w - 2 * style.margin, bottom - top - 14};
-    typeset_page(page, preview, 1, {}, &fb_);
+    PageStyle ps = page_style(style, fb_, t.preview_language, false);
+    ps.area = {style.margin, top + 10, w - 2 * style.margin, bottom - top - 14};
+    typeset_page(ps, preview, 1, {}, &fb_);
   }
 
-  ui::draw_hint(fb_, t.hint_settings);
+  ui::draw_hint(fb_, main ? t.hint_list : t.hint_settings);
 }
 
-void App::open_settings(bool reading) {
-  settings_reading_ = reading;
-  settings_sel_ = 0;
+void App::open_settings(bool reading) { open_settings_page(reading ? kReadingPage : kMainPage, 0); }
+
+void App::open_settings_page(int page, int sel) {
+  settings_page_ = page;
+  settings_sel_ = sel;
   show(Screen::Settings);
 }
 
-void App::close_sleep_setup() {
-  settings_reading_ = false;
-  settings_sel_ =
-      static_cast<int>(std::find(kGeneralRows, kGeneralRows + kGeneralCount, Row::SleepScreen) - kGeneralRows);
-  show(Screen::Settings);
+int App::settings_row_count() const { return kPages[settings_page_].count; }
+
+// Home on a page of Settings: the main page, on the row that opened it;
+// from the main page, home.
+void App::settings_back() {
+  if (settings_page_ == kMainPage) return show(Screen::Home);
+  const Row opener = kPages[settings_page_].opener;
+  open_settings_page(kMainPage, row_index(kMainPage, opener));
 }
+
+void App::close_sleep_setup() { open_settings_page(kSleepPage, row_index(kSleepPage, Row::SleepScreen)); }
 
 void App::settings_activate() {
-  const Row row = (settings_reading_ ? kReadingRows : kGeneralRows)[settings_sel_];
+  const Row row = kPages[settings_page_].rows[settings_sel_];
   if (row == Row::Battery) return show(Screen::Battery);
   if (row == Row::Stats) return show(Screen::Stats);
   if (row == Row::Light) return open_light(Screen::Settings);
   if (row == Row::Check) return open_check();
   if (row == Row::Updates) return open_updates();
-  if (row == Row::ReadingPage) return open_settings(true);
   if (row == Row::Buttons) return open_buttons();
   if (row == Row::SleepScreen) return open_sleep_setup();
   if (row == Row::SetupAgain) return open_setup(0);
+  for (int page = kReadingPage; page < kPageCount; ++page) {
+    if (row == kPages[page].opener) return open_settings_page(page, 0);
+  }
   if (row == Row::MenuFont || row == Row::BookFont) {
     // The next typeface in the list, Literata after the last.
     char* name = row == Row::MenuFont ? settings_.menu_font : settings_.book_font;
@@ -1479,16 +1601,28 @@ void App::open_transfer(bool setup) {
         if (len >= kFontsBytes) break;
       }
     }
+    // Home, a side button or Back leaves while it starts.
+    transfer_cancelled_ = false;
+    const auto cancelled = [](void* app) { return static_cast<App*>(app)->transfer_cancel_poll(); };
     transfer_info_ = {};
     transfer_info_.home = transfer_home_;
     transfer_info_.fonts = transfer_fonts_;
+    transfer_info_.cancelled = cancelled;
+    transfer_info_.cancel_ctx = this;
     bool started = board_.transfer->start(transfer_info_);
-    if (!started && transfer_home_) {
+    if (!started && transfer_home_ && !transfer_cancel_poll()) {
       // The home Wi-Fi is out of reach: the reader's own network will do.
       transfer_home_failed_ = true;
       transfer_info_ = {};
       transfer_info_.fonts = transfer_fonts_;
+      transfer_info_.cancelled = cancelled;
+      transfer_info_.cancel_ctx = this;
       started = board_.transfer->start(transfer_info_);
+    }
+    if (transfer_cancel_poll()) {
+      if (started) board_.transfer->stop();
+      transfer_state_ = TransferState::Off;
+      return close_transfer();
     }
     transfer_home_ = started && transfer_info_.home;
     transfer_state_ = started ? TransferState::Running : TransferState::Failed;
@@ -1507,6 +1641,29 @@ void App::open_transfer(bool setup) {
     return;
   }
   show(Screen::Transfer);
+}
+
+bool App::transfer_cancel_poll() {
+  if (transfer_cancelled_) return true;
+  InputEvent ev;
+  while (!transfer_cancelled_ && board_.input.wait(ev, 0)) {
+    switch (ev.type) {
+      case InputEvent::Type::KeyDown:
+        // Power is left alone: holding it still means sleep, later.
+        transfer_cancelled_ = ev.key != Key::Power;
+        break;
+      case InputEvent::Type::TouchDown:
+      case InputEvent::Type::TouchMove:
+      case InputEvent::Type::TouchUp: {
+        const Gesture g = touch_.feed(ev, fb_);
+        transfer_cancelled_ = g.kind == Gesture::Kind::Tap && hit_at(g.x, g.y) == kBackItem;
+        break;
+      }
+      default:
+        break;  // nothing else matters until the network is up
+    }
+  }
+  return transfer_cancelled_;
 }
 
 void App::close_transfer() {
@@ -1608,7 +1765,7 @@ static void append_wifi_escaped(char* out, size_t size, size_t& len, const char*
 void App::draw_transfer() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, transfer_setup_ ? t.updates : t.add_books);
+  draw_back_title(transfer_setup_ ? t.updates : t.add_books, kTitleBase);
   const char* lead = transfer_setup_ ? t.setup_lead : t.transfer_lead;
   ui::draw_fitted(fb_, ui::label_font_for(lead, w - 2 * kSide), kSide, kSubtitleBase, w - 2 * kSide, lead);
 
@@ -1627,7 +1784,19 @@ void App::draw_transfer() {
       break;
   }
   if (message != nullptr) {
-    ui::draw_wrapped(fb_, ui::text_font(), kSide, kTransferTop + 40, w - 2 * kSide, 3, message, false);
+    const int y = ui::draw_wrapped(fb_, ui::text_font(), kSide, kTransferTop + 40, w - 2 * kSide, 3, message, false);
+    // A big Back: starting can take a while.
+    if (transfer_state_ == TransferState::Off) {
+      ui::draw_wrapped(fb_, ui::label_font(), kSide, y + 8, w - 2 * kSide, 2, t.starting_back, false);
+    }
+    const Rect back{kSide, y + 60, w - 2 * kSide, kHomeButtonHeight};
+    fb_.fill_round_rect(back, 14, Color::Black);
+    const Font& font = ui::text_font();
+    const char* name = t.back_label;
+    const int name_w = text_width_px(font, name);
+    draw_text(fb_, font, (back.x + (back.w - name_w) / 2) * 64, back.y + (back.h + font.ascent * 7 / 10) / 2, name,
+              Color::White);
+    add_hit(back, kBackItem);
     ui::draw_hint(fb_, transfer_setup_ ? t.hint_setup : t.hint_transfer);
     return;
   }
@@ -2852,6 +3021,7 @@ void App::show(Screen s) {
     move_finished_books();
   }
   screen_ = s;
+  quick_open_ = false;
   if (s == Screen::Home) home_sel_ = 0;
   draw();
   queue_.submit_full();  // a new screen: clear the previous one's ghosting
@@ -2870,6 +3040,14 @@ int App::hit_at(int x, int y) const {
 }
 
 void App::draw() {
+  draw_screen();
+  if (quick_open_) {
+    hit_count_ = 0;  // only the panel takes taps
+    draw_quick();
+  }
+}
+
+void App::draw_screen() {
   hit_count_ = 0;
   if (const Rotation r = rotation_for(screen_); r != fb_.rotation()) {
     fb_.set_rotation(r);  // the whole screen turns: no ghost of the old one
@@ -3067,6 +3245,7 @@ bool App::battery_below(int percent) {
 
 void App::sleep(bool empty) {
   auto_turn_ = false;
+  if (quick_open_) close_quick_quietly();
   key_waiting_ = false;
   toast_[0] = '\0';
   if (screen_ == Screen::Transfer) close_transfer();  // radio off first
@@ -3421,6 +3600,7 @@ bool App::turn(int step) {
 
 // Returns true when the screen needs a redraw; screen changes draw themselves.
 bool App::handle_key(Key key) {
+  if (quick_open_) return quick_key(key);
   if (typing_ != Typing::Off) {
     // The keyboard takes the buttons; Home puts it away.
     return key == Key::Home ? finish_typing(false) : keyboard_input(keyboard_.key(key));
@@ -3433,18 +3613,10 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Reader || screen_ == Screen::Contents) save_progress();
       if (screen_ == Screen::Light && board_.storage != nullptr) save_settings(*board_.storage, settings_);
       if (screen_ == Screen::Transfer) return close_transfer(), false;
-      if (screen_ == Screen::Settings && settings_reading_) {
-        open_settings(false);  // back to the general page, on the way in
-        settings_sel_ = general_row(Row::ReadingPage);
-        draw();
-        queue_.submit();
-        return false;
-      }
+      if (screen_ == Screen::Settings) return settings_back(), false;
       if (screen_ == Screen::Buttons) {
-        settings_reading_ = false;  // back to Settings, on the Buttons row
-        settings_sel_ = general_row(Row::Buttons);
-        show(Screen::Settings);
-        return false;
+        // Back to Settings, on the Buttons row.
+        return open_settings_page(kMainPage, row_index(kMainPage, Row::Buttons)), false;
       }
       if (screen_ == Screen::Updates && update_busy_ != UpdateBusy::No) return false;
       if (screen_ == Screen::Send) close_send();
@@ -3489,7 +3661,7 @@ bool App::handle_key(Key key) {
       return true;
     case Screen::Settings:
       if (key == Key::Power) settings_activate();
-      settings_sel_ = wrap_index(settings_sel_ + step, settings_reading_ ? kReadingCount : kGeneralCount);
+      settings_sel_ = wrap_index(settings_sel_ + step, settings_row_count());
       return true;
     case Screen::Battery:
     case Screen::Stats:
@@ -3562,6 +3734,15 @@ bool App::handle_key(Key key) {
 bool App::handle_gesture(const Gesture& g) {
   using K = Gesture::Kind;
   if (g.kind == K::None) return false;
+  if (quick_open_) return quick_gesture(g);
+  // A swipe down from the top edge, or a tap on a menu's status bar, opens
+  // the quick panel. (Page up from a button is a swipe from nowhere: y < 0.)
+  if (g.y >= 0 && quick_can_open() &&
+      ((g.kind == K::SwipeDown && g.y < kQuickEdge) ||
+       (g.kind == K::Tap && g.y < ui::kStatusRule && screen_ != Screen::Reader && screen_ != Screen::Picture))) {
+    open_quick();
+    return false;
+  }
   if (typing_ != Typing::Off) {
     // Taps (and holds) go to the keys; a tap above them puts the keyboard
     // away, keeping a search as typed.
@@ -3598,7 +3779,8 @@ bool App::handle_gesture(const Gesture& g) {
       case K::Tap: {
         bool redraw = false;
         if (link_tap(g.x, g.y, redraw)) return redraw;  // links before page turns
-        if (g.x >= fb_.width() / 3 && g.x < fb_.width() * 2 / 3) return open_contents(), false;
+        // The left third goes back, the rest of the page forward: the
+        // middle turns the page too (Power or the quick panel opens the contents).
         return turn(g.x < fb_.width() / 3 ? -1 : 1);
       }
       case K::SwipeLeft:
@@ -3662,6 +3844,7 @@ bool App::handle_gesture(const Gesture& g) {
       shelve_sel_ = item;
       return shelve_activate();
     case Screen::Settings:
+      if (item == kBackItem) return handle_key(Key::Home);
       settings_sel_ = item;
       settings_activate();
       return true;
@@ -3680,9 +3863,11 @@ bool App::handle_gesture(const Gesture& g) {
       store_activate();
       return false;
     case Screen::Buttons:
+      if (item == kBackItem) return handle_key(Key::Home);
       buttons_sel_ = item;
       return buttons_activate();
     case Screen::SleepSetup:
+      if (item == kBackItem) return handle_key(Key::Home);
       sleep_sel_ = item;
       sleep_setup_activate();
       return false;
@@ -3691,6 +3876,7 @@ bool App::handle_gesture(const Gesture& g) {
       pictures_activate();
       return true;
     case Screen::Transfer:
+      if (item == kBackItem) return handle_key(Key::Home);
       return handle_key(Key::Power);  // the row that switches networks
     case Screen::Setup:
       setup_sel_ = item;

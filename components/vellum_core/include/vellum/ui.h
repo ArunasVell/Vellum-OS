@@ -50,7 +50,8 @@ void draw_label(Framebuffer& fb, int x, int baseline, std::string_view text);
 // Battery icon ending at `right` with the charge in percent to its left.
 // Draws nothing when the level is unknown (negative).
 void draw_battery(Framebuffer& fb, int right, int baseline, int percent);
-// Time on the left (may be empty), battery on the right, hairline below.
+// Time on the left (may be empty), "Vellum" in the middle, battery on the
+// right, hairline below.
 void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent);
 // Control hint centred at the bottom of the screen.
 void draw_hint(Framebuffer& fb, std::string_view text);

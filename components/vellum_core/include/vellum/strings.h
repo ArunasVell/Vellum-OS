@@ -264,7 +264,7 @@ struct Strings {
   const char* buttons;            // settings row and screen title
   const char* button_pages[2];    // while reading, in menus
   const char* input_names[7];     // ButtonInput: Prev, Next, Power, Home, then Prev, Next, Home held
-  const char* action_names[21];   // ButtonAction, in its order
+  const char* action_names[22];   // ButtonAction, in its order
   const char* reset_default;      // a row on the buttons screen
   const char* power_hold_note;    // holding Power always sleeps
   const char* way_back_note;      // why some choices are passed over
@@ -343,6 +343,18 @@ struct Strings {
   const char* next;                // button: on to the next step
   const char* hint_welcome;        // the setup's hint
   const char* hint_welcome_first;  // on the first step, which has no way back
+  // Settings sorted into pages, and the quick panel
+  const char* page_settings;  // main settings row and page title: the footer, night mode, page turns
+  const char* display_light;  // main settings row and page title: the light, menus, screen
+  const char* sleep_battery;  // main settings row and page title
+  const char* general;        // main settings row and page title: language, clock, books
+  const char* light_short;    // quick panel button: the front light on or off
+  const char* night_short;    // quick panel button: night mode
+  const char* home_short;     // quick panel button: the home screen
+  const char* sleep_short;    // quick panel button: sleep now
+  const char* hint_quick;     // the quick panel's hint
+  const char* starting_back;  // under "starting": the way out
+  const char* back_label;     // a button that leaves the screen
 };
 
 const Strings& strings(Language lang);

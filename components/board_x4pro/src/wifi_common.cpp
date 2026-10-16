@@ -13,6 +13,7 @@ namespace {
 constexpr const char* kNamespace = "vellum";
 constexpr const char* kTag = "home-wifi";
 constexpr int kJoinTimeoutMs = 20000;
+constexpr int kPollMs = 100;  // how often a join asks whether it was cancelled
 constexpr EventBits_t kGotIp = BIT0;
 constexpr EventBits_t kGaveUp = BIT1;
 }  // namespace
@@ -56,7 +57,7 @@ bool home_wifi_save(const char* ssid, const char* password) {
   return ok;
 }
 
-vellum::UpdateResult HomeWifi::join() {
+vellum::UpdateResult HomeWifi::join(CancelFn cancelled, void* ctx) {
   if (joined_) return vellum::UpdateResult::UpToDate;
   char ssid[33];
   char password[65];
@@ -90,18 +91,27 @@ vellum::UpdateResult HomeWifi::join() {
       esp_wifi_start() != ESP_OK) {
     return vellum::UpdateResult::NoWifi;
   }
-  // A few tries: home routers can be slow to answer a sleepy device.
+  // A few tries: home routers can be slow to answer a sleepy device. The
+  // waits come in short slices, so a cancel is noticed at once.
+  const auto stop = [&] { return cancelled != nullptr && cancelled(ctx); };
   for (int attempt = 0; attempt < 3; ++attempt) {
     xEventGroupClearBits(events_, kGotIp | kGaveUp);
     esp_wifi_connect();
-    const EventBits_t bits =
-        xEventGroupWaitBits(events_, kGotIp | kGaveUp, pdTRUE, pdFALSE, pdMS_TO_TICKS(kJoinTimeoutMs));
+    EventBits_t bits = 0;
+    for (int waited = 0; waited < kJoinTimeoutMs && !(bits & (kGotIp | kGaveUp)); waited += kPollMs) {
+      if (stop()) break;
+      bits = xEventGroupWaitBits(events_, kGotIp | kGaveUp, pdTRUE, pdFALSE, pdMS_TO_TICKS(kPollMs));
+    }
     if (bits & kGotIp) {
       ESP_LOGI(kTag, "joined %s", ssid);
       joined_ = true;
       return vellum::UpdateResult::UpToDate;
     }
     esp_wifi_disconnect();
+    if (stop()) {
+      ESP_LOGI(kTag, "join of %s cancelled", ssid);
+      return vellum::UpdateResult::NoWifi;
+    }
     vTaskDelay(pdMS_TO_TICKS(1000));
   }
   ESP_LOGW(kTag, "could not join %s", ssid);

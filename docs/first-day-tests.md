@@ -45,9 +45,9 @@ The buttons in this list: the two **page buttons** on the side (one goes back a 
 
 ## 5. Taps and swipes in a book
 
-**Do:** In a book: tap the right third of the page, then the left third, then the middle. Then swipe left, and swipe right.
+**Do:** In a book: tap the right third of the page, then the left third, then the middle. Then swipe left, and swipe right. Then swipe down from the very top edge of the screen.
 
-**Good:** Right third turns forward, left third goes back, the middle opens Contents (Home goes back to the page). Swipe left turns forward, swipe right goes back.
+**Good:** Right third turns forward, left third goes back, the middle turns forward too. Swipe left turns forward, swipe right goes back. The swipe from the top opens the quick panel (light, Night, Contents, Home, Settings, Sleep); Home or a tap under it closes it.
 
 **If not, send:** which taps or swipes did the wrong thing.
 

@@ -25,10 +25,10 @@ using ui::kSide;
 // Buttons screen geometry, logical pixels on the 480x800 portrait screen.
 constexpr int kTitleBase = 104;
 constexpr int kTabsTop = 128;
-constexpr int kTabH = 38;
+constexpr int kTabH = 44;
 constexpr int kTabPad = 16;
-constexpr int kRowsTop = 184;
-constexpr int kRowH = 36;
+constexpr int kRowsTop = 186;
+constexpr int kRowH = 46;
 constexpr int kResetH = 46;
 constexpr int kPad = 12;       // highlights reach this far into the margins
 constexpr int kTabItem = 100;  // hit items of the two tabs: 100 reading, 101 menus
@@ -48,7 +48,7 @@ Key other_side(Key k) {
 // ---- Presses and actions ---------------------------------------------------------
 
 bool App::reading_controls() const {
-  return screen_ == Screen::Reader && word_mode_ == WordMode::Off && typing_ == Typing::Off;
+  return screen_ == Screen::Reader && word_mode_ == WordMode::Off && typing_ == Typing::Off && !quick_open_;
 }
 
 bool App::key_down(Key key) {
@@ -139,6 +139,13 @@ bool App::act(ButtonAction a) {
     case A::Sleep:
       sleep();
       return false;
+    case A::QuickPanel:
+      if (quick_open_) {
+        close_quick();
+      } else if (quick_can_open()) {
+        open_quick();
+      }
+      return false;
   }
   return false;
 }
@@ -192,7 +199,7 @@ void App::open_buttons() {
 void App::draw_buttons() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.buttons);
+  draw_back_title(t.buttons, kTitleBase);
 
   // The set shown is the solid tab; the cursor on this row rings it.
   int x = kSide;
@@ -217,7 +224,7 @@ void App::draw_buttons() {
     const bool selected = buttons_sel_ == i + 1;
     if (selected) fb_.fill_round_rect(r, 10, Color::Black);
     const Color fg = selected ? Color::White : Color::Black;
-    const int base = r.y + 27;
+    const int base = r.y + 31;
     const char* name = t.input_names[i];
     draw_text(fb_, ui::text_font(), (r.x + kPad) * 64, base, name, fg);
     const int right = r.x + r.w - kPad;
@@ -237,7 +244,7 @@ void App::draw_buttons() {
   add_hit(reset, kButtonInputs + 1);
 
   // What stays as it is: Power held, and a way back.
-  int y = reset_y + kResetH + 40;
+  int y = reset_y + kResetH + 30;
   y = ui::draw_wrapped(fb_, ui::label_font(), kSide, y, w - 2 * kSide, 2, t.power_hold_note, false);
   if (buttons_refused_) fb_.fill_rect({kSide - 10, y - 4, 3, 46}, Color::Black);  // that is why nothing changed
   ui::draw_wrapped(fb_, ui::label_font(), kSide, y + 14, w - 2 * kSide, 3, t.way_back_note, false);

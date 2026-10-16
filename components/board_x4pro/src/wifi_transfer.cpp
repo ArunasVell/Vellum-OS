@@ -508,7 +508,7 @@ struct WifiTransfer::Impl {
     char ssid[33];
     char password[65];
     if (!home_wifi_load(ssid, sizeof(ssid), password, sizeof(password))) return false;
-    if (home.join() != vellum::UpdateResult::UpToDate) {
+    if (home.join(info.cancelled, info.cancel_ctx) != vellum::UpdateResult::UpToDate) {
       home.leave();
       return false;
     }

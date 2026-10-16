@@ -188,6 +188,12 @@ struct TransferInfo {
   // Set by the app, for the page's Settings: the typefaces it can pick, one
   // name per line. Stays valid until stop().
   const char* fonts = nullptr;
+  // Set by the app: starting can take a while (joining the home Wi-Fi), and
+  // the reader may want out meanwhile. Boards that wait call
+  // cancelled(cancel_ctx) every so often; when it returns true, start()
+  // undoes what it began and returns false.
+  bool (*cancelled)(void* ctx) = nullptr;
+  void* cancel_ctx = nullptr;
 };
 
 struct TransferStatus {
