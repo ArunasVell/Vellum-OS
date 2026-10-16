@@ -292,6 +292,8 @@ constexpr Strings kEnglish = {
         "No pictures yet. Put JPG, PNG or BMP files in the sleep folder on the card, or send them "
         "from the phone page of Add books.",
     .preparing_pictures = "Preparing pictures\xE2\x80\xA6",
+    .preparing_book = "Preparing a book\xE2\x80\xA6",
+    .preparing_book_once = "Only the first time it is added.",
     .picture_broken = "Cannot be shown",
     .pictures_shuffle_lead = "A new one each time, from the marked ones.",
     .pictures_one_lead = "The marked picture shows every time.",
@@ -664,6 +666,8 @@ constexpr Strings kLithuanian = {
         "Paveikslėlių dar nėra. Įrašykite JPG, PNG ar BMP failus į kortelės aplanką sleep arba "
         "atsiųskite juos iš telefono puslapio (Įkelti knygas).",
     .preparing_pictures = "Ruošiami paveikslėliai\xE2\x80\xA6",
+    .preparing_book = "Ruošiama knyga\xE2\x80\xA6",
+    .preparing_book_once = "Tik pirmą kartą ją įkėlus.",
     .picture_broken = "Negalima parodyti",
     .pictures_shuffle_lead = "Kaskart kitas, iš pažymėtųjų.",
     .pictures_one_lead = "Pažymėtas paveikslėlis rodomas kaskart.",

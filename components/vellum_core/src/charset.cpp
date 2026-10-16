@@ -254,4 +254,9 @@ uint32_t to_utf8(Encoding e, const uint8_t* in, uint32_t len, char* out, uint32_
   return w;
 }
 
+uint32_t code_point(Encoding e, uint8_t byte) {
+  const uint16_t* table = table_of(e);
+  return byte < 0x80 || table == nullptr ? byte : table[byte - 0x80];
+}
+
 }  // namespace vellum::charset

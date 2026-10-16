@@ -50,6 +50,9 @@ set(VELLUM_CORE_SRCS
   src/strings.cpp
   src/text.cpp
   src/text_book.cpp
+  src/convert.cpp
+  src/convert_mobi.cpp
+  src/convert_pdf.cpp
   src/textfile.cpp
   src/touch.cpp
   src/ui.cpp

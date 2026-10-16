@@ -584,6 +584,7 @@ class App {
   void sleep_setup_activate();
   // The reader's own pictures, as thumbnails to mark.
   void open_pictures();
+  static void book_converting(void* ctx, const char* path);
   void draw_pictures();
   void pictures_activate();
   // The battery is under `percent` and not charging (false when unknown).
@@ -638,7 +639,7 @@ class App {
   Settings settings_;
   Epub epub_;
   char epub_path_[160] = {};  // book open in epub_
-  TextBook text_book_;        // .txt, .fb2, .fb2.zip and .html books
+  TextBook text_book_;        // every book that is not an EPUB
   char text_path_[160] = {};  // book open in text_book_
   BuiltinDocument builtin_;
   Reader reader_;

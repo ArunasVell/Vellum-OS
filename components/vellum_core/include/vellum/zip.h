@@ -40,6 +40,10 @@ class Zip {
   // Returns the bytes written, or -1 on a damaged entry.
   int32_t extract_head(int i, uint8_t* out, uint32_t cap);
 
+  // Where a stored (not deflated) entry's bytes start in the file, so they
+  // can be read in place; 0 for a deflated or damaged entry.
+  uint32_t stored_at(int i);
+
   // Extracts entry i piece by piece into `out`, for entries too large to
   // hold in memory. `window` holds kWindowBytes: the inflater's history.
   // Returns false on a damaged entry, an unsupported method or a failed write.
