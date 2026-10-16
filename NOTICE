@@ -54,5 +54,20 @@ Vellum OS includes these typefaces, under the SIL Open Font License 1.1
   Atkinson Hyperlegible Next assets/fonts/atkinson (subset, regular weight)
   EB Garamond                assets/fonts/ebgaramond (subset, regular weight)
 
-and stb_truetype.h by Sean Barrett (https://github.com/nothings/stb), public
+and stb_truetype.h and stb_image.h by Sean Barrett (https://github.com/nothings/stb), public
 domain or MIT at your choice, in components/vellum_core/third_party/stb.
+
+----------------------------------------------------------------------------
+
+Vellum OS includes TJpgDec R0.03 by ChaN (http://elm-chan.org/fsw/tjpgd/), in
+components/vellum_core/third_party/tjpgd. Its notice is kept at the top of
+tjpgd.c.
+
+----------------------------------------------------------------------------
+
+Vellum OS includes hyphenation patterns from the hyph-utf8 package
+(https://www.hyphenation.org/tex), with their licences in each file's header:
+
+  assets/hyphenation/hyph-en-us.tex  Gerard D.C. Kuiken (free use with notice)
+  assets/hyphenation/hyph-lt.tex     Sigitas Tolušis, Vytas Statulevičius,
+                                     Yannis Haralambous (MIT)
