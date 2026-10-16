@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -797,8 +798,8 @@ void test_app_update() {
   settled(card);
   auto* app = new App(board);
   app->start();
-  tap(*app, 240, 700);  // Settings
-  tap(*app, 240, 394);  // Updates
+  tap(*app, 378, 620);  // Settings
+  tap(*app, 240, 603);  // Updates
   tap(*app, 240, 475);  // Update from a file: the phone page
   CHECK(transfer.starts == 1);
 
@@ -1186,6 +1187,154 @@ void test_app_front_light() {
   }
   std::remove("test-card/vellum/settings.txt");
   std::remove("test-card/vellum/state.txt");
+}
+
+// ---- The quick panel, and leaving Add books while it starts -----------------
+
+void test_app_quick_panel() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  SleepyPower power;
+  RecordingLight light;
+  std::filesystem::remove_all("test-card-quick");
+  StdioStorage card("test-card-quick");
+  settled(card);
+  Board board{"test", panel, input, power, &light, nullptr, &card, Rotation::R90, buf.data()};
+  Framebuffer view(buf.data(), kW, kH);
+  view.set_rotation(Rotation::R90);
+  const auto settings = [] { return read_all("test-card-quick/vellum/settings.txt"); };
+  App app(board);
+  app.start();
+
+  // A swipe down from the top edge opens it over home: + brightens, the
+  // Light button turns it off and back on as it was.
+  swipe(app, 240, 10, 240, 300);
+  tap(app, 424, 130);  // Brightness +
+  CHECK(light.level == 255 / 10);
+  tap(app, 424, 130);
+  CHECK(light.level == 2 * 255 / 10);
+  tap(app, 95, 317);  // Light: off
+  CHECK(light.level == 0);
+  tap(app, 95, 317);  // on again
+  CHECK(light.level == 2 * 255 / 10);
+  CHECK(settings().find("light=2\n") == std::string::npos);  // saved when it closes
+  const int full = panel.full;
+  tap(app, 240, 700);  // under the panel: closes it
+  CHECK(panel.full == full + 1);
+  CHECK(settings().find("light=2\n") != std::string::npos);
+
+  // In the book: a swipe down from the middle turns back as before, from
+  // the top it opens the panel; Home closes it, Night turns the page over.
+  press(app, Key::Power);  // the current book
+  tap(app, 400, 400);      // forward
+  const int fast = panel.fast;
+  swipe(app, 240, 300, 240, 600);  // back
+  CHECK(panel.fast == fast + 1);
+  swipe(app, 240, 20, 240, 400);
+  CHECK(panel.fast == fast + 2);
+  press(app, Key::Home);  // closes it, still in the book
+  tap(app, 400, 400);     // forward: the page turns
+  swipe(app, 240, 20, 240, 400);
+  tap(app, 239, 317);  // Night
+  CHECK(settings().find("night=1\n") == std::string::npos);
+  press(app, Key::Home);
+  CHECK(settings().find("night=1\n") != std::string::npos);
+  CHECK(view.pixel(5, 400) == Color::Black);  // the page is white on black
+  swipe(app, 240, 20, 240, 400);
+  tap(app, 239, 317);  // Night off again
+  press(app, Key::Home);
+  CHECK(view.pixel(5, 400) == Color::White);
+
+  // With the side buttons and Power: from the Light button, Next twice is
+  // Contents. Its rows show where the panel was.
+  swipe(app, 240, 20, 240, 400);
+  press(app, Key::Next);
+  press(app, Key::Next);
+  press(app, Key::Power);
+  press(app, Key::Power);  // Contents' first row: back to the page
+  // Settings from the panel: the main page, its groups boxed in the margin.
+  swipe(app, 240, 20, 240, 400);
+  CHECK(view.pixel(17, 200) == Color::White);
+  tap(app, 239, 401);  // Settings
+  CHECK(view.pixel(17, 200) == Color::Black);
+  // On a menu a tap on the status bar opens it too; Sleep sleeps.
+  tap(app, 240, 30);
+  tap(app, 383, 401);  // Sleep
+  CHECK(power.sleeps == 1);
+  press(app, Key::Next);  // wake: back on Settings, the panel gone
+  CHECK(view.pixel(17, 200) == Color::Black);
+  CHECK(view.pixel(28, 620) == Color::White);
+  tap(app, 240, 30);
+  tap(app, 95, 401);                           // Home
+  CHECK(view.pixel(28, 620) == Color::Black);  // the edge of All books
+  tap(app, 378, 620);                          // Settings
+  CHECK(view.pixel(17, 200) == Color::Black);
+  std::filesystem::remove_all("test-card-quick");
+}
+
+// Input waiting while Add books starts: the app looks at it meanwhile.
+class QueuedInput : public InputSource {
+ public:
+  bool wait(InputEvent& out, uint32_t) override {
+    if (events.empty()) return false;
+    out = events.front();
+    events.pop_front();
+    return true;
+  }
+  std::deque<InputEvent> events;
+};
+
+// Starts slowly, asking whether to stop, as joining a home Wi-Fi does.
+class SlowTransfer : public FakeTransfer {
+ public:
+  bool start(TransferInfo& info) override {
+    for (int i = 0; i < 20; ++i) {
+      if (info.cancelled != nullptr && info.cancelled(info.cancel_ctx)) {
+        ++cancelled;
+        return false;
+      }
+    }
+    return FakeTransfer::start(info);
+  }
+  int cancelled = 0;
+};
+
+void test_app_transfer_cancel() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  QueuedInput input;
+  FixedPower power;
+  std::remove("test-card/vellum/state.txt");
+  StdioStorage card("test-card");
+  SlowTransfer transfer;
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data(), &transfer};
+  settled(card);
+  App app(board);
+  app.start();
+
+  // Home pressed while it starts: back home, nothing left running.
+  input.events.push_back(key_event(InputEvent::Type::KeyDown, Key::Home));
+  tap(app, 240, 640);  // Add books
+  CHECK(transfer.cancelled == 1 && transfer.starts == 0);
+  app.handle(key_event(InputEvent::Type::KeyUp, Key::Home));  // its release does nothing more
+  // Power is left alone: it starts.
+  input.events.push_back(key_event(InputEvent::Type::KeyDown, Key::Power));
+  input.events.push_back(key_event(InputEvent::Type::KeyUp, Key::Power));
+  tap(app, 240, 640);
+  CHECK(transfer.cancelled == 1 && transfer.starts == 1);
+  press(app, Key::Home);
+  CHECK(transfer.stops == 1);
+  // A tap on the Back button under "Starting".
+  input.events.push_back(touch_at(InputEvent::Type::TouchDown, 240, 360));
+  input.events.push_back(touch_at(InputEvent::Type::TouchUp, 240, 360));
+  tap(app, 240, 640);
+  CHECK(transfer.cancelled == 2 && transfer.starts == 1);
+  // Once it runs, the ‹ by the title leaves too.
+  tap(app, 240, 640);
+  CHECK(transfer.starts == 2);
+  tap(app, 60, 100);
+  CHECK(transfer.stops == 2);
 }
 
 // ---- Plain text, FictionBook and web-page books ------------------------------
@@ -1691,11 +1840,16 @@ void test_app_fonts() {
   CHECK(ui::menu_fonts().label == &fonts::literata_19);
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Next);  // Display & light
+  press(*app, Key::Power);
   press(*app, Key::Next);  // Menu font
   press(*app, Key::Power);
   CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
   CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
-  for (int i = 0; i < 11; ++i) press(*app, Key::Next);  // down to Reading
+  press(*app, Key::Home);  // back to the main page, on Display & light
+  press(*app, Key::Prev);
+  press(*app, Key::Prev);  // Reading
   press(*app, Key::Power);
   press(*app, Key::Power);  // Book font: the next after Literata
   CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
@@ -1824,8 +1978,8 @@ void test_app_updates_screen() {
   auto* app = new App(board);
   app->start();
 
-  tap(*app, 240, 700);  // Settings
-  tap(*app, 240, 394);  // Updates, the eighth row
+  tap(*app, 378, 620);  // Settings
+  tap(*app, 240, 603);  // Updates, the eighth row
   tap(*app, 240, 325);  // Check now: the home Wi-Fi is out of reach
   CHECK(updater.checks == 1 && updater.installs == 0);
   CHECK(read_all("test-card/vellum/update.txt").empty());  // a failed check remembers nothing
@@ -1888,8 +2042,8 @@ void test_app_first_setup() {
   // Home's Settings link, the Updates row and Check now: only home has them there.
   const auto at_home = [&](App& app) {
     const int checks = updater.checks;
-    tap(app, 240, 700);
-    tap(app, 240, 394);
+    tap(app, 378, 620);
+    tap(app, 240, 603);
     tap(app, 240, 325);
     const bool home = updater.checks == checks + 1;
     press(app, Key::Home);
@@ -1949,9 +2103,10 @@ void test_app_first_setup() {
     CHECK(settings().find("language=0\n") != std::string::npos);
     CHECK(at_home(app));
 
-    // Settings › Setup again, the last row of the general page, runs it again.
-    tap(app, 240, 700);  // Settings
-    tap(app, 240, 718);  // Setup again
+    // Settings › General › Setup again, its last row, runs it again.
+    tap(app, 378, 620);  // Settings
+    tap(app, 240, 465);  // General
+    tap(app, 240, 306);  // Setup again
     tap(app, kNextX, kButtonY);
     tap(app, kNextX, kButtonY);
     tap(app, kNextX, kButtonY);  // to the home Wi-Fi step
@@ -2172,8 +2327,7 @@ void test_app_device_check() {
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
   press(*app, Key::Power);
-  for (int i = 0; i < 9; ++i)
-    press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after, Sleep screen, Light, Battery, Updates, Stats
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);  // Device check, the last row of the main page
   CHECK(!on_check());
   press(*app, Key::Power);
   CHECK(on_check());
@@ -2221,7 +2375,7 @@ void test_app_device_check_memory() {
     app.start();
     for (int i = 0; i < 5; ++i) press(app, Key::Next);  // Settings
     press(app, Key::Power);
-    for (int i = 0; i < 9; ++i) press(app, Key::Next);  // Device check
+    for (int i = 0; i < 8; ++i) press(app, Key::Next);  // Device check
     press(app, Key::Power);
   };
   auto* app = new App(board);
@@ -2348,6 +2502,9 @@ void test_app_after_crash() {
   press(*app, Key::Power);                                    // wake
   // Choosing a menu font again uses it at once.
   press(*app, Key::Prev);  // Settings, the last link
+  press(*app, Key::Power);
+  press(*app, Key::Next);
+  press(*app, Key::Next);  // Display & light
   press(*app, Key::Power);
   press(*app, Key::Next);  // Menu font: the next after Atkinson
   press(*app, Key::Power);
@@ -3319,10 +3476,10 @@ void test_app_reading_stats() {
   CHECK(saved.find("b\t1\t510\t13\tbuiltin:") != std::string::npos);
   CHECK(saved.find("d\t2026-10-04\t0\t510\t13\n") != std::string::npos);
 
-  // Settings › Reading stats, the ninth row: opens, Power goes back.
+  // Settings › Reading stats, the seventh row of the main page: opens, Power goes back.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
   int full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -3330,16 +3487,12 @@ void test_app_reading_stats() {
   CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::Black);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);
-  CHECK(view.pixel(17, 430) == Color::Black);  // back on Settings, the Reading stats row highlighted
+  CHECK(view.pixel(22, 545) == Color::Black);  // back on Settings, the Reading stats row highlighted
 
-  // Settings › Reading › Footer: time left in the chapter, then the percent.
-  press(*app, Key::Next);  // Device check
-  press(*app, Key::Next);  // Home and library view
-  press(*app, Key::Next);  // Move finished books
-  press(*app, Key::Next);  // Reading
+  // Settings › Page › Footer: time left in the chapter, then the percent.
+  for (int i = 0; i < 5; ++i) press(*app, Key::Prev);  // Page
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
-  press(*app, Key::Power);
+  press(*app, Key::Power);  // Footer, its first row
   CHECK(read_all("test-card-stats/vellum/settings.txt").find("footer=1") != std::string::npos);
   press(*app, Key::Home);
   press(*app, Key::Home);
@@ -3349,9 +3502,8 @@ void test_app_reading_stats() {
   press(*app, Key::Home);
   press(*app, Key::Prev);
   press(*app, Key::Power);
-  for (int i = 0; i < 12; ++i) press(*app, Key::Next);
+  press(*app, Key::Next);  // Page
   press(*app, Key::Power);
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(read_all("test-card-stats/vellum/settings.txt").find("footer=2") != std::string::npos);
   delete app;
@@ -4895,10 +5047,10 @@ void test_app_buttons() {
   press(*app, Key::Next);  // wake
   press(*app, Key::Home);  // a short Home: home, as always
 
-  // Settings › Buttons: the fourth row from the end of the general page.
+  // Settings › Buttons: the fourth row of the main page.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 4; ++i) press(*app, Key::Prev);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
   full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -4911,7 +5063,7 @@ void test_app_buttons() {
   press(*app, Key::Next);  // Home: away from Home screen, as Power leads out now
   press(*app, Key::Power);
   CHECK(saved().find("buttons_reading=1,2,6,7,3,4,13\n") != std::string::npos);
-  for (int i = 0; i < 14; ++i) press(*app, Key::Power);  // all the way around, to Home screen again
+  for (int i = 0; i < 15; ++i) press(*app, Key::Power);  // all the way around, to Home screen again
   CHECK(saved().find("buttons_reading=1,2,6,6,3,4,13\n") != std::string::npos);
 
   // In menus, Power is the only Select: it stays.
@@ -5001,7 +5153,9 @@ void test_app_orientation() {
   tap_turned(*app, Rotation::R0, 100, 240);  // the left third: back
   CHECK(panel.fast == fast_now + 2);
   // Contents is upright: its rows take taps in portrait.
-  tap_turned(*app, Rotation::R0, 400, 240);  // the middle: contents
+  tap_turned(*app, Rotation::R0, 400, 240);  // the middle: forward too
+  CHECK(panel.fast == fast_now + 3);
+  press(*app, Key::Power);  // the contents
   CHECK(any_black(portrait, {380, 20, 72, 30}));
   const int full = panel.full;
   tap_turned(*app, Rotation::R90, 240, 186 + 25);  // Back to book
@@ -5591,7 +5745,9 @@ void test_app_sleep_screens() {
   app->start();
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 4; ++i) press(*app, Key::Next);  // Language, Menu font, Clock, Sleep after: Sleep screen
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);  // Sleep & battery
+  press(*app, Key::Power);
+  press(*app, Key::Next);  // Sleep screen
   press(*app, Key::Power);
   for (int i = 0; i < 3; ++i) press(*app, Key::Next);  // Book cover, My pictures, Reading stats: Minimal
   press(*app, Key::Power);
@@ -6381,6 +6537,8 @@ int main() {
   test_card_library_and_progress();
   test_covers();
   test_app_transfer();
+  test_app_transfer_cancel();
+  test_app_quick_panel();
   test_app_update();
   test_update_helpers();
   test_app_sleep();

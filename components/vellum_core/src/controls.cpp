@@ -7,12 +7,12 @@ namespace {
 
 using A = ButtonAction;
 
-constexpr A kReading[] = {A::None,        A::PrevPage, A::NextPage,    A::PrevChapter, A::NextChapter,
-                          A::Contents,    A::Home,     A::Library,     A::Bookmark,    A::LightToggle,
-                          A::LightScreen, A::AutoTurn, A::FullRefresh, A::Screenshot,  A::Sleep};
+constexpr A kReading[] = {A::None,        A::PrevPage,   A::NextPage, A::PrevChapter, A::NextChapter, A::Contents,
+                          A::Home,        A::Library,    A::Bookmark, A::LightToggle, A::LightScreen, A::AutoTurn,
+                          A::FullRefresh, A::Screenshot, A::Sleep,    A::QuickPanel};
 // The global ones that make sense anywhere come after the menu's own.
-constexpr A kMenus[] = {A::None,     A::Up,          A::Down,        A::Select,     A::Back, A::PageUp,
-                        A::PageDown, A::LightToggle, A::FullRefresh, A::Screenshot, A::Sleep};
+constexpr A kMenus[] = {A::None,     A::Up,          A::Down,        A::Select,     A::Back,  A::PageUp,
+                        A::PageDown, A::LightToggle, A::FullRefresh, A::Screenshot, A::Sleep, A::QuickPanel};
 
 bool has(const ButtonAction (&set)[kButtonInputs], std::initializer_list<A> any) {
   return std::any_of(std::begin(set), std::end(set),

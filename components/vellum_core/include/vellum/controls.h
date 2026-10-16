@@ -39,8 +39,10 @@ enum class ButtonAction : uint8_t {
   Back,    // back or home, as the Home button did
   PageUp,
   PageDown,
+  // Anywhere
+  QuickPanel,  // opens the quick panel (the light, home, Settings, sleep)
 };
-constexpr int kButtonActions = 21;
+constexpr int kButtonActions = 22;
 
 struct ButtonMap {
   ButtonAction reader[kButtonInputs];

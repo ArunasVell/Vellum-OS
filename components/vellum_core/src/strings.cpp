@@ -262,7 +262,7 @@ constexpr Strings kEnglish = {
                      "Bookmark page", "Light on/off",  "Front light", "Auto page turn",
                      "Full refresh",  "Screenshot",    "Sleep",       "Up",
                      "Down",          "Open",          "Back",        "Page up",
-                     "Page down"},
+                     "Page down",     "Quick panel"},
     .reset_default = "Reset to default",
     .power_hold_note = "Holding Power for a second always sleeps.",
     .way_back_note =
@@ -347,6 +347,17 @@ constexpr Strings kEnglish = {
     .next = "Next",
     .hint_welcome = "Side buttons move · Power chooses · Home back",
     .hint_welcome_first = "Side buttons move · Power chooses",
+    .page_settings = "Page",
+    .display_light = "Display & light",
+    .sleep_battery = "Sleep & battery",
+    .general = "General",
+    .light_short = "Light",
+    .night_short = "Night",
+    .home_short = "Home",
+    .sleep_short = "Sleep",
+    .hint_quick = "Side buttons move · Power chooses · Home closes",
+    .starting_back = "Changed your mind? Tap Back or press Home.",
+    .back_label = "Back",
 };
 
 constexpr Strings kLithuanian = {
@@ -622,7 +633,8 @@ constexpr Strings kLithuanian = {
                      "Atidaryti",
                      "Atgal",
                      "Psl. aukštyn",
-                     "Psl. žemyn"},
+                     "Psl. žemyn",
+                     "Greitasis skydelis"},
     .reset_default = "Atkurti numatytuosius",
     .power_hold_note = "Sekundę laikant Įjungimo mygtuką, skaitytuvas visada užmiega.",
     .way_back_note =
@@ -707,6 +719,17 @@ constexpr Strings kLithuanian = {
     .next = "Toliau",
     .hint_welcome = "Šoniniai: rinktis · Įjungimo: gerai · Namų: atgal",
     .hint_welcome_first = "Šoniniai: rinktis · Įjungimo: gerai",
+    .page_settings = "Puslapis",
+    .display_light = "Ekranas ir šviesa",
+    .sleep_battery = "Miegas ir baterija",
+    .general = "Bendri",
+    .light_short = "Šviesa",
+    .night_short = "Naktis",
+    .home_short = "Pradžia",
+    .sleep_short = "Miegas",
+    .hint_quick = "Šoniniai: rinktis · Įjungimo: gerai · Namų: uždaryti",
+    .starting_back = "Persigalvojote? Spauskite Atgal arba Namų.",
+    .back_label = "Atgal",
 };
 
 }  // namespace

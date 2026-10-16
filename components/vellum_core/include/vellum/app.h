@@ -42,8 +42,11 @@ namespace vellum {
 // home screen with Literata, so a broken book or font cannot crash it again
 // at once.
 // Touch: tap an item to open it (or change a setting); in the reader, tap
-// the left third or swipe right to go back, the right third or swipe left
-// to go forward, the middle for the contents. Swipes page through lists.
+// the left third or swipe right to go back, anywhere else or swipe left to
+// go forward. Swipes page through lists. Swiping down from the top edge
+// (or tapping the status bar of a menu) opens the quick panel
+// (app_quick.cpp): the front light, night mode, and ways to the contents,
+// home, Settings and sleep.
 //
 // Holding a word on the page looks it up in the card's dictionaries and
 // offers to highlight it, or a passage ending at a word tapped next.
@@ -224,6 +227,7 @@ class App {
 
   // Home lists the current book, up to kHomeRows others, then these links.
   int home_item_count() const;
+  void draw_home_buttons(int y, int first_item);
   void home_activate();
   // The library: Sort and Search, the tabs, then (on a shelf of the
   // reader's) Rename and Delete, then the books. library_sel_ counts
@@ -266,8 +270,14 @@ class App {
   bool keyboard_input(Keyboard::Result r);
   bool finish_typing(bool ok);
   void settings_activate();
-  // Settings has a general page and a reading page (with a text preview).
+  // Settings has a main page that leads to the others (reading, with a
+  // text preview; page; display and light; sleep and battery; general).
   void open_settings(bool reading);
+  void open_settings_page(int page, int sel);
+  int settings_row_count() const;
+  void settings_back();
+  // The ‹ and a screen's title; a tap on them goes back (kBackItem).
+  void draw_back_title(const char* title, int baseline);
   // Makes the menu and book typefaces from Settings current. Book fonts
   // other than Literata are rendered only when a page is set with them
   // (book_fonts()): a start that shows the home screen does not wait for them.
@@ -277,6 +287,9 @@ class App {
   // `setup` opens the phone page for home Wi-Fi and update files instead.
   void open_transfer(bool setup = false);
   void close_transfer();
+  // While the network starts: takes waiting input, and says whether the
+  // reader asked to leave (Home, a side button, or a tap on Back).
+  bool transfer_cancel_poll();
   // A home Wi-Fi network is set (Updater::home_network).
   bool home_wifi_set() const;
   // The other network for the page: the reader's own or the home Wi-Fi.
@@ -497,6 +510,37 @@ class App {
   void book_finished(int book);
   void move_finished_books();
 
+  // The quick panel (app_quick.cpp), over the top of the screen. Those
+  // returning bool say whether the screen needs a redraw.
+  enum class QuickItem : uint8_t {
+    Dimmer,
+    Brighter,
+    Cooler,
+    Warmer,
+    Light,
+    Night,
+    Contents,
+    Library,
+    Home,
+    Settings,
+    Sleep
+  };
+  static constexpr int kQuickItems = 10;
+  bool quick_can_open() const;
+  // Its buttons in order (the light's only when the device has one).
+  int quick_items(QuickItem* out) const;
+  void open_quick();
+  void close_quick();          // and redraws the screen under it
+  void close_quick_quietly();  // a screen change follows
+  bool quick_activate(QuickItem item);
+  bool quick_key(Key key);
+  bool quick_gesture(const Gesture& g);
+  void draw_quick();
+  // To the home screen from anywhere the panel opens, closing the book.
+  void go_home();
+  // The screen itself, without the quick panel.
+  void draw_screen();
+
   // Remembers where a tappable item was drawn; `item` is its selection index.
   void add_hit(Rect r, int item);
   int hit_at(int x, int y) const;
@@ -618,7 +662,7 @@ class App {
   int shelve_sel_ = 0;
   Screen shelve_back_ = Screen::Library;
   int settings_sel_ = 0;
-  bool settings_reading_ = false;  // the reading page of Settings
+  int settings_page_ = 0;  // the page of Settings shown (SettingsPage)
   FontLibrary fonts_;
   BookFonts book_fonts_ = literata_book(26);
   bool book_fonts_ready_ = false;  // book_fonts_ matches Settings
@@ -662,6 +706,7 @@ class App {
   bool transfer_setup_ = false;        // the phone page for updates, not books
   bool transfer_home_ = false;         // the page is on the home Wi-Fi
   bool transfer_home_failed_ = false;  // it could not be joined: the reader's own network instead
+  bool transfer_cancelled_ = false;    // the reader left while it was starting
   int transfer_settings_seen_ = 0;     // TransferStatus::settings_saved taken up
   char* transfer_fonts_ = nullptr;     // TransferInfo::fonts, allocated once
   // Updates: what is known, and what this session has tried.
@@ -766,6 +811,11 @@ class App {
   Hit hits_[kMaxHits] = {};
   int hit_count_ = 0;
   TouchTracker touch_;
+  bool quick_open_ = false;
+  int quick_sel_ = 0;
+  uint8_t quick_light_ = 0;  // the settings as the panel opened: saved on closing if changed
+  uint8_t quick_warmth_ = 0;
+  bool quick_night_ = false;
 };
 
 // Blocking main loop around App. Returns only when the input source reports

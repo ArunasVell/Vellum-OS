@@ -29,7 +29,6 @@ using ui::kSide;
 constexpr int kHeroLabelBase = 98;  // as on the list home screen
 constexpr int kGridTop = 112;
 constexpr int kTileH = 160;  // a cover, its title and its bar
-constexpr int kLinkHeight = 46;
 constexpr int kTitleBase = 112;
 constexpr int kSubtitleBase = 142;
 constexpr int kListTop = 160;
@@ -47,12 +46,6 @@ Color highlight(Framebuffer& fb, Rect r, bool selected) {
 
 void dotted_rule(Framebuffer& fb, int y) {
   for (int x = kSide; x < fb.width() - kSide; x += 4) fb.set_pixel(x, y, Color::Black);
-}
-
-void draw_link(Framebuffer& fb, Rect r, std::string_view text, bool selected) {
-  const Color c = highlight(fb, r, selected);
-  ui::draw_fitted(fb, ui::text_font(), r.x + kPad, r.y + 30, r.w - 2 * kPad - 24, text, c);
-  ui::draw_right(fb, ui::text_font(), r.x + r.w - kPad, r.y + 30, "\xE2\x80\xBA", c);  // ›
 }
 
 // Grid slot `slot` (left to right, then down) of a grid of `cols` starting at y = top.
@@ -137,13 +130,7 @@ void App::draw_home_grid() {
     ++item;
   }
 
-  const int y = kGridTop + kHomeTiles / kGridCols * kTileH + 4;
-  const char* links[] = {t.all_books, t.add_books, t.settings};
-  for (int i = 0; i < 3; ++i) {
-    const Rect r = row_rect(fb_, y + i * kLinkHeight, kLinkHeight);
-    draw_link(fb_, r, links[i], home_sel_ == tiles + i);
-    add_hit(r, tiles + i);
-  }
+  draw_home_buttons(kGridTop + kHomeTiles / kGridCols * kTileH + 14, tiles);
   ui::draw_hint(fb_, t.hint_home);
 }
 

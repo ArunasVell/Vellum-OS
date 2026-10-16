@@ -24,7 +24,10 @@ class HomeWifi {
  public:
   ~HomeWifi() { leave(); }
   // Returns UpToDate once joined, else NoNetwork (none set) or NoWifi.
-  vellum::UpdateResult join();
+  // While it waits, cancelled(ctx) is asked every kPollMs when given; it
+  // gives up (NoWifi) as soon as that returns true.
+  using CancelFn = bool (*)(void* ctx);
+  vellum::UpdateResult join(CancelFn cancelled = nullptr, void* ctx = nullptr);
   // Disconnects and turns the radio off.
   void leave();
   bool joined() const { return joined_; }

@@ -30,8 +30,8 @@ constexpr int kPad = 12;         // selection highlights extend this far into th
 // Settings › Sleep screen.
 constexpr int kTitleBase = 104;
 constexpr int kKindsTop = 124;
-constexpr int kKindHeight = 40;
-constexpr int kRowHeight = 36;
+constexpr int kKindHeight = 50;
+constexpr int kRowHeight = 48;
 
 // The pictures screen: thumbnails in a grid of three by two.
 constexpr int kGridTop = 168;
@@ -308,7 +308,7 @@ void App::sleep_setup_activate() {
 void App::draw_sleep_setup() {
   const int w = fb_.width();
   const Strings& t = text();
-  draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.sleep_screen);
+  draw_back_title(t.sleep_screen, kTitleBase);
 
   // The five kinds, the one chosen marked.
   int y = kKindsTop;
@@ -316,7 +316,7 @@ void App::draw_sleep_setup() {
     const Rect r = row_rect(fb_, y, kKindHeight);
     add_hit(r, i);
     const Color fg = highlight(fb_, r, i == sleep_sel_);
-    draw_text(fb_, ui::text_font(), (r.x + kPad) * 64, r.y + 28, t.sleep_kinds[i], fg);
+    draw_text(fb_, ui::text_font(), (r.x + kPad) * 64, r.y + 33, t.sleep_kinds[i], fg);
     draw_radio(fb_, r.x + r.w - kPad - 10, r.y + r.h / 2, i == static_cast<int>(settings_.sleep_screen), fg);
     y += kKindHeight;
   }
@@ -339,8 +339,8 @@ void App::draw_sleep_setup() {
     const Rect r = row_rect(fb_, y, kRowHeight);
     add_hit(r, item);
     const Color fg = highlight(fb_, r, item == sleep_sel_);
-    draw_text(fb_, ui::text_font(), (r.x + kPad) * 64, r.y + 27, names[k], fg);
-    ui::draw_right(fb_, ui::text_font(), r.x + r.w - kPad, r.y + 27, values[k], fg);
+    draw_text(fb_, ui::text_font(), (r.x + kPad) * 64, r.y + 32, names[k], fg);
+    ui::draw_right(fb_, ui::text_font(), r.x + r.w - kPad, r.y + 32, values[k], fg);
     y += kRowHeight;
   }
   ui::draw_hint(fb_, t.hint_settings);
