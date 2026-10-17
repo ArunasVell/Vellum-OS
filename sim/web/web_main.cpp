@@ -190,6 +190,7 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE void vellum_start(int battery) {
   power.percent = battery;
   board.version = "sim";
+  board.builtin_pictures = true;
   board.updater = &updater;
   board.network = &network;
   peers.pick_name();

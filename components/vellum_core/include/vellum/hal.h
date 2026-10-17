@@ -367,6 +367,9 @@ struct Board {
   // software (the simulators keep them as samples; a reader shows only the
   // card's own books).
   bool builtin_books = true;
+  // Whether Vellum's own nature pictures are put in the card's sleep folder
+  // (once per card) for Settings › Sleep screen › My pictures.
+  bool builtin_pictures = false;
 };
 
 }  // namespace vellum

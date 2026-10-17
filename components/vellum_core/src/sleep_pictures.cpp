@@ -35,6 +35,30 @@ void cache_name(const char* name, uint32_t size, char* out, size_t out_size) {
 
 }  // namespace
 
+int add_builtin_pictures(Storage& storage) {
+  File* note = storage.open(kBuiltinPicturesPath);
+  if (note != nullptr) {
+    storage.close(note);
+    return 0;
+  }
+  int added = 0;
+  for (int i = 0; i < kBuiltinPictureCount; ++i) {
+    const BuiltinPicture& p = kBuiltinPictures[i];
+    char path[96];
+    std::snprintf(path, sizeof(path), "%s/%s", SleepPictures::kFolder, p.name);
+    File* f = storage.open(path);
+    if (f != nullptr) {
+      storage.close(f);
+      continue;
+    }
+    if (!storage.write(path, p.data, p.size)) return added;  // a full or read-only card: try again next start
+    ++added;
+  }
+  static constexpr char kNote[] = "added\t1\n";
+  storage.write(kBuiltinPicturesPath, kNote, sizeof(kNote) - 1);
+  return added;
+}
+
 SleepPictures::SleepPictures()
     : pictures_(new(std::nothrow) Picture[kMax]), file_(new(std::nothrow) char[kStateBytes]) {}
 

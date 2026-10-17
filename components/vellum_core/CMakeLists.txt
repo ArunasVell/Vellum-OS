@@ -45,6 +45,7 @@ set(VELLUM_CORE_SRCS
   src/settings.cpp
   src/shelves.cpp
   src/sleep_pictures.cpp
+  src/builtin_pictures.cpp
   src/stdio_storage.cpp
   src/store.cpp
   src/strings.cpp

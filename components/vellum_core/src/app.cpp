@@ -651,6 +651,7 @@ App::App(Board& board)
     highlights_.load(*board_.storage);
     shelves_.load(*board_.storage);
     kosync::load_account(*board_.storage, sync_account_);
+    if (board_.builtin_pictures) add_builtin_pictures(*board_.storage);
   }
   fb_.set_rotation(rotation_for(screen_));  // Settings › Screen
   library_.load(shipped_books(), board_.storage, epub_, &text_book_);

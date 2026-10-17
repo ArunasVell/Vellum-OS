@@ -463,6 +463,7 @@ int main(int argc, char** argv) {
                       &transfer};
   DemoUpdater updater;
   board.version = "sim";
+  board.builtin_pictures = true;
   board.updater = &updater;
   DemoNetwork demo_network(VELLUM_DEMO_DATA);
   board.network = &demo_network;

@@ -26,6 +26,23 @@ namespace vellum {
 // .jpeg, .png or .bmp (any case), not hidden.
 bool is_picture_file(const char* name);
 
+// Vellum's own sleep pictures, quiet Lithuanian nature scenes drawn by
+// tools/make_nature_pictures.py, built into the software as PNG files.
+struct BuiltinPicture {
+  const char* name;  // its name in the sleep folder
+  const uint8_t* data;
+  uint32_t size;
+};
+extern const BuiltinPicture kBuiltinPictures[];
+extern const int kBuiltinPictureCount;
+
+// Puts the built-in pictures in the card's sleep folder, once per card: a
+// note in kBuiltinPicturesPath remembers it, so pictures the reader deleted
+// do not come back. A picture of the same name already there is kept.
+// Returns how many were added.
+constexpr const char* kBuiltinPicturesPath = "vellum/builtin-pictures.txt";
+int add_builtin_pictures(Storage& storage);
+
 class SleepPictures {
  public:
   static constexpr int kMax = 64;

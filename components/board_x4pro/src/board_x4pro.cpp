@@ -843,6 +843,7 @@ vellum::Board& board_x4pro_init() {
       vellum::Rotation::R270, fb,      &transfer, &peers};
   board.version = esp_app_get_description()->version;
   board.builtin_books = false;  // only the card's own books
+  board.builtin_pictures = true;
   board.memory = memory_info;
   static OtaUpdater updater;
   board.updater = &updater;

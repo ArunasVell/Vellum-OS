@@ -5865,6 +5865,35 @@ void copy_sleep_pictures(Storage& card) {
   }
 }
 
+void test_builtin_pictures() {
+  std::filesystem::remove_all("test-card-builtin");
+  StdioStorage card("test-card-builtin");
+  CHECK(kBuiltinPictureCount == 8);
+  CHECK(add_builtin_pictures(card) == kBuiltinPictureCount);
+  SleepPictures pictures;
+  pictures.scan(card);
+  CHECK(pictures.count() == kBuiltinPictureCount);
+  for (int i = 0; i < pictures.count(); ++i) {
+    // Each matches its file in assets/sleep (run tools/embed_pictures.py
+    // after drawing them again) and fills the screen.
+    const std::string name = pictures.at(i).name;
+    CHECK(name.starts_with("vellum-"));
+    const std::string want = read_all((std::string(VELLUM_TEST_DATA "/../../assets/sleep/") + name.substr(7)).c_str());
+    CHECK(!want.empty() && want.size() == pictures.at(i).size);
+    CHECK(pictures.prepare(card, i));
+    char path[64];
+    pictures.cache_path(i, path, sizeof(path));
+    const CoverImage* img = covers::load_screen(card, path);
+    CHECK(img != nullptr && img->w == covers::kScreenW && img->h == covers::kScreenH);
+  }
+  // Once per card: deleted pictures stay deleted.
+  std::remove("test-card-builtin/sleep/vellum-3-ezeras.png");
+  CHECK(add_builtin_pictures(card) == 0);
+  pictures.scan(card);
+  CHECK(pictures.count() == kBuiltinPictureCount - 1);
+  std::filesystem::remove_all("test-card-builtin");
+}
+
 void test_sleep_pictures() {
   std::filesystem::remove_all("test-card-sleep");
   PictureCountingCard card("test-card-sleep");
@@ -6977,6 +7006,7 @@ int main() {
   test_screenshot_bmp();
   test_bmp_reader();
   test_sleep_pictures();
+  test_builtin_pictures();
   test_app_sleep_screens();
   test_library_folders();
   test_recently_added();

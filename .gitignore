@@ -16,6 +16,7 @@ sdkconfig.old
 # Simulator screenshots
 *.png
 !docs/**/*.png
+!assets/sleep/*.png
 
 # Version number written by CI for release builds
 version.txt
