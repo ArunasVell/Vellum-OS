@@ -42,7 +42,15 @@ also waited a fixed 200 ms for that) and on again before the next.
    is on (its PWM stops in light sleep), while the panel refreshes, while
    Wi-Fi is on, and while a computer is connected over USB (the log cannot
    work through light sleep).
-5. **Settings › Device check shows the last page turn's time** next to the
+5. **Presses made during a refresh are no longer lost.** A button edge is
+   queued with the level it had and when; it used to be read again after the
+   refresh, by which time a quick press was already let go, so a second
+   press only counted once the screen was done. Presses already waiting
+   when one is handled are drawn first and shown together with one refresh
+   (`InputSource::pending`), so a run of quick presses through a menu or the
+   keyboard catches up at once.
+6. **Holding Power sleeps after 0.7 s** instead of a full second.
+7. **Settings › Device check shows the last page turn's time** next to the
    screen size ("800 × 480 · page 420 ms"): from the button to the new page
    on screen.
 
@@ -56,13 +64,16 @@ by FreeInk), and how often the full refresh runs (Settings).
    Leave it again, then tap the right side of the page: it turns. Leave it
    again, then press the Home pad: home appears. Do the same with Power
    (opens Contents) and holding Power (sleep).
-2. **Page turn time.** Turn about ten pages, then open **Settings › Device
+2. **Quick presses.** In Settings or the keyboard, press the page button
+   three times fast: the selection moves three places, without waiting for
+   each refresh. Holding Power puts the reader to sleep a little sooner.
+3. **Page turn time.** Turn about ten pages, then open **Settings › Device
    check**: the Screen row shows the last turn's time. Turn ten pages quickly
    (one every half second) and check again: it should be lower than for a
    single slow turn.
-3. **Front light.** Turn the light on, wait a minute without touching
+4. **Front light.** Turn the light on, wait a minute without touching
    anything: it must not flicker or go out.
-4. **Battery.** Read as usual for a day with the light off. **Settings ›
+5. **Battery.** Read as usual for a day with the light off. **Settings ›
    Sleep & battery › Battery** shows the drain while reading; compare it with
    a day on the previous version. With a USB power meter between a charger
    and the reader (not a computer): a book open, light off, untouched for a

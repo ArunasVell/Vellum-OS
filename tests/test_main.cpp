@@ -894,7 +894,7 @@ void test_app_sleep() {
     // A short Power press opens the current book (on release).
     app->handle(key_event(T::KeyDown, Key::Power));
     CHECK(panel.full == 1);
-    CHECK(app->wait_ms() == 1000);  // waiting to see if Power is held
+    CHECK(app->wait_ms() == 700);  // waiting to see if Power is held
     app->handle(key_event(T::KeyUp, Key::Power));
     CHECK(panel.full == 2);
     CHECK(app->wait_ms() == 10 * 60 * 1000);  // default: sleep after 10 idle minutes
@@ -3317,6 +3317,43 @@ class TimedInput : public InputSource {
   uint32_t now_ms() override { return ms; }
   uint32_t ms = 5000;
 };
+
+// Presses made while the screen refreshed are waiting when it is done: they
+// are drawn one after another and shown with one refresh, not one each.
+class BusyInput : public TimedInput {
+ public:
+  bool pending() override { return waiting > 0; }
+  int waiting = 0;
+};
+
+void test_app_waiting_presses_share_a_refresh() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  BusyInput input;
+  FixedPower power;
+  TestClock clock;
+  StdioStorage card("test-card-waiting");
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data()};
+  settled(card);
+  auto* app = new App(board);
+  app->start();
+  press(*app, Key::Power);  // open the current book
+  const int shown = panel.fast + panel.full;
+  input.waiting = 3;
+  for (int i = 0; i < 3; ++i) {
+    press(*app, Key::Next);
+    app->handled(input.now_ms());
+    --input.waiting;  // the last one finds nothing more waiting
+  }
+  app->handled(input.now_ms());
+  CHECK(panel.fast + panel.full == shown + 1);
+  // Nothing waiting: each turn is shown at once.
+  press(*app, Key::Next);
+  app->handled(input.now_ms());
+  CHECK(panel.fast + panel.full == shown + 2);
+  delete app;
+  std::filesystem::remove_all("test-card-waiting");
+}
 
 void test_app_reading_stats() {
   std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
@@ -6452,6 +6489,7 @@ int main() {
   test_reader_long_chapter();
   test_reader_relayout_rendered_fonts();
   test_app_reading_stats();
+  test_app_waiting_presses_share_a_refresh();
   test_charset_detection();
   test_text_headings();
   test_text_paragraphs();

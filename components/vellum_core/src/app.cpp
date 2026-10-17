@@ -51,7 +51,7 @@ constexpr int kSettingsTitleBase = 104;
 constexpr int kSettingsTop = 116;
 constexpr int kSettingRowHeight = 36;
 
-constexpr uint32_t kHoldMs = 1000;   // holding Power this long sleeps
+constexpr uint32_t kHoldMs = 700;    // holding Power this long sleeps
 constexpr uint32_t kToastMs = 2500;  // a notice at the bottom stays this long
 // Battery levels, unless charging: at kEmptyPercent the reader sleeps with a
 // "charge it" screen before the voltage sags too low for a refresh; under
@@ -3392,11 +3392,22 @@ bool App::handle(const InputEvent& ev) {
       return true;
   }
   draw();
-  queue_.submit();
+  // More presses already waiting (made during the last refresh): they are
+  // drawn first and shown together (flush()).
+  if (board_.input.pending()) {
+    deferred_ = true;
+  } else {
+    queue_.submit();
+  }
   return true;
 }
 
 void App::handled(uint32_t started) {
+  if (deferred_) {
+    if (board_.input.pending()) return;  // shown after the next event
+    deferred_ = false;
+    queue_.submit();
+  }
   if (!turned_) return;
   turned_ = false;
   if (started != 0) last_turn_ms_ = board_.input.now_ms() - started;

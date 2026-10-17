@@ -204,7 +204,7 @@ class Input : public vellum::InputSource {
   void init() {
     if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "app", &busy_) == ESP_OK) esp_pm_lock_acquire(busy_);
     self_ = this;
-    queue_ = xQueueCreate(16, sizeof(uint32_t));
+    queue_ = xQueueCreate(64, sizeof(uint32_t));
     gpio_config_t cfg = {};
     for (const Pin& p : kPins) cfg.pin_bit_mask |= 1ULL << p.gpio;
     cfg.mode = GPIO_MODE_INPUT;
@@ -281,6 +281,8 @@ class Input : public vellum::InputSource {
 
   uint32_t now_ms() override { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
+  bool pending() override { return count_ > 0 || (queue_ != nullptr && uxQueueMessagesWaiting(queue_) > 0); }
+
   bool touch_status(char* out, size_t size) override {
     if (!have_touch_) {
       int n = std::snprintf(out, size, "Not found. Bus:");
@@ -308,6 +310,7 @@ class Input : public vellum::InputSource {
     const bool no_irq = have_touch_ && !touch_irq_seen_ && !held;
     const uint32_t start = now_ms();
     uint32_t i = 0;
+    uint32_t item = 0;    // as queued: a button edge also has its level and time
     bool polled = false;  // no interrupt: the touch controller is due a read
     for (;;) {
       const uint32_t spent = now_ms() - start;
@@ -319,7 +322,11 @@ class Input : public vellum::InputSource {
       if (busy_ != nullptr) esp_pm_lock_release(busy_);
       const BaseType_t got = xQueueReceive(queue_, &i, pdMS_TO_TICKS(wait_ms));
       if (busy_ != nullptr) esp_pm_lock_acquire(busy_);
-      if (got == pdTRUE) break;
+      if (got == pdTRUE) {
+        item = i;
+        i &= kSourceMask;
+        break;
+      }
       // Nothing new to show for a while: the panel's supply goes off.
       if (g_display != nullptr && g_display->ms_until_off() == 0) g_display->power_off();
       // A press the chip slept through, should its wake-up ever be missed.
@@ -364,13 +371,16 @@ class Input : public vellum::InputSource {
       if (!pop(out)) out.type = vellum::InputEvent::Type::None;
       return true;
     }
-    vTaskDelay(pdMS_TO_TICKS(kDebounceMs));
-    const bool down = gpio_get_level(static_cast<gpio_num_t>(kPins[i].gpio)) == 0;
-    if (down == pressed_[i]) {  // bounce: no change once settled
+    // A button edge, at the level it had then. The first change counts;
+    // further edges within kDebounceMs of it are the contact bouncing.
+    const bool down = ((item >> 7) & 1) == 0;
+    const uint32_t at = item >> 8;
+    if (down == pressed_[i] || ((at - changed_at_[i]) & kTimeMask) < kDebounceMs) {
       out.type = vellum::InputEvent::Type::None;
       return true;
     }
     pressed_[i] = down;
+    changed_at_[i] = at;
     out.type = down ? vellum::InputEvent::Type::KeyDown : vellum::InputEvent::Type::KeyUp;
     out.key = kPins[i].key;
     return true;
@@ -396,12 +406,24 @@ class Input : public vellum::InputSource {
   static constexpr uint32_t kPollMs = 25;
   static constexpr uint32_t kNoIrqPollMs = 100;
 
+  // A queued button edge carries the pin's level and the time it happened
+  // (ms, 24 bits) above the source number, so presses made while the app
+  // was busy (a refresh takes a few hundred ms) are not lost: reading the
+  // pin only later would miss a press already let go.
+  static constexpr uint32_t kSourceMask = 0x7F;
+  static constexpr uint32_t kTimeMask = 0xFFFFFF;
+
   static void IRAM_ATTR on_edge(void* arg) {
-    const uint32_t i = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
+    uint32_t i = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
     // Woken while armed for a nap: the pin's level interrupt would fire for
     // as long as the level lasts, so it goes back to edges first.
     if (armed_)
       gpio_set_intr_type(static_cast<gpio_num_t>(i < kCount ? kPins[i].gpio : x4pro::kTouchInt), GPIO_INTR_ANYEDGE);
+    if (i < kCount) {
+      const uint32_t level = gpio_get_level(static_cast<gpio_num_t>(kPins[i].gpio)) != 0 ? 1u : 0u;
+      const uint32_t ms = static_cast<uint32_t>(esp_timer_get_time() / 1000) & kTimeMask;
+      i |= (level << 7) | (ms << 8);
+    }
     BaseType_t woken = pdFALSE;
     xQueueSendFromISR(queue_, &i, &woken);  // a full queue drops the edge; polling covers it
     if (woken) portYIELD_FROM_ISR();
@@ -458,6 +480,7 @@ class Input : public vellum::InputSource {
       const bool down = gpio_get_level(static_cast<gpio_num_t>(kPins[k].gpio)) == 0;
       if (down == pressed_[k]) continue;
       pressed_[k] = down;
+      changed_at_[k] = now_ms() & kTimeMask;
       vellum::InputEvent ev;
       ev.type = down ? vellum::InputEvent::Type::KeyDown : vellum::InputEvent::Type::KeyUp;
       ev.key = kPins[k].key;
@@ -518,6 +541,7 @@ class Input : public vellum::InputSource {
   esp_pm_lock_handle_t busy_ = nullptr;        // held while the app works
   bool summary_logged_ = false;
   bool pressed_[kCount] = {};
+  uint32_t changed_at_[kCount] = {};  // ms (24 bits) of each button's last change
   Gt911 touch_;
   bool have_touch_ = false;
   static constexpr int kBusSeen = 8;

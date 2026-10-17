@@ -149,9 +149,10 @@ class App {
   uint32_t wait_ms() const;
   // No input for wait_ms(): sleeps (Power held, or idle long enough).
   void timeout();
-  // After handle(): `started` is the steady time (Input::now_ms) the event
-  // came in. When it turned a page, the time from then until the new page
-  // was on screen is kept for the device check.
+  // After handle(): shows what handle() drew but held back while more
+  // input was waiting. `started` is the steady time (Input::now_ms) the
+  // event came in; when it turned a page, the time from then until the new
+  // page was on screen is kept for the device check.
   void handled(uint32_t started);
 
  private:
@@ -602,6 +603,7 @@ class App {
   BuiltinDocument builtin_;
   Reader reader_;
   int turns_since_save_ = 0;
+  bool deferred_ = false;      // drawn but not shown yet: more input was waiting
   bool turned_ = false;        // the event being handled turned a page
   uint32_t last_turn_ms_ = 0;  // how long the last page turn took, 0 when unknown
   Screen screen_ = Screen::Home;
