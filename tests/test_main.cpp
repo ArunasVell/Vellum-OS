@@ -5500,18 +5500,18 @@ void test_app_orientation() {
   CHECK(any_black(portrait, {380, 20, 72, 30}));  // home: the battery where it always is
   press(*app, Key::Power);                        // open the book
   Framebuffer wide(buf.data(), kW, kH);
-  wide.set_rotation(Rotation::R0);
+  wide.set_rotation(Rotation::R180);
   CHECK(any_black(wide, {700, 440, 100, 40}));  // the battery, bottom right of the wide page
   CHECK(any_black(wide, {28, 30, 744, 200}));   // the chapter's heading and text
   CHECK(!any_black(wide, {0, 0, 16, 480}));     // and stays inside the margins
   CHECK(!any_black(wide, {800 - 16, 0, 16, 480}));
   int fast_now = panel.fast;
-  tap_turned(*app, Rotation::R0, 700, 240);  // the right third: forward
+  tap_turned(*app, Rotation::R180, 700, 240);  // the right third: forward
   CHECK(panel.fast == fast_now + 1);
-  tap_turned(*app, Rotation::R0, 100, 240);  // the left third: back
+  tap_turned(*app, Rotation::R180, 100, 240);  // the left third: back
   CHECK(panel.fast == fast_now + 2);
   // Contents is upright: its rows take taps in portrait.
-  tap_turned(*app, Rotation::R0, 400, 240);  // the middle: forward too
+  tap_turned(*app, Rotation::R180, 400, 240);  // the middle: forward too
   CHECK(panel.fast == fast_now + 3);
   press(*app, Key::Power);  // the contents
   CHECK(any_black(portrait, {380, 20, 72, 30}));
@@ -5521,7 +5521,7 @@ void test_app_orientation() {
   CHECK(any_black(wide, {700, 440, 100, 40}));  // on its side again
   delete app;
 
-  // On its side the other way, Prev and Next trade places too.
+  // On its side with the buttons on the right, Prev and Next trade places too.
   controls_card(card, "orientation=3\n");
   app = new App(board);
   app->start();
