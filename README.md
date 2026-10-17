@@ -2,7 +2,19 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: early skeleton.** The simulator has a home screen, a library of four built-in public-domain books plus any EPUB books on the SD card, settings (English or Lithuanian menus, 12- or 24-hour clock, text size, line and word spacing, margins, alignment, hyphenation) and the reader, with justified, hyphenated text in Literata, Atkinson Hyperlegible Next, EB Garamond or any .ttf/.otf font added from a phone (menus can use a different font from books). Settings and the page you are on in each book are saved to the card. **Add books** opens the reader's own Wi-Fi network so a phone or computer can send books from a browser. Holding Power for a second puts the reader to sleep with the book's cover on screen, as does leaving it idle (10 minutes by default); pressing Power wakes it back in the book. On the X4 Pro the firmware has drivers for the screen (all three controller batches), battery gauge, clock, buttons, touch screen, frontlight, SD card, Wi-Fi book upload and deep sleep, not yet tested on a device.
+> **Status: alpha.** Vellum installs and runs on the XTEINK X4 Pro. The screen, touch screen, Home pad, SD card and updates are confirmed working on a device; the rest is still being tested day to day (see [docs/first-day-tests.md](docs/first-day-tests.md)). Expect rough edges, and save the original software before installing (the installer does this for you).
+
+## What it does
+
+- **Reading**: justified, hyphenated text (English and Lithuanian) in Literata, Atkinson Hyperlegible Next, EB Garamond or your own font; text size, spacing, margins and alignment; pictures, links and footnotes; night mode, focus mode and go-to page.
+- **Books**: EPUB, Kindle books without DRM (MOBI, AZW3), PDF with text in it, Word, RTF, Markdown, FB2, plain text, web pages and comics (CBZ).
+- **Finding your place**: chapters, bookmarks, highlights, a dictionary, reading stats, and the page you were on in every book.
+- **Library**: cover grid or list, shelves, folders, search and recently added.
+- **Getting books**: send them from a phone or computer over Wi-Fi, download free books from Project Gutenberg, Standard Ebooks or your own catalogue, or send a book from one Vellum reader to another.
+- **Sync**: reading position with KOReader sync, and every setting can be changed from a phone page.
+- **Sleep and battery**: the book's cover, your own pictures or stats on the sleep screen; a battery log with a 7-day chart and time left.
+- **Controls**: remap any button, swipe and tap gestures, a quick panel, screen rotation and front light.
+- **Setup and updates**: a short first-time setup (each step can be skipped), English or Lithuanian menus, and updates installed from a phone or a file.
 
 ## Goals
 
@@ -49,7 +61,7 @@ Add `--card DIR` to use a folder as the SD card (works with or without `--headle
 
 ### The SD card
 
-Put books in a `books` folder on the card (books in the top folder are found too). Vellum reads EPUB, Kindle books without DRM (`.mobi`, `.azw3`, `.azw`, `.prc`, `.pdb`), PDF with text in it (reflowed: its words are set again as paragraphs, so pictures, columns and page design are left behind; scanned or password-protected PDFs cannot be read), Word (`.docx`), RTF, Markdown, FictionBook (`.fb2`, `.fb2.zip`), plain text, single web pages and comics (`.cbz`, a page per screen). Books that are not EPUB, FB2, text or web pages are converted once, when the library first sees them, into `vellum/converted/` (safe to delete; they are converted again). Vellum keeps its own files in a `vellum` folder: `settings.txt`, `progress.txt` (the page you are on in each book), `state.txt` (whether to reopen the book after sleep) and `library.txt` (a list of the books, so the library opens without re-reading every file). All three are plain text and safe to delete; Vellum rebuilds them.
+Put books in a `books` folder on the card (books in the top folder are found too). Vellum reads EPUB, Kindle books without DRM (`.mobi`, `.azw3`, `.azw`, `.prc`, `.pdb`), PDF with text in it (reflowed: its words are set again as paragraphs, so pictures, columns and page design are left behind; scanned or password-protected PDFs cannot be read), Word (`.docx`), RTF, Markdown, FictionBook (`.fb2`, `.fb2.zip`), plain text, single web pages and comics (`.cbz`, a page per screen). Books that are not EPUB, FB2, text or web pages are converted once, when the library first sees them, into `vellum/converted/` (safe to delete; they are converted again). Vellum keeps its own files in a `vellum` folder: `settings.txt`, `progress.txt` (the page you are on in each book), `state.txt` (whether to reopen the book after sleep) and `library.txt` (a list of the books, so the library opens without re-reading every file). All of them are plain text and safe to delete; Vellum rebuilds them.
 
 On a card Vellum has never used (no `settings.txt` and no `state.txt`), a short setup comes before the home screen: language, clock, menu text size, home Wi-Fi and how to add books, each with Skip. Finishing it saves `setup_done=1` in `settings.txt`; Settings › Setup again runs it once more. With `--card`, an empty folder shows it.
 
