@@ -2073,10 +2073,10 @@ void test_font_library() {
   const int broken = lib.find("Broken");
   CHECK(mine >= 3 && broken >= 3 && lib.on_card(mine) && !lib.on_card(1));
   MenuFonts menu = literata_menu();
-  CHECK(!lib.menu(broken, false, menu) && menu.label == &fonts::literata_16);  // unchanged
-  CHECK(lib.menu(mine, false, menu) && menu.label->size == 16 && menu.title->size == 40);
-  CHECK(lib.menu(mine, true, menu) && menu.label->size == 19 && menu.text->size == 24);  // larger menu text
-  CHECK(lib.menu(mine, false, menu) && menu.label->size == 16);
+  CHECK(!lib.menu(broken, false, menu) && menu.label == &fonts::literata_19);  // unchanged
+  CHECK(lib.menu(mine, false, menu) && menu.label->size == 24 && menu.title->size == 50);
+  CHECK(lib.menu(mine, true, menu) && menu.label->size == 28 && menu.text->size == 35);  // larger menu text
+  CHECK(lib.menu(mine, false, menu) && menu.label->size == 24);
   CHECK(std::string(menu.label->family) == "My Face");
   BookFonts book = literata_book(26);
   CHECK(lib.book(1, 30, book) && book.body->size == 30 && book.heading->size == 26);
@@ -2098,7 +2098,7 @@ void test_app_fonts() {
   settled(card);
   auto* app = new App(board);
   app->start();
-  CHECK(ui::menu_fonts().label == &fonts::literata_19);
+  CHECK(ui::menu_fonts().label == &fonts::literata_22);
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
   press(*app, Key::Power);                             // General
@@ -2120,7 +2120,7 @@ void test_app_fonts() {
   card.write("vellum/settings.txt", saved, static_cast<uint32_t>(std::strlen(saved)));
   app = new App(board);
   app->start();
-  CHECK(ui::menu_fonts().label == &fonts::literata_19);
+  CHECK(ui::menu_fonts().label == &fonts::literata_22);
   delete app;
   std::remove("test-card/vellum/settings.txt");
   ui::set_menu_fonts(literata_menu());
@@ -2327,11 +2327,11 @@ void test_app_first_setup() {
     press(app, Key::Power);
     CHECK(settings().find("clock=1\n") != std::string::npos);
     press(app, Key::Power);  // Next: the menu text, Large to begin with
-    CHECK(ui::menu_fonts().label == &fonts::literata_19);
+    CHECK(ui::menu_fonts().label == &fonts::literata_22);
     press(app, Key::Prev);   // Normal
     press(app, Key::Power);  // smaller at once
     CHECK(settings().find("menu_text=0\n") != std::string::npos);
-    CHECK(ui::menu_fonts().label == &fonts::literata_16);
+    CHECK(ui::menu_fonts().label == &fonts::literata_19);
     press(app, Key::Power);  // Next: home Wi-Fi
     CHECK(transfer.starts == 0);
     press(app, Key::Power);  // Set up now: the phone page on the reader's own network
@@ -2373,7 +2373,7 @@ void test_app_first_setup() {
     tap(app, kNextX, kButtonY);  // to the home Wi-Fi step
     press(app, Key::Home);       // back a step...
     tap(app, kNextX, kButtonY);  // ...and on again
-    tap(app, 240, 400);          // the Set up now row (under the network saved), by touch
+    tap(app, 240, 466);          // the Set up now row (under the network saved), by touch
     CHECK(transfer.starts == 1);
     press(app, Key::Home);
     tap(app, kNextX, kButtonY);  // Done
@@ -2757,7 +2757,7 @@ void test_app_after_crash() {
   power.crashed = true;
   app = new App(board);
   app->start();
-  CHECK(ui::menu_fonts().label == &fonts::literata_19);
+  CHECK(ui::menu_fonts().label == &fonts::literata_22);
   CHECK(read_all("test-card/vellum/settings.txt") == saved);
   app->handle(key_event(InputEvent::Type::KeyDown, Key::Power));
   app->timeout();
@@ -4190,7 +4190,7 @@ void test_app_store() {
   press(*app, Key::Power);  // Try again
   CHECK(net.gets == gets + 2);
   net.fail = NetResult::Ok;
-  tap(*app, 240, 320);  // Try again, by touch: the list arrives
+  tap(*app, 240, 370);  // Try again, by touch: the list arrives
   CHECK(net.gets == gets + 3 && net.last_url.find("standardebooks.org") != std::string::npos);
   for (int i = 0; i < 3; ++i) press(*app, Key::Home);  // list, catalogues, out of the store
   CHECK(net.disconnects == 2);

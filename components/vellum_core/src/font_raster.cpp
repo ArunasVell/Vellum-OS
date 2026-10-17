@@ -85,6 +85,23 @@ bool TtfFace::load(const uint8_t* data, size_t size) {
   return true;
 }
 
+bool TtfFace::proportions(float& x_height, float& width) const {
+  if (!loaded_) return false;
+  const stbtt_fontinfo& font = info_->font;
+  const float em = stbtt_ScaleForMappingEmToPixels(&font, 1.0f);
+  int x0, y0, x1, y1;
+  if (!stbtt_GetCodepointBox(&font, 'x', &x0, &y0, &x1, &y1) || y1 <= 0) return false;
+  int advance = 0;
+  for (int c = 'a'; c <= 'z'; ++c) {
+    int a, bearing;
+    stbtt_GetCodepointHMetrics(&font, c, &a, &bearing);
+    advance += a;
+  }
+  x_height = static_cast<float>(y1) * em;
+  width = static_cast<float>(advance) * em / 26.0f;
+  return width > 0.0f;
+}
+
 void TtfFace::find_kerning() {
   if (pair_count_ >= 0) return;
   pair_count_ = 0;

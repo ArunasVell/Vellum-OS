@@ -1,6 +1,8 @@
 #include "vellum/font_library.h"
 
+#include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -10,10 +12,10 @@ namespace vellum {
 
 MenuFonts literata_menu(bool large) {
   if (large) {
-    return {&fonts::literata_19,        &fonts::literata_24,        &fonts::literata_30, &fonts::literata_italic_20,
+    return {&fonts::literata_22,        &fonts::literata_28,        &fonts::literata_34, &fonts::literata_italic_20,
             &fonts::literata_italic_26, &fonts::literata_italic_40, &fonts::literata_16};
   }
-  return {&fonts::literata_16,        &fonts::literata_20,        &fonts::literata_26, &fonts::literata_italic_20,
+  return {&fonts::literata_19,        &fonts::literata_24,        &fonts::literata_30, &fonts::literata_italic_20,
           &fonts::literata_italic_26, &fonts::literata_italic_40, &fonts::literata_16};
 }
 
@@ -26,6 +28,22 @@ BookFonts literata_book(int px) {
 }
 
 namespace {
+
+// Literata as pre-rendered at menu sizes (its small optical size, which is
+// wide with a tall x-height): "x" height and average a-z advance per em.
+constexpr float kLiterataXHeight = 0.52f;
+constexpr float kLiterataWidth = 0.61f;
+
+// How much larger than Literata's size `face` has to be drawn to look as big.
+// The same point size looks far smaller in most faces (EB Garamond's "x" is
+// a fifth shorter and its letters a third narrower), so menus would shrink
+// when another font is chosen.
+float menu_scale(const TtfFace& face) {
+  float x_height = 0, width = 0;
+  if (!face.proportions(x_height, width) || x_height <= 0) return 1.0f;
+  const float scale = std::sqrt(kLiterataXHeight / x_height * (kLiterataWidth / width));
+  return std::clamp(scale, 0.85f, 1.25f);
+}
 
 bool iequals(std::string_view a, std::string_view b) {
   if (a.size() != b.size()) return false;
@@ -220,9 +238,12 @@ bool FontLibrary::menu(int family, bool large, MenuFonts& out) {
   }
   if (family != menu_family_ || large != menu_large_) {
     const int* sizes = large ? kLargeMenuSizes : kMenuSizes;
+    float scale = 1.0f;
     for (int i = 0; i < 7; ++i) {
       Loaded* l = face(family, i >= 3 && i < 6);
-      if (l == nullptr || !menu_fonts_[i].build(l->face, sizes[i], f.name)) {
+      if (l != nullptr && i == 0) scale = menu_scale(l->face);
+      const int px = static_cast<int>(static_cast<float>(sizes[i]) * scale + 0.5f);
+      if (l == nullptr || !menu_fonts_[i].build(l->face, px, f.name)) {
         menu_family_ = -1;
         return false;
       }

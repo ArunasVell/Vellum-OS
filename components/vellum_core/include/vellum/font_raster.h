@@ -22,6 +22,9 @@ class TtfFace {
   // False when `data` is not a font stb_truetype can read.
   bool load(const uint8_t* data, size_t size);
   bool loaded() const { return loaded_; }
+  // How big the face looks: the height of "x" and the average advance of
+  // a to z, both as fractions of the em. False when it has no "x".
+  bool proportions(float& x_height, float& width) const;
 
  private:
   friend class RasterFont;

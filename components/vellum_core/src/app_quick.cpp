@@ -311,9 +311,14 @@ void App::draw_quick() {
     if (state == nullptr) {
       draw_text(fb_, font, (r.x + (r.w - name_w) / 2) * 64, baseline_in(r, font), name, fg);
     } else {
-      draw_text(fb_, font, (r.x + (r.w - name_w) / 2) * 64, r.y + 32, name, fg);
-      const int state_w = text_width_px(ui::label_font(), state);
-      draw_text(fb_, ui::label_font(), (r.x + (r.w - state_w) / 2) * 64, r.y + 58, state, fg);
+      // Two lines centred together, by their capitals' heights (about 0.7 em).
+      const Font& small = ui::label_font();
+      const int name_cap = font.size * 7 / 10;
+      const int state_cap = small.size * 7 / 10;
+      const int name_base = r.y + (r.h - name_cap - 10 - state_cap) / 2 + name_cap;
+      draw_text(fb_, font, (r.x + (r.w - name_w) / 2) * 64, name_base, name, fg);
+      const int state_w = text_width_px(small, state);
+      draw_text(fb_, small, (r.x + (r.w - state_w) / 2) * 64, name_base + 10 + state_cap, state, fg);
     }
   }
   if (hint) {
