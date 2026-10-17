@@ -71,6 +71,7 @@
     .chapter_n = "Kapitel %d",
     .battery = "Akku",
     .on_battery = "Akkubetrieb",
+    .page_turn_ms = "Seite %u ms",
     .charging = "Wird geladen",
     .history_label = "LETZTE 7 TAGE",
     .estimates_label = "SCHÄTZUNG",

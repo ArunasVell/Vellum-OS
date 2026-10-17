@@ -71,6 +71,7 @@
     .chapter_n = "%d. nodaļa",
     .battery = "Akumulators",
     .on_battery = "No akumulatora",
+    .page_turn_ms = "lappuse %u ms",
     .charging = "Lādējas",
     .history_label = "PĒDĒJĀS 7 DIENAS",
     .estimates_label = "APLĒSES",

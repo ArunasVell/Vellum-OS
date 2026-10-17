@@ -71,6 +71,7 @@
     .chapter_n = "Розділ %d",
     .battery = "Батарея",
     .on_battery = "Від батареї",
+    .page_turn_ms = "сторінка %u мс",
     .charging = "Заряджається",
     .history_label = "ОСТАННІ 7 ДНІВ",
     .estimates_label = "ПРОГНОЗ",

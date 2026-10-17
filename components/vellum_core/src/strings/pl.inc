@@ -71,6 +71,7 @@
     .chapter_n = "Rozdział %d",
     .battery = "Bateria",
     .on_battery = "Na baterii",
+    .page_turn_ms = "strona %u ms",
     .charging = "Ładowanie",
     .history_label = "OSTATNIE 7 DNI",
     .estimates_label = "SZACUNKI",

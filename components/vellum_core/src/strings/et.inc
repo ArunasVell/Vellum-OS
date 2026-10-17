@@ -71,6 +71,7 @@
     .chapter_n = "%d. peatükk",
     .battery = "Aku",
     .on_battery = "Akutoitel",
+    .page_turn_ms = "lehekülg %u ms",
     .charging = "Laeb",
     .history_label = "VIIMASED 7 PÄEVA",
     .estimates_label = "HINNANGUD",
