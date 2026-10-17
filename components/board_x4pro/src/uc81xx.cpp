@@ -123,6 +123,13 @@ class Uc81xx : public Controller {
     }
   }
 
+  void power_off(Bus& bus) override {
+    if (!on_) return;
+    bus.cmd(kPowerOff);
+    wait_idle(bus);
+    on_ = false;
+  }
+
   void deep_sleep(Bus& bus) override {
     if (on_) {
       bus.cmd(kPowerOff);
