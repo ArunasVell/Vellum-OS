@@ -270,6 +270,7 @@ constexpr Strings kEnglish = {
         "Choices that would leave no way to the contents or home, or no way to open, go back and "
         "move in menus, are skipped.",
     .screen_names = {"Portrait", "Upside down", "Landscape, keys left", "Landscape, keys right"},
+    .screen_note = "Books turn on their side when you open one. Menus stay upright.",
     .auto_turn = "Auto page turn",
     .every_seconds = "Every %d s",
     .full_refresh = "Full refresh",
@@ -648,6 +649,7 @@ constexpr Strings kLithuanian = {
         "Praleidžiama tai, kas paliktų be kelio į turinį ar pradžią, arba meniu be atidarymo, "
         "grįžimo ir judėjimo.",
     .screen_names = {"Stačias", "Apverstas", "Gulsčias, mygt. kairėje", "Gulsčias, mygt. dešinėje"},
+    .screen_note = "Knygos pasisuka gulsčiai, kai jas atveriate. Meniu lieka statūs.",
     .auto_turn = "Automatinis vertimas",
     .every_seconds = "Kas %d s",
     .full_refresh = "Pilnas atnaujinimas",

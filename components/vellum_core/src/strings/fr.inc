@@ -266,6 +266,7 @@
         "Les choix qui ne laisseraient aucun moyen d’aller au sommaire ou à l’accueil, ou d’ouvrir, revenir et "
         "se déplacer dans les menus, sont ignorés.",
     .screen_names = {"Portrait", "À l’envers", "Paysage, boutons à gauche", "Paysage, boutons à droite"},
+    .screen_note = "Les livres passent en paysage à l’ouverture. Les menus restent en portrait.",
     .auto_turn = "Défilement auto",
     .every_seconds = "Toutes les %d s",
     .full_refresh = "Rafraîchissement",

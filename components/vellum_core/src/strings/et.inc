@@ -280,6 +280,7 @@
         "Valikud, mis jätaksid ilma teeta sisukorda või avakuvale või ilma võimaluseta menüüdes avada, "
         "tagasi minna ja liikuda, jäetakse vahele.",
     .screen_names = {"Püsti", "Tagurpidi", "Rõhtne, nupud vasakul", "Rõhtne, nupud paremal"},
+    .screen_note = "Raamatud pöörduvad avamisel rõhtsaks. Menüüd jäävad püsti.",
     .auto_turn = "Automaatne lehitsemine",
     .every_seconds = "Iga %d s järel",
     .full_refresh = "Täielik värskendus",

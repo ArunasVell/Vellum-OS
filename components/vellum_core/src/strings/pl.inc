@@ -263,6 +263,7 @@
         "Pomijane są wybory, po których nie da się wrócić do spisu treści ani ekranu startowego, otwierać, "
         "cofać ani poruszać się po menu.",
     .screen_names = {"Pionowo", "Do góry nogami", "Poziomo, przyciski z lewej", "Poziomo, przyciski z prawej"},
+    .screen_note = "Książki obracają się poziomo po otwarciu. Menu zostają pionowo.",
     .auto_turn = "Autoprzewijanie",
     .every_seconds = "Co %d s",
     .full_refresh = "Pełne odświeżenie",
