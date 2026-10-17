@@ -786,7 +786,11 @@ void App::draw_home() {
     } else {
       std::snprintf(chapter, sizeof(chapter), "%s", b.chapter_label);
     }
-    ui::draw_wrapped(fb_, ui::label_font(), col_x, y + 32, col_w, 2, chapter, false);
+    // A second line only when it clears the progress line below.
+    const Font& label = ui::label_font();
+    const int second = y + 32 + label.line_height;
+    const int lines = second + label.descent + 2 <= cover.y + cover.h - 20 - label.size * 7 / 10 ? 2 : 1;
+    ui::draw_wrapped(fb_, label, col_x, y + 32, col_w, lines, chapter, false);
   }
 
   const int track_y = cover.y + cover.h - 6;
@@ -3452,8 +3456,10 @@ void App::draw_check() {
       fb_.fill_round_rect({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, 6, Color::White);
     }
     const char* name = t.key_names[k];
-    const int name_w = text_width(ui::label_font(), name) / 64;
-    draw_text(fb_, ui::label_font(), (r.x + (r.w - name_w) / 2) * 64, r.y + 24, name, fg);
+    const Font& label = ui::label_font();
+    const int name_w = text_width(label, name) / 64;
+    const int cap = label.size * 7 / 10;  // roughly a capital's height, in any face
+    draw_text(fb_, label, (r.x + (r.w - name_w) / 2) * 64, r.y + 9 + cap, name, fg);
     if (done) {
       // A tick, three pixels thick (each line is two).
       const int cx = r.x + r.w / 2;

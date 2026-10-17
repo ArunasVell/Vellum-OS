@@ -24,9 +24,9 @@ constexpr int kRowHeight = 76;   // one book in a list
 // draw with these rather than with a built-in font.
 void set_menu_fonts(const MenuFonts& f);
 const MenuFonts& menu_fonts();
-inline const Font& label_font() { return *menu_fonts().label; }                // 16 px
-inline const Font& text_font() { return *menu_fonts().text; }                  // 20 px
-inline const Font& large_font() { return *menu_fonts().large; }                // 26 px
+inline const Font& label_font() { return *menu_fonts().label; }                // 19 px (22 large)
+inline const Font& text_font() { return *menu_fonts().text; }                  // 24 px (28 large)
+inline const Font& large_font() { return *menu_fonts().large; }                // 30 px (34 large)
 inline const Font& small_italic_font() { return *menu_fonts().small_italic; }  // 20 px
 inline const Font& italic_font() { return *menu_fonts().italic; }              // 26 px
 inline const Font& screen_title_font() { return *menu_fonts().title; }         // 40 px italic

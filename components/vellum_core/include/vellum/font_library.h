@@ -28,9 +28,9 @@ extern const unsigned kEbgaramondItalicSize;
 
 // Fonts for menus and screens, one typeface at the sizes the UI uses.
 struct MenuFonts {
-  const Font* label;         // 16 px: labels, hints, list details
-  const Font* text;          // 20 px: list rows and settings
-  const Font* large;         // 26 px: large values
+  const Font* label;         // 19 px (22 large): labels, hints, list details
+  const Font* text;          // 24 px (28 large): list rows and settings
+  const Font* large;         // 30 px (34 large): large values
   const Font* small_italic;  // 20 px
   const Font* italic;        // 26 px
   const Font* title;         // 40 px italic: screen titles
@@ -115,8 +115,9 @@ class FontLibrary {
   RasterFont book_fonts_[3];
   int menu_family_ = -1;
   bool menu_large_ = false;
-  static constexpr int kMenuSizes[7] = {16, 20, 26, 20, 26, 40, 16};
-  static constexpr int kLargeMenuSizes[7] = {19, 24, 30, 20, 26, 40, 16};
+  // Literata's sizes (literata_menu()); other faces are scaled to look as big.
+  static constexpr int kMenuSizes[7] = {19, 24, 30, 20, 26, 40, 16};
+  static constexpr int kLargeMenuSizes[7] = {22, 28, 34, 20, 26, 40, 16};
   int book_family_ = -1;
   int book_px_ = 0;
   uint32_t book_generation_ = 0;
