@@ -149,6 +149,10 @@ class App {
   uint32_t wait_ms() const;
   // No input for wait_ms(): sleeps (Power held, or idle long enough).
   void timeout();
+  // After handle(): `started` is the steady time (Input::now_ms) the event
+  // came in. When it turned a page, the time from then until the new page
+  // was on screen is kept for the device check.
+  void handled(uint32_t started);
 
  private:
   // The built-in books, when the board lists them.
@@ -598,6 +602,8 @@ class App {
   BuiltinDocument builtin_;
   Reader reader_;
   int turns_since_save_ = 0;
+  bool turned_ = false;        // the event being handled turned a page
+  uint32_t last_turn_ms_ = 0;  // how long the last page turn took, 0 when unknown
   Screen screen_ = Screen::Home;
   int reading_ = -1;  // library index of the book in reader_
   int home_sel_ = 0;

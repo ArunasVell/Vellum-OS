@@ -91,6 +91,42 @@ void test_rotation_mapping() {
   CHECK(f.fb.to_physical(Rect{0, 0, 1, 1}) == (Rect{kW - 1, 0, 1, 1}));
 }
 
+// draw_mask steps through the panel instead of mapping every pixel: it must
+// still match drawing pixel by pixel, in every rotation and when clipped.
+void test_draw_mask_matches_set_pixel() {
+  uint32_t seed = 12345;
+  auto rnd = [&seed]() {
+    seed = seed * 1103515245u + 12345u;
+    return (seed >> 16) & 0x7FFF;
+  };
+  for (Rotation r : {Rotation::R0, Rotation::R90, Rotation::R180, Rotation::R270}) {
+    for (int trial = 0; trial < 40; ++trial) {
+      const int w = 1 + static_cast<int>(rnd() % 37);
+      const int h = 1 + static_cast<int>(rnd() % 29);
+      std::vector<uint8_t> mask((static_cast<size_t>(w) * h + 3) / 4);
+      // Mostly empty bytes, like glyphs, so the skip is exercised.
+      for (uint8_t& m : mask) m = rnd() % 3 == 0 ? static_cast<uint8_t>(rnd()) : 0;
+      Fixture a, b;
+      a.fb.set_rotation(r);
+      b.fb.set_rotation(r);
+      a.fb.clear(Color::White);
+      b.fb.clear(Color::White);
+      // Some land partly off screen.
+      const int x = static_cast<int>(rnd() % (a.fb.width() + 20)) - 10;
+      const int y = static_cast<int>(rnd() % (a.fb.height() + 20)) - 10;
+      const uint8_t threshold = static_cast<uint8_t>(1 + rnd() % 3);
+      a.fb.draw_mask(x, y, w, h, mask.data(), threshold, Color::Black);
+      for (int row = 0; row < h; ++row) {
+        for (int col = 0; col < w; ++col) {
+          const size_t i = static_cast<size_t>(row) * w + col;
+          if (((mask[i >> 2] >> (6 - 2 * (i & 3))) & 3) >= threshold) b.fb.set_pixel(x + col, y + row, Color::Black);
+        }
+      }
+      CHECK(std::memcmp(a.buf.data(), b.buf.data(), a.buf.size()) == 0);
+    }
+  }
+}
+
 void test_fill_rect_matches_set_pixel() {
   // Odd offsets exercise the masked edge bytes.
   for (Rotation r : {Rotation::R0, Rotation::R90}) {
@@ -6358,6 +6394,7 @@ void test_app_reading_extras() {
 
 int main() {
   test_rotation_mapping();
+  test_draw_mask_matches_set_pixel();
   test_rotation_round_trip();
   test_gestures();
   test_app_touch();
