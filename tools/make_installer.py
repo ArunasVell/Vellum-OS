@@ -7,7 +7,7 @@
 The page (tools/installer/install.html) talks to the reader from Chrome or
 Edge over Web Serial. Everything it needs goes inside the one file: the
 firmware images (gzip, then base64) and esptool-js, so it works offline and
-from a downloaded file, and the releases can stay private.
+from a downloaded file.
 
 esptool-js comes from the npm registry at a pinned version and is checked
 against the registry's sha512 before use. Pass --esptool-tgz to use a copy

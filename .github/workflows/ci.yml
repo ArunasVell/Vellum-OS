@@ -63,8 +63,8 @@ jobs:
             build/flasher_args.json
       - name: Installer page
         # One HTML file with the firmware inside: opened in Chrome or Edge it
-        # installs Vellum over USB. The releases are private, so the page
-        # cannot fetch anything from them.
+        # installs Vellum over USB. It needs no internet, so it works as a
+        # downloaded file.
         run: python3 tools/make_installer.py build -o vellum-install.html
       - uses: actions/upload-artifact@v4
         with:
@@ -99,4 +99,4 @@ jobs:
           (cd out && zip -r "../vellum-$VERSION-usb.zip" .)
           gh release create "v$VERSION" "vellum-$VERSION.bin" "vellum-install-$VERSION.html" "vellum-$VERSION-usb.zip" \
             --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Vellum $VERSION" \
-            --notes "Update file: vellum-$VERSION.bin (send it from the reader's Add books page). First install over a USB cable: download vellum-install-$VERSION.html and open it in Chrome or Edge. The USB zip is for flashing with esptool."
+            --notes "First install: download vellum-install-$VERSION.html and open it in Chrome or Edge, then follow the steps (guide: https://github.com/ArunasVell/Vellum-OS/blob/main/docs/install.md). Already on Vellum: the reader updates itself over home Wi-Fi, or send vellum-$VERSION.bin from Settings › Updates › Update from a file. The USB zip is for flashing with esptool. What's new: https://github.com/ArunasVell/Vellum-OS/blob/main/CHANGELOG.md"

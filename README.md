@@ -83,6 +83,8 @@ Drop EPUB files on the page to add them to the library. The page keeps its card 
 
 ## Install on your X4 Pro
 
+**New to Vellum? Follow [docs/install.md](docs/install.md)**, a step-by-step guide that needs no technical knowledge. What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
+
 Every release has a file `vellum-install-<version>.html`. Download it, open it in **Chrome or Edge** on a computer (double-clicking the downloaded file is fine; it needs no internet), connect the reader with its USB cable and follow the three steps on the page: save the original software, install Vellum, and (whenever you like) go back to the original. The page is in English and Lithuanian, explains how to put the reader in download mode if it will not connect, and has a **Show log** panel that shows what the reader prints, ready to copy into a bug report.
 
 Then go through [docs/first-day-tests.md](docs/first-day-tests.md), the checklist for a reader's first day with Vellum.
