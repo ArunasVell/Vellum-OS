@@ -1,6 +1,6 @@
 # Changes
 
-Every change added to Vellum becomes a new version on the [releases page](https://github.com/ArunasVell/Vellum-OS/releases), numbered 0.1.N. This file collects them into readable steps. To install, see [docs/install.md](docs/install.md).
+Changes are gathered and published together as a new version on the [releases page](https://github.com/ArunasVell/Vellum-OS/releases) when the owner asks for one, at most about once a day, numbered 0.1.N (numbers can skip). This file collects them into readable steps. To install, see [docs/install.md](docs/install.md).
 
 ## First public alpha (17 October 2026)
 
