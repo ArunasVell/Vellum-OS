@@ -283,7 +283,7 @@ struct Strings {
   const char* power_hold_note;    // holding Power always sleeps
   const char* way_back_note;      // why some choices are passed over
   const char* screen_names[4];    // Orientation (the row is `screen`)
-  const char* screen_note;         // landscape turns books only, under the row
+  const char* screen_note;        // landscape turns books only, under the row
   const char* auto_turn;          // reading settings row
   const char* every_seconds;      // printf: seconds ("Every 30 s")
   const char* full_refresh;       // reading settings row
