@@ -118,7 +118,7 @@ class Display : public vellum::DisplayPanel {
 
   // `app` is the app's power lock (held while it works): let go of while
   // the panel refreshes, so the CPU slows down meanwhile.
-  void init(esp_pm_lock_handle_t app) {
+  void init(esp_pm_lock_handle_t app, void (*waiting)(void*), void* ctx) {
     if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "panel", &refreshing_) != ESP_OK) refreshing_ = nullptr;
     const epd::Pins pins{x4pro::kEpdSclk, x4pro::kEpdMosi, x4pro::kEpdCs,
                          x4pro::kEpdDc,   x4pro::kEpdRst,  x4pro::kEpdBusy};
@@ -136,6 +136,7 @@ class Display : public vellum::DisplayPanel {
     }
     ESP_ERROR_CHECK(bus_.init(pins, controller_->spi_hz()) ? ESP_OK : ESP_FAIL);
     bus_.set_relax(app);
+    bus_.set_waiting(waiting, ctx);
     controller_->begin(bus_);
     ESP_LOGI(kTag, "display controller %s", controller_->name());
     g_boot.controller = controller_->name();
@@ -243,6 +244,14 @@ class Input : public vellum::InputSource {
   // Before deep sleep: the touch controller to its lowest power.
   void sleep_touch() {
     if (have_touch_) touch_.sleep();
+  }
+
+  // While the panel refreshes (Bus::set_waiting): the touch controller keeps
+  // only its newest report, so a tap made and lifted during a refresh would
+  // be gone by the time wait() reads it. Reading it meanwhile keeps it.
+  static void service(void* self) {
+    auto* in = static_cast<Input*>(self);
+    if (in->have_touch_) in->read_touch();
   }
 
   // The app's power lock, held while it works.
@@ -524,6 +533,15 @@ class Input : public vellum::InputSource {
   }
 
   void push(const vellum::InputEvent& ev) {
+    using T = vellum::InputEvent::Type;
+    if (ev.type == T::TouchMove && count_ > 0) {
+      // A newer place for a finger still moving replaces the last one.
+      vellum::InputEvent& last = pending_[(head_ + count_ - 1) % kPending];
+      if (last.type == T::TouchMove) {
+        last = ev;
+        return;
+      }
+    }
     if (count_ < kPending) pending_[(head_ + count_++) % kPending] = ev;
   }
   bool pop(vellum::InputEvent& out) {
@@ -797,7 +815,7 @@ vellum::Board& board_x4pro_init() {
   if (!clock.attach(i2c, x4pro::kI2cHz)) ESP_LOGW(kTag, "clock not added");
   input.init_touch(i2c);
   g_input = &input;
-  display.init(input.busy_lock());
+  display.init(input.busy_lock(), Input::service, &input);
   g_display = &display;
 
   // Internal, DMA-capable RAM so the panel driver can stream it over SPI.

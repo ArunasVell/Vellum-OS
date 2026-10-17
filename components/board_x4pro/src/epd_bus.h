@@ -52,6 +52,13 @@ class Bus {
   // none): a refresh is the panel's work, so the CPU can slow down meanwhile.
   void set_relax(esp_pm_lock_handle_t lock) { relax_ = lock; }
 
+  // Called about every 10 ms while waiting for BUSY (nullptr: nothing), so
+  // input that cannot wait for the refresh to end is still taken in.
+  void set_waiting(void (*fn)(void*), void* ctx) {
+    waiting_ = fn;
+    waiting_ctx_ = ctx;
+  }
+
   static void delay_ms(uint32_t ms);
 
  private:
@@ -67,6 +74,8 @@ class Bus {
   uint8_t* chunk_ = nullptr;  // DMA-capable staging buffer
   size_t fill_ = 0;
   esp_pm_lock_handle_t relax_ = nullptr;
+  void (*waiting_)(void*) = nullptr;
+  void* waiting_ctx_ = nullptr;
 };
 
 }  // namespace epd

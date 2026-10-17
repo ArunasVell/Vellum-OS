@@ -158,6 +158,7 @@ bool Bus::wait_for(int level, uint32_t timeout_ms, bool quiet) {
     }
     // Woken by the next edge; the short cap covers an edge lost between the check and the take.
     xSemaphoreTake(busy_edge_, pdMS_TO_TICKS(10));
+    if (waiting_ != nullptr) waiting_(waiting_ctx_);
   }
   if (relax_ != nullptr) esp_pm_lock_acquire(relax_);
   return reached;

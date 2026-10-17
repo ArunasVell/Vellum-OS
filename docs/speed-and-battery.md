@@ -48,7 +48,9 @@ also waited a fixed 200 ms for that) and on again before the next.
    press only counted once the screen was done. Presses already waiting
    when one is handled are drawn first and shown together with one refresh
    (`InputSource::pending`), so a run of quick presses through a menu or the
-   keyboard catches up at once.
+   keyboard catches up at once. Taps too: the touch controller keeps only
+   its newest report, so while the panel refreshes it is read every 10 ms
+   (`Bus::set_waiting`) and a tap on the on-screen keyboard is kept.
 6. **Holding Power sleeps after 0.7 s** instead of a full second.
 7. **Settings › Device check shows the last page turn's time** next to the
    screen size ("800 × 480 · page 420 ms"): from the button to the new page
