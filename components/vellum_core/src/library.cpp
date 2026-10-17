@@ -310,15 +310,26 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBoo
       }
     }
     if (!cached || e.cover < 0) {
-      // Not a readable book: leave it out.
       const bool is_epub = ends_with_epub(e.path);
-      if (is_epub ? !epub.open(storage, e.path) : text == nullptr || !text->open(storage, e.path)) continue;
-      const EpubInfo& info = is_epub ? epub.info() : text->info();
-      if (!cached) {
-        std::memcpy(e.title, info.title, sizeof(e.title));
-        std::memcpy(e.author, info.author, sizeof(e.author));
-        std::memcpy(e.language, info.language, sizeof(e.language));
+      // Books in other formats (PDF, Kindle, Word, ...) are converted when
+      // first opened, not here: till then the file name says what they are,
+      // and they are looked at again next time (cover -1).
+      if (is_epub ? !epub.open(storage, e.path) : text == nullptr || !text->open(storage, e.path, false)) {
+        if (is_epub || text == nullptr || !text->waiting()) continue;  // not a readable book: left out
+        EpubInfo named{};
+        TextBook::title_from_name(e.path, named, false);  // "Title - Author" or the other way round: kept whole
+        std::memcpy(e.title, named.title, sizeof(e.title));
+        std::memcpy(e.author, named.author, sizeof(e.author));
+        e.cover = -1;
+        cache_dirty_ |= !cached;
+        ++count_;
+        continue;
       }
+      const EpubInfo& info = is_epub ? epub.info() : text->info();
+      // Also a book named by its file only till now (it was not converted yet).
+      std::memcpy(e.title, info.title, sizeof(e.title));
+      std::memcpy(e.author, info.author, sizeof(e.author));
+      std::memcpy(e.language, info.language, sizeof(e.language));
       // The cover, once: decoded and shrunk now so screens only read thumbnails.
       char cover_path[64];
       covers::path_for(e.path, e.file_size, cover_path, sizeof(cover_path));
@@ -334,6 +345,18 @@ void Library::scan_folder(Storage& storage, const char* dir, Epub& epub, TextBoo
     }
     ++count_;
   }
+}
+
+void Library::set_details(Storage& storage, int i, TextBook& text) {
+  LibraryEntry& e = entries_[i];
+  const EpubInfo& info = text.info();
+  std::memcpy(e.title, info.title, sizeof(e.title));
+  std::memcpy(e.author, info.author, sizeof(e.author));
+  std::memcpy(e.language, info.language, sizeof(e.language));
+  char cover_path[64];
+  covers::path_for(e.path, e.file_size, cover_path, sizeof(cover_path));
+  e.cover = text.make_cover(cover_path) ? 1 : 0;
+  save_cache(storage);
 }
 
 int Library::folder_depth(const char* dir) {

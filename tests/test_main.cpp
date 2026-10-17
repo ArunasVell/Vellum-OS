@@ -1780,7 +1780,7 @@ void test_converted_books() {
     const std::string path = std::string("books/") + w.name;
     for (int pass = 0; pass < 2; ++pass) {  // converted once, then the copy is read
       TextBook book;
-      book.on_convert([](void* ctx, const char*) { ++*static_cast<int*>(ctx); }, &converted);
+      book.on_convert([](void* ctx, const char*) { ++*static_cast<int*>(ctx); }, nullptr, &converted);
       const int before = converted;
       CHECK(book.open(card, path.c_str()));
       CHECK(converted == before + (pass == 0 ? 1 : 0));
@@ -1819,7 +1819,7 @@ void test_converted_books() {
   for (const char* name : {"books/locked.pdf", "books/scan.pdf"}) {
     for (int pass = 0; pass < 2; ++pass) {
       TextBook book;
-      book.on_convert([](void* ctx, const char*) { ++*static_cast<int*>(ctx); }, &converted);
+      book.on_convert([](void* ctx, const char*) { ++*static_cast<int*>(ctx); }, nullptr, &converted);
       const int before = converted;
       CHECK(!book.open(card, name));
       CHECK(converted == before + (pass == 0 ? 1 : 0));
@@ -1828,6 +1828,71 @@ void test_converted_books() {
     }
   }
   std::filesystem::remove_all("test-card-convert");
+}
+
+// A PDF is converted when it is first opened, telling how far it is, and can
+// be stopped; the library names it by its file till then.
+void test_pdf_converted_on_open() {
+  std::filesystem::remove_all("test-card-pdf-open");
+  StdioStorage card("test-card-pdf-open");
+  const std::string data = read_all(VELLUM_TEST_DATA "/formats/sample.pdf");
+  CHECK(card.write("books/Ona Ra - Formats.pdf", data.data(), static_cast<uint32_t>(data.size())));
+  const auto converted = []() {
+    int n = 0;
+    if (std::filesystem::exists("test-card-pdf-open/vellum/converted")) {
+      for (const auto& e : std::filesystem::directory_iterator("test-card-pdf-open/vellum/converted")) {
+        n += e.path().extension() == ".html" || e.path().extension() == ".no";
+      }
+    }
+    return n;
+  };
+  Epub epub;
+  TextBook text;
+  int told = 0;
+  text.on_convert([](void* ctx, const char*) { ++*static_cast<int*>(ctx); }, nullptr, &told);
+  Library lib;
+  lib.load(builtin_books(), &card, epub, &text);
+  int at = lib.find("books/Ona Ra - Formats.pdf");
+  CHECK(at >= 0);
+  if (at < 0) return;
+  CHECK(std::string(lib.entry(at).title) == "Ona Ra - Formats" && lib.entry(at).author[0] == '\0');
+  CHECK(lib.entry(at).cover == -1);
+  CHECK(told == 0 && converted() == 0);
+  lib.load(builtin_books(), &card, epub, &text);  // looked at again, still not converted
+  at = lib.find("books/Ona Ra - Formats.pdf");
+  CHECK(at >= 0 && told == 0 && converted() == 0);
+
+  // Stopped after its first page: nothing is kept, and it can be tried again.
+  struct Progress {
+    uint32_t calls = 0, last = 0, total = 0;
+    uint32_t stop_after = 0;  // pages; 0 never stops
+  } progress;
+  const auto tell = [](void* ctx, uint32_t done, uint32_t total) {
+    auto& p = *static_cast<Progress*>(ctx);
+    CHECK(done >= p.last && done <= total);
+    ++p.calls;
+    p.last = done;
+    p.total = total;
+    return p.stop_after == 0 || done < p.stop_after;
+  };
+  progress.stop_after = 1;
+  text.on_convert(nullptr, tell, &progress);
+  CHECK(!text.open(card, "books/Ona Ra - Formats.pdf"));
+  CHECK(text.last_convert() == convert::Result::Cancelled && !text.waiting());
+  CHECK(progress.last == 1 && progress.total >= 2);
+  CHECK(converted() == 0);
+  progress = {};
+  CHECK(text.open(card, "books/Ona Ra - Formats.pdf"));
+  CHECK(progress.last == progress.total && progress.calls == progress.total + 1);
+  CHECK(converted() == 1);
+  CHECK(std::string(text.info().title) == "Formats Test");
+  lib.set_details(card, at, text);
+  CHECK(std::string(lib.entry(at).title) == "Formats Test" && lib.entry(at).cover == 0);
+  text.close();
+  lib.load(builtin_books(), &card, epub, &text);
+  at = lib.find("books/Ona Ra - Formats.pdf");
+  CHECK(at >= 0 && std::string(lib.entry(at).title) == "Formats Test" && lib.entry(at).cover == 0);
+  std::filesystem::remove_all("test-card-pdf-open");
 }
 
 void test_markdown_book() {
@@ -1938,12 +2003,17 @@ void test_library_finds_other_formats() {
     const std::string data = read_all((std::string(VELLUM_TEST_DATA "/") + name).c_str());
     CHECK(card.write((std::string("books/") + name).c_str(), data.data(), static_cast<uint32_t>(data.size())));
   }
-  CHECK(card.write("books/notes.pdf", "%PDF", 4));  // a PDF that cannot be read: left out
+  CHECK(card.write("books/notes.pdf", "%PDF", 4));  // a PDF that cannot be read
+  std::filesystem::remove_all("test-card-formats/vellum/converted");
   Epub epub;
   TextBook text;
   Library lib;
+  // Listed by its name till it is opened (converted) once, then left out.
   lib.load(builtin_books(), &card, epub, &text);
-  CHECK(lib.count() == 4 + 3);
+  CHECK(lib.count() == 4 + 4 && lib.find("books/notes.pdf") >= 0);
+  CHECK(!text.open(card, "books/notes.pdf") && text.last_convert() == convert::Result::Unreadable);
+  lib.load(builtin_books(), &card, epub, &text);
+  CHECK(lib.count() == 4 + 3 && lib.find("books/notes.pdf") < 0);
   int fb2 = 0, txt = 0;
   for (int i = 0; i < lib.count(); ++i) {
     const LibraryEntry& e = lib.entry(i);
@@ -6415,6 +6485,7 @@ void test_app_delete_book() {
   TextBook text;
   Library lib;
   lib.load(builtin_books(), &card, epub, &text);
+  CHECK(text.open(card, "books/notes.md"));  // converted as it opens, not when the library looks
   text.close();
   const auto converted = []() {
     std::vector<std::string> names;
@@ -7037,6 +7108,7 @@ int main() {
   test_fb2_zip_book();
   test_html_book();
   test_converted_books();
+  test_pdf_converted_on_open();
   test_markdown_book();
   test_rtf_book();
   test_comic_book();

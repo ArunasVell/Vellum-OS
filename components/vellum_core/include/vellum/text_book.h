@@ -52,16 +52,26 @@ class TextBook : public Document {
   TextBook& operator=(const TextBook&) = delete;
 
   // Opens the book and finds its details and chapters. A book that needs
-  // converting is converted first (on_convert is told).
-  bool open(Storage& storage, const char* path);
-  // Told when a book starts being converted, which can take a while.
+  // converting is converted first (on_convert is told), unless `convert`
+  // is false: then it is not opened, and waiting() says so.
+  bool open(Storage& storage, const char* path, bool convert = true);
+  // Told when a book starts being converted, which can take a while, and
+  // then how far it is (`done` of `total`); `progress` returns false to
+  // stop it, and the book is not opened (last_convert() is Cancelled).
   using ConvertFn = void (*)(void* ctx, const char* path);
-  void on_convert(ConvertFn fn, void* ctx) {
+  using ProgressFn = bool (*)(void* ctx, uint32_t done, uint32_t total);
+  void on_convert(ConvertFn fn, ProgressFn progress, void* ctx) {
     convert_fn_ = fn;
+    progress_fn_ = progress;
     convert_ctx_ = ctx;
   }
   // Why the last book that needed converting could not be opened.
   convert::Result last_convert() const { return last_convert_; }
+  // The last book was not opened only because it is not converted yet.
+  bool waiting() const { return waiting_; }
+  // The title and author a file name gives ("Author - Title.pdf"), or with
+  // `split` false the whole name as the title.
+  static void title_from_name(const char* path, EpubInfo& info, bool split = true);
   void close();
   bool is_open() const { return file_ != nullptr; }
   Format format() const { return format_; }
@@ -118,7 +128,7 @@ class TextBook : public Document {
   // Unpacks the .fb2 inside a .fb2.zip into kUnzipFolder (once) and opens it.
   bool open_zipped(const char* path);
   // Converts the book into kConvertFolder (once) and opens the web page.
-  bool open_converted(const char* path, convert::Kind kind);
+  bool open_converted(const char* path, convert::Kind kind, bool convert);
   // A comic: its pictures in order, chapters of kComicPages.
   bool open_comic(const char* path);
   void load_comic(int i);
@@ -183,7 +193,9 @@ class TextBook : public Document {
   int comic_count_ = 0;
   bool contents_from_marks_ = false;
   ConvertFn convert_fn_ = nullptr;
+  ProgressFn progress_fn_ = nullptr;
   void* convert_ctx_ = nullptr;
+  bool waiting_ = false;
   convert::Result last_convert_ = convert::Result::Ok;
 };
 

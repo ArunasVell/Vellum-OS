@@ -110,6 +110,10 @@ class Library {
   // the file could not be deleted; nothing else changes then.
   bool remove_book(Storage& storage, int i);
 
+  // Book i, just opened in `text` after being named by its file only (it
+  // was converted as it opened): its own title, author and cover, kept.
+  void set_details(Storage& storage, int i, TextBook& text);
+
   int count() const { return count_; }
   const LibraryEntry& entry(int i) const { return entries_[i]; }
   BookState& state(int i) { return entries_[i].state; }

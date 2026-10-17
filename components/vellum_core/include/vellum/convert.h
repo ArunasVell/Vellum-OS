@@ -8,7 +8,8 @@
 // book's own contents, as <vellum-chapter> marks where chapters begin.
 //
 // Converting reads the book once from start to end; it needs kWorkBytes of
-// memory, which the caller lends for that time only.
+// memory, which the caller lends for that time only. A PDF also borrows a
+// little more for itself, to go faster, when there is some to spare.
 #pragma once
 
 #include <cstdint>
@@ -32,6 +33,7 @@ enum class Result : uint8_t {
   Protected,   // DRM or a password: it cannot be read
   NoText,      // a PDF of scanned pages, pictures only
   NoMemory,
+  Cancelled,  // stopped by Job::progress: it can be tried again
 };
 
 constexpr uint32_t kWorkBytes = 1536 * 1024;
@@ -57,6 +59,10 @@ struct Job {
   // A temporary file a converter may write before the page and read back
   // while writing it (the storage has one writer at a time).
   const char* scratch_path = "";
+  // Told how far it is, now and then (a PDF after each page: `done` of
+  // `total` pages); returning false stops it with Result::Cancelled.
+  bool (*progress)(void* ctx, uint32_t done, uint32_t total) = nullptr;
+  void* progress_ctx = nullptr;
 };
 
 Result run(Kind kind, Job& job);
