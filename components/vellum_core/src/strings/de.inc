@@ -265,6 +265,7 @@
         "Belegungen, die keinen Weg zum Inhalt oder Startbildschirm lassen oder kein Öffnen, Zurück und Bewegen "
         "in Menüs, werden übersprungen.",
     .screen_names = {"Hochformat", "Kopfüber", "Quer, Tasten links", "Quer, Tasten rechts"},
+    .screen_note = "Bücher drehen sich quer, sobald du eines öffnest. Menüs bleiben hochkant.",
     .auto_turn = "Auto-Blättern",
     .every_seconds = "Alle %d s",
     .full_refresh = "Volle Aktualisierung",

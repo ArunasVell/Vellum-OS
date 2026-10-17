@@ -280,6 +280,7 @@
         "Izvēles, kas atstātu bez ceļa uz saturu vai sākumu vai bez iespējas izvēlnēs atvērt, "
         "atgriezties un pārvietoties, tiek izlaistas.",
     .screen_names = {"Vertikāli", "Otrādi", "Horizontāli, pogas pa kreisi", "Horizontāli, pogas pa labi"},
+    .screen_note = "Grāmatas pagriežas horizontāli, kad tās atver. Izvēlnes paliek vertikāli.",
     .auto_turn = "Automātiska šķiršana",
     .every_seconds = "Ik pēc %d s",
     .full_refresh = "Pilna atsvaidzināšana",

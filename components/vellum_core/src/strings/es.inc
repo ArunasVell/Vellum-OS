@@ -280,6 +280,7 @@
         "Se omiten las opciones que dejarían sin acceso al índice o al inicio, o sin forma de abrir, volver "
         "y moverse en los menús.",
     .screen_names = {"Vertical", "Invertida", "Horizontal, botones a la izq.", "Horizontal, botones a la dcha."},
+    .screen_note = "Los libros se giran en horizontal al abrirlos. Los menús siguen en vertical.",
     .auto_turn = "Paso automático",
     .every_seconds = "Cada %d s",
     .full_refresh = "Refresco completo",

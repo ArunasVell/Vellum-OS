@@ -154,8 +154,8 @@ bool App::act(ButtonAction a) {
 //
 // Settings › Screen turns the board's own reading orientation by quarter
 // turns: upside down for every screen, on its side for the reader only (the
-// menus are laid out for the upright screen and stay so). Which landscape
-// puts the buttons on which side is to be confirmed on the device.
+// menus are laid out for the upright screen and stay so). On the X4 Pro a
+// quarter turn one way puts the buttons on the left (checked on the device).
 
 Rotation App::rotation_for(Screen s) const {
   int quarter = 0;
@@ -166,10 +166,10 @@ Rotation App::rotation_for(Screen s) const {
       quarter = 2;
       break;
     case Orientation::LandscapeLeft:
-      quarter = s == Screen::Reader ? 3 : 0;
+      quarter = s == Screen::Reader ? 1 : 0;
       break;
     case Orientation::LandscapeRight:
-      quarter = s == Screen::Reader ? 1 : 0;
+      quarter = s == Screen::Reader ? 3 : 0;
       break;
   }
   return static_cast<Rotation>((static_cast<int>(board_.rotation) + quarter) % 4);
@@ -180,7 +180,7 @@ Rotation App::rotation_for(Screen s) const {
 // so Next stays the button towards where the reading goes.
 bool App::keys_swapped() const {
   const int quarter = (static_cast<int>(rotation_for(screen_)) - static_cast<int>(board_.rotation) + 4) % 4;
-  return quarter == 1 || quarter == 2;
+  return quarter == 2 || quarter == 3;
 }
 
 // ---- The buttons screen ------------------------------------------------------------

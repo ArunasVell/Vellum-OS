@@ -1561,6 +1561,12 @@ void App::draw_settings() {
     typeset_page(ps, preview, 1, {}, &fb_);
   }
 
+  if (settings_page_ == kDisplayPage &&
+      (settings_.orientation == Orientation::LandscapeLeft || settings_.orientation == Orientation::LandscapeRight)) {
+    // Only the reader lies on its side: say so where the choice is made.
+    ui::draw_wrapped(fb_, ui::label_font(), kSide, y + 34, w - 2 * kSide, 3, t.screen_note, false);
+  }
+
   ui::draw_hint(fb_, main ? t.hint_list : t.hint_settings);
 }
 

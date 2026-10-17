@@ -279,6 +279,7 @@
         "Le scelte che non lascerebbero modo di raggiungere indice o Home, o di aprire, tornare indietro "
         "e muoversi nei menu, vengono saltate.",
     .screen_names = {"Verticale", "Capovolto", "Orizzontale, tasti a sinistra", "Orizzontale, tasti a destra"},
+    .screen_note = "I libri ruotano in orizzontale quando li apri. I menu restano in verticale.",
     .auto_turn = "Pagine automatiche",
     .every_seconds = "Ogni %d s",
     .full_refresh = "Aggiornamento completo",
