@@ -65,22 +65,69 @@ Color Framebuffer::pixel(int x, int y) const {
   return (byte & (0x80 >> (px & 7))) ? Color::White : Color::Black;
 }
 
+namespace {
+
+// Which of a mask byte's four pixels have at least a coverage of 1, 2 or 3:
+// bit 3 for the first (leftmost) pixel down to bit 0 for the last.
+struct InkTable {
+  uint8_t bits[3][256] = {};
+  constexpr InkTable() {
+    for (int t = 0; t < 3; ++t) {
+      for (int m = 0; m < 256; ++m) {
+        for (int p = 0; p < 4; ++p) {
+          if (((m >> (6 - 2 * p)) & 3) >= t + 1) bits[t][m] |= static_cast<uint8_t>(8 >> p);
+        }
+      }
+    }
+  }
+};
+constexpr InkTable kInk;
+
+}  // namespace
+
 void Framebuffer::draw_mask(int x, int y, int w, int h, const uint8_t* mask, uint8_t threshold, Color c) {
   const Rect clip = Rect{x, y, w, h}.intersected({0, 0, width(), height()});
-  if (clip.empty()) return;
+  if (clip.empty() || threshold == 0) return;
+  const uint8_t* ink = kInk.bits[(threshold > 3 ? 3 : threshold) - 1];
+  // One logical pixel to the right is one physical pixel along a row (R0,
+  // R180) or along a column (R90, R270). Each row's start is mapped once and
+  // the rest is stepping; a mask byte is looked up for its four pixels at
+  // once, and the pixels with nothing to draw (most of them) cost nothing.
+  const bool along_row = rotation_ == Rotation::R0 || rotation_ == Rotation::R180;
+  const int dir = rotation_ == Rotation::R0 || rotation_ == Rotation::R90 ? 1 : -1;
+  const ptrdiff_t down = dir * static_cast<ptrdiff_t>(stride_);  // along a column
   const bool white = c == Color::White;
   bool drawn = false;
+  const int col0 = clip.x - x;
   for (int row = clip.y - y; row < clip.y - y + clip.h; ++row) {
-    for (int col = clip.x - x; col < clip.x - x + clip.w; ++col) {
-      const size_t i = static_cast<size_t>(row) * w + col;
-      const uint8_t level = (mask[i >> 2] >> (6 - 2 * (i & 3))) & 3;
-      if (level < threshold) continue;
-      int px, py;
-      to_physical(x + col, y + row, px, py);
-      uint8_t& byte = buf_[static_cast<size_t>(py) * stride_ + (px >> 3)];
-      const uint8_t bit = 0x80 >> (px & 7);
-      byte = white ? (byte | bit) : (byte & ~bit);
-      drawn = true;
+    int px, py;
+    to_physical(clip.x, y + row, px, py);
+    uint8_t* line = buf_ + static_cast<size_t>(py) * stride_;
+    size_t i = static_cast<size_t>(row) * w + col0;
+    for (int n = 0; n < clip.w;) {
+      const int skip = static_cast<int>(i & 3);  // pixels of this byte before i
+      int k = 4 - skip;
+      if (k > clip.w - n) k = clip.w - n;
+      // This byte's pixels from i on, the first in bit 3.
+      unsigned bits = (static_cast<unsigned>(ink[mask[i >> 2]]) << skip) & (0xF0u >> k) & 0xF;
+      for (int j = 0; bits != 0; ++j, bits = (bits << 1) & 0xF) {
+        if ((bits & 8) == 0) continue;
+        const int at = n + j;
+        uint8_t* byte;
+        uint8_t bit;
+        if (along_row) {
+          const int qx = px + dir * at;
+          byte = line + (qx >> 3);
+          bit = static_cast<uint8_t>(0x80 >> (qx & 7));
+        } else {
+          byte = line + (px >> 3) + down * at;
+          bit = static_cast<uint8_t>(0x80 >> (px & 7));
+        }
+        *byte = white ? (*byte | bit) : (*byte & ~bit);
+        drawn = true;
+      }
+      n += k;
+      i += k;
     }
   }
   if (drawn) dirty_ = dirty_.united(to_physical(clip));

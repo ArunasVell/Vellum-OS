@@ -58,10 +58,11 @@ The configuration changes are in `sdkconfig.defaults`. An existing
 `sdkconfig` keeps its old values: delete it (and the build folder) before
 the next firmware build.
 
-Not fixed, most important first (details below): no light sleep while awake;
-a custom menu font is rendered again on every wake (about half a second);
-a chapter is laid out whole when it opens (seconds for a very long one);
-corrupt font files can crash `stb_truetype`.
+Not fixed, most important first (details below): a custom menu font is
+rendered again on every wake (about half a second); a chapter is laid out
+whole when it opens (seconds for a very long one); corrupt font files can
+crash `stb_truetype`. Light sleep while awake is now done
+([speed-and-battery.md](speed-and-battery.md)).
 
 ## How it was checked
 
@@ -195,18 +196,9 @@ has to restart (only after it lost power).
 | State | What is off | Done here |
 | --- | --- | --- |
 | Asleep (deep sleep) | CPU, RAM, radio; front light, touch and SD card power switched off and held | the touch controller also gets its sleep command first, in case its switch leaks |
-| Awake, waiting | front light at its setting; touch scanning (it carries the Home pad) | CPU at 80 MHz instead of 240 |
-| Awake, working | — | 240 MHz only while working |
+| Awake, waiting | front light at its setting; touch scanning (it carries the Home pad) | CPU in light sleep between presses (80 MHz awake while the light is on); see [speed-and-battery.md](speed-and-battery.md) |
+| Awake, working | — | 240 MHz only while working; 80 MHz while the panel refreshes |
 | Wi-Fi on | — | held at 240 MHz while transfers run |
-
-Not done: **automatic light sleep while waiting.** It would cut the waiting
-current from tens of mA to a few, but needs, all verified on the device:
-the buttons and the touch interrupt as light-sleep wake sources
-(`gpio_wakeup_enable`, which turns their edge interrupts into level ones),
-the front light's PWM on a clock that runs in light sleep (or a power lock
-while the light is on), and accepting that the USB log drops in and out.
-The configuration is ready (`CONFIG_PM_ENABLE`, tickless idle); the board's
-`init_power_management()` is where it would be switched on.
 
 The nightly update wake only happens when automatic updates are on, a home
 Wi-Fi is saved and the clock is set; now also only with 20 % or more (or
@@ -252,24 +244,22 @@ in KB, then PSRAM in MB.
 
 In order of value:
 
-1. **Light sleep while awake** (see Battery). The largest battery gain left;
-   needs the hardware to verify wake-up from every button and touch.
-2. **Cache rendered fonts on the card.** A custom menu font costs about half
+1. **Cache rendered fonts on the card.** A custom menu font costs about half
    a second on every wake. Writing each rendered size to the card (20–60 KB
    each) and reading it back would take a few tens of ms. The cache must be
    checked on load (glyph offsets within the bitmap) so a damaged file
    cannot crash drawing.
-3. **Lay chapters out as they are read.** Long chapters take seconds to open;
+2. **Lay chapters out as they are read.** Long chapters take seconds to open;
    laying out ahead of the reader (and counting the rest in the background)
    would make every chapter open in a page's time.
-4. **Check font files before using them.** A pass over the `loca`/`glyf`
+3. **Check font files before using them.** A pass over the `loca`/`glyf`
    (and CFF) offsets for the characters used would stop `stb_truetype` from
    reading outside a broken file.
-5. `Font::kern` is a quarter of layout time (a binary search over ~10,000
+4. `Font::kern` is a quarter of layout time (a binary search over ~10,000
    pairs per letter pair); an index by left glyph would halve it.
-6. The phone page's highlight list uses an 8 KB static buffer in internal
+5. The phone page's highlight list uses an 8 KB static buffer in internal
    RAM (`Highlights::write_json`); it could move to PSRAM.
-7. The SD card's first power-on could reuse the time the slot was already
+6. The SD card's first power-on could reuse the time the slot was already
    off during start-up (80 ms per wake).
 
 ## Only the hardware can answer

@@ -87,6 +87,7 @@ struct Strings {
   // Battery history
   const char* battery;  // settings row and screen title
   const char* on_battery;
+  const char* page_turn_ms;  // printf: the last page turn's time, ms
   const char* charging;
   const char* history_label;    // uppercase label over the chart
   const char* estimates_label;  // uppercase label

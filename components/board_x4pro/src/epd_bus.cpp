@@ -144,18 +144,24 @@ void Bus::stream_end() {
 
 int Bus::busy_level() const { return gpio_get_level(static_cast<gpio_num_t>(pins_.busy)); }
 
-bool Bus::wait_for(int level, uint32_t timeout_ms) {
+bool Bus::wait_for(int level, uint32_t timeout_ms, bool quiet) {
   const int64_t deadline = esp_timer_get_time() + int64_t{timeout_ms} * 1000;
   xSemaphoreTake(busy_edge_, 0);  // drop a stale edge
+  if (busy_level() == level) return true;
+  if (relax_ != nullptr) esp_pm_lock_release(relax_);
+  bool reached = true;
   while (busy_level() != level) {
     if (esp_timer_get_time() >= deadline) {
-      ESP_LOGW(kTag, "BUSY did not reach %d within %u ms", level, static_cast<unsigned>(timeout_ms));
-      return false;
+      if (!quiet) ESP_LOGW(kTag, "BUSY did not reach %d within %u ms", level, static_cast<unsigned>(timeout_ms));
+      reached = false;
+      break;
     }
     // Woken by the next edge; the short cap covers an edge lost between the check and the take.
     xSemaphoreTake(busy_edge_, pdMS_TO_TICKS(10));
+    if (waiting_ != nullptr) waiting_(waiting_ctx_);
   }
-  return true;
+  if (relax_ != nullptr) esp_pm_lock_acquire(relax_);
+  return reached;
 }
 
 void Bus::delay_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms) > 0 ? pdMS_TO_TICKS(ms) : 1); }

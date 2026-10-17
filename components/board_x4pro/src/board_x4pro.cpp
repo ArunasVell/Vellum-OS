@@ -35,6 +35,9 @@ namespace {
 
 constexpr const char* kTag = "x4pro";
 constexpr int kDebounceMs = 10;
+// The slowest the CPU runs: 80, not 40, since below it the APB clock slows,
+// and with it the front light's PWM.
+constexpr int kMinFreqMhz = 80;
 
 // What the boot summary reports, gathered while the board starts.
 struct BootInfo {
@@ -103,9 +106,20 @@ void log_memory(bool first) {
 }
 
 // Detects which controller this unit's panel has, then drives it over SPI.
+//
+// The panel's high-voltage supply stays on for kLingerMs after a refresh:
+// switching it off and on again costs a few hundred ms, which a quick
+// second page turn (or moving through a menu) would otherwise wait for.
+// Input::wait switches it off once that time has passed with nothing new
+// to show; meanwhile the chip may still sleep (the panel holds its supply).
 class Display : public vellum::DisplayPanel {
  public:
-  void init() {
+  static constexpr uint32_t kLingerMs = 1500;
+
+  // `app` is the app's power lock (held while it works): let go of while
+  // the panel refreshes, so the CPU slows down meanwhile.
+  void init(esp_pm_lock_handle_t app, void (*waiting)(void*), void* ctx) {
+    if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "panel", &refreshing_) != ESP_OK) refreshing_ = nullptr;
     const epd::Pins pins{x4pro::kEpdSclk, x4pro::kEpdMosi, x4pro::kEpdCs,
                          x4pro::kEpdDc,   x4pro::kEpdRst,  x4pro::kEpdBusy};
     const epd::ProbeResult probe = epd::probe(pins);
@@ -121,6 +135,8 @@ class Display : public vellum::DisplayPanel {
         break;
     }
     ESP_ERROR_CHECK(bus_.init(pins, controller_->spi_hz()) ? ESP_OK : ESP_FAIL);
+    bus_.set_relax(app);
+    bus_.set_waiting(waiting, ctx);
     controller_->begin(bus_);
     ESP_LOGI(kTag, "display controller %s", controller_->name());
     g_boot.controller = controller_->name();
@@ -133,14 +149,42 @@ class Display : public vellum::DisplayPanel {
   void present(const vellum::Framebuffer& fb, vellum::RefreshMode mode, vellum::Rect) override {
     const int64_t start = esp_timer_get_time();
     const bool full = mode == vellum::RefreshMode::Full;
-    controller_->display(bus_, fb.data(), full ? epd::Mode::Full : epd::Mode::Fast, /*power_off=*/true);
-    ESP_LOGI(kTag, "%s refresh %d ms", full ? "full" : "fast", static_cast<int>((esp_timer_get_time() - start) / 1000));
+    // No light sleep while it refreshes: the end of the refresh (BUSY) must
+    // wake the app at once.
+    if (refreshing_ != nullptr) esp_pm_lock_acquire(refreshing_);
+    controller_->display(bus_, fb.data(), full ? epd::Mode::Full : epd::Mode::Fast, /*power_off=*/false);
+    if (refreshing_ != nullptr) esp_pm_lock_release(refreshing_);
+    const int64_t end = esp_timer_get_time();
+    off_at_us_ = end + int64_t{kLingerMs} * 1000;
+    powered_ = true;
+    ESP_LOGI(kTag, "%s refresh %d ms", full ? "full" : "fast", static_cast<int>((end - start) / 1000));
+  }
+
+  // Milliseconds until the supply should go off; UINT32_MAX when it is off.
+  uint32_t ms_until_off() const {
+    if (!powered_) return UINT32_MAX;
+    const int64_t left = off_at_us_ - esp_timer_get_time();
+    return left <= 0 ? 0 : static_cast<uint32_t>((left + 999) / 1000);
+  }
+
+  // Switches the panel's supply off now (before sleep or restart too).
+  void power_off() {
+    if (!powered_ || controller_ == nullptr) return;
+    if (refreshing_ != nullptr) esp_pm_lock_acquire(refreshing_);
+    controller_->power_off(bus_);
+    if (refreshing_ != nullptr) esp_pm_lock_release(refreshing_);
+    powered_ = false;
   }
 
  private:
   epd::Bus bus_;
   epd::Controller* controller_ = nullptr;
+  esp_pm_lock_handle_t refreshing_ = nullptr;
+  bool powered_ = false;  // the supply was left on after a refresh
+  int64_t off_at_us_ = 0;
 };
+
+Display* g_display = nullptr;  // for Input::wait, sleep and restart
 
 // Buttons and the touch controller raise GPIO interrupts; the waiting task
 // debounces buttons and reads the touch controller. While a finger or the
@@ -149,12 +193,19 @@ class Display : public vellum::DisplayPanel {
 //
 // The CPU runs at full speed while the app works on an event and drops to
 // the lowest speed (power management, see init_power_management) while it
-// waits here for the next one.
+// waits here for the next one, napping in light sleep whenever nothing else
+// needs it awake. Edge interrupts do not wake the chip from light sleep, so
+// just before each nap the buttons and the touch line are armed to wake it
+// on a level change (arm_wake), and put back to edges after it (disarm_wake),
+// which also posts kWakeSource: the waiting task then looks at the buttons
+// and the touch controller itself. Every kKeyCheckMs it looks at the buttons
+// anyway, so a press is never lost for long even if a wake-up were missed.
 class Input : public vellum::InputSource {
  public:
   void init() {
     if (esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "app", &busy_) == ESP_OK) esp_pm_lock_acquire(busy_);
-    queue_ = xQueueCreate(16, sizeof(uint32_t));
+    self_ = this;
+    queue_ = xQueueCreate(64, sizeof(uint32_t));
     gpio_config_t cfg = {};
     for (const Pin& p : kPins) cfg.pin_bit_mask |= 1ULL << p.gpio;
     cfg.mode = GPIO_MODE_INPUT;
@@ -195,6 +246,35 @@ class Input : public vellum::InputSource {
     if (have_touch_) touch_.sleep();
   }
 
+  // While the panel refreshes (Bus::set_waiting): the touch controller keeps
+  // only its newest report, so a tap made and lifted during a refresh would
+  // be gone by the time wait() reads it. Reading it meanwhile keeps it.
+  static void service(void* self) {
+    auto* in = static_cast<Input*>(self);
+    if (in->have_touch_) in->read_touch();
+  }
+
+  // The app's power lock, held while it works.
+  esp_pm_lock_handle_t busy_lock() const { return busy_; }
+
+  // Lets the chip nap in light sleep while it waits: the buttons and the
+  // touch line wake it. Call once everything is set up.
+  void enable_light_sleep() {
+    esp_pm_sleep_cbs_register_config_t cbs = {};
+    cbs.enter_cb = arm_wake;
+    cbs.exit_cb = disarm_wake;
+    if (esp_pm_light_sleep_register_cbs(&cbs) != ESP_OK || esp_sleep_enable_gpio_wakeup() != ESP_OK) {
+      ESP_LOGW(kTag, "light sleep not set up");
+      return;
+    }
+    esp_pm_config_t pm = {};
+    pm.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
+    pm.min_freq_mhz = kMinFreqMhz;
+    pm.light_sleep_enable = true;
+    const esp_err_t err = esp_pm_configure(&pm);
+    if (err != ESP_OK) ESP_LOGW(kTag, "light sleep not enabled: %s", esp_err_to_name(err));
+  }
+
   // Wakes the waiting task with an InputEvent::Type::Transfer. Safe from any task.
   static void post_transfer() {
     const uint32_t i = kTransferSource;
@@ -209,6 +289,8 @@ class Input : public vellum::InputSource {
   }
 
   uint32_t now_ms() override { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
+
+  bool pending() override { return count_ > 0 || (queue_ != nullptr && uxQueueMessagesWaiting(queue_) > 0); }
 
   bool touch_status(char* out, size_t size) override {
     if (!have_touch_) {
@@ -236,29 +318,43 @@ class Input : public vellum::InputSource {
     // expected. The app still sees one wait of timeout_ms.
     const bool no_irq = have_touch_ && !touch_irq_seen_ && !held;
     const uint32_t start = now_ms();
-    uint32_t i;
-    BaseType_t got;
+    uint32_t i = 0;
+    uint32_t item = 0;    // as queued: a button edge also has its level and time
+    bool polled = false;  // no interrupt: the touch controller is due a read
     for (;;) {
       const uint32_t spent = now_ms() - start;
       uint32_t wait_ms = held ? kPollMs : timeout_ms - (spent < timeout_ms ? spent : timeout_ms);
       if (no_irq && wait_ms > kNoIrqPollMs) wait_ms = kNoIrqPollMs;
+      if (wait_ms > kKeyCheckMs) wait_ms = kKeyCheckMs;
+      const uint32_t panel = g_display != nullptr ? g_display->ms_until_off() : UINT32_MAX;
+      if (panel < wait_ms) wait_ms = panel;
       if (busy_ != nullptr) esp_pm_lock_release(busy_);
-      got = xQueueReceive(queue_, &i, pdMS_TO_TICKS(wait_ms));
+      const BaseType_t got = xQueueReceive(queue_, &i, pdMS_TO_TICKS(wait_ms));
       if (busy_ != nullptr) esp_pm_lock_acquire(busy_);
-      if (got == pdTRUE || !no_irq) break;
-      read_touch();
+      if (got == pdTRUE) {
+        item = i;
+        i &= kSourceMask;
+        break;
+      }
+      // Nothing new to show for a while: the panel's supply goes off.
+      if (g_display != nullptr && g_display->ms_until_off() == 0) g_display->power_off();
+      // A press the chip slept through, should its wake-up ever be missed.
+      check_keys();
+      if (no_irq) read_touch();
       if (pop(out)) return true;
-      if (!no_irq_logged_ && now_ms() > 20000) {
+      if (held) {
+        i = kTouchSource;  // poll it while a finger or the Home pad is down
+        polled = true;
+        break;
+      }
+      if (no_irq && !no_irq_logged_ && now_ms() > 20000) {
         no_irq_logged_ = true;
         ESP_LOGW(kTag, "no touch interrupt yet; reading the touch controller every %lu ms",
                  static_cast<unsigned long>(kNoIrqPollMs));
       }
       if (now_ms() - start >= timeout_ms) return false;
     }
-    if (got != pdTRUE) {
-      if (!held) return false;
-      i = kTouchSource;
-    } else if (i == kTouchSource && !touch_irq_seen_) {
+    if (i == kTouchSource && !touch_irq_seen_ && !polled) {
       touch_irq_seen_ = true;
       ESP_LOGI(kTag, "touch interrupt seen");
     }
@@ -271,18 +367,29 @@ class Input : public vellum::InputSource {
       out.type = vellum::InputEvent::Type::Peer;
       return true;
     }
+    if (i == kWakeSource) {
+      // Woken from a nap by a button or the touch line: see which.
+      vTaskDelay(pdMS_TO_TICKS(kDebounceMs));
+      check_keys();
+      read_touch();
+      if (!pop(out)) out.type = vellum::InputEvent::Type::None;
+      return true;
+    }
     if (i == kTouchSource) {
       read_touch();
       if (!pop(out)) out.type = vellum::InputEvent::Type::None;
       return true;
     }
-    vTaskDelay(pdMS_TO_TICKS(kDebounceMs));
-    const bool down = gpio_get_level(static_cast<gpio_num_t>(kPins[i].gpio)) == 0;
-    if (down == pressed_[i]) {  // bounce: no change once settled
+    // A button edge, at the level it had then. The first change counts;
+    // further edges within kDebounceMs of it are the contact bouncing.
+    const bool down = ((item >> 7) & 1) == 0;
+    const uint32_t at = item >> 8;
+    if (down == pressed_[i] || ((at - changed_at_[i]) & kTimeMask) < kDebounceMs) {
       out.type = vellum::InputEvent::Type::None;
       return true;
     }
     pressed_[i] = down;
+    changed_at_[i] = at;
     out.type = down ? vellum::InputEvent::Type::KeyDown : vellum::InputEvent::Type::KeyUp;
     out.key = kPins[i].key;
     return true;
@@ -302,15 +409,92 @@ class Input : public vellum::InputSource {
   static constexpr uint32_t kTouchSource = kCount;
   static constexpr uint32_t kTransferSource = kCount + 1;
   static constexpr uint32_t kPeerSource = kCount + 2;
+  static constexpr uint32_t kWakeSource = kCount + 3;  // woken from light sleep by a pin
+  static constexpr uint32_t kKeyCheckMs = 2000;
   static inline std::atomic<bool> peer_pending_{false};
   static constexpr uint32_t kPollMs = 25;
   static constexpr uint32_t kNoIrqPollMs = 100;
 
+  // A queued button edge carries the pin's level and the time it happened
+  // (ms, 24 bits) above the source number, so presses made while the app
+  // was busy (a refresh takes a few hundred ms) are not lost: reading the
+  // pin only later would miss a press already let go.
+  static constexpr uint32_t kSourceMask = 0x7F;
+  static constexpr uint32_t kTimeMask = 0xFFFFFF;
+
   static void IRAM_ATTR on_edge(void* arg) {
-    const uint32_t i = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
+    uint32_t i = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(arg));
+    // Woken while armed for a nap: the pin's level interrupt would fire for
+    // as long as the level lasts, so it goes back to edges first.
+    if (armed_)
+      gpio_set_intr_type(static_cast<gpio_num_t>(i < kCount ? kPins[i].gpio : x4pro::kTouchInt), GPIO_INTR_ANYEDGE);
+    if (i < kCount) {
+      const uint32_t level = gpio_get_level(static_cast<gpio_num_t>(kPins[i].gpio)) != 0 ? 1u : 0u;
+      const uint32_t ms = static_cast<uint32_t>(esp_timer_get_time() / 1000) & kTimeMask;
+      i |= (level << 7) | (ms << 8);
+    }
     BaseType_t woken = pdFALSE;
     xQueueSendFromISR(queue_, &i, &woken);  // a full queue drops the edge; polling covers it
     if (woken) portYIELD_FROM_ISR();
+  }
+
+  // The pins that wake the chip from light sleep: the buttons, and the
+  // touch line when there is a touch controller.
+  int wake_pins(int* out) const {
+    int n = 0;
+    for (const Pin& p : kPins) out[n++] = p.gpio;
+    if (have_touch_) out[n++] = x4pro::kTouchInt;
+    return n;
+  }
+
+  // Just before light sleep (idle task, nothing may block): each wake pin
+  // wakes the chip when it leaves its present level.
+  static esp_err_t arm_wake(int64_t, void*) {
+    if (self_ == nullptr) return ESP_OK;
+    int pins[kCount + 1];
+    const int n = self_->wake_pins(pins);
+    for (int k = 0; k < n; ++k) {
+      const auto g = static_cast<gpio_num_t>(pins[k]);
+      self_->armed_level_[k] = static_cast<uint8_t>(gpio_get_level(g));
+      gpio_wakeup_enable(g, self_->armed_level_[k] != 0 ? GPIO_INTR_LOW_LEVEL : GPIO_INTR_HIGH_LEVEL);
+    }
+    armed_ = true;
+    return ESP_OK;
+  }
+
+  // Just after it: edges again, and the waiting task told when a pin woke us.
+  static esp_err_t disarm_wake(int64_t slept_us, void*) {
+    if (self_ == nullptr || !armed_) return ESP_OK;
+    int pins[kCount + 1];
+    const int n = self_->wake_pins(pins);
+    bool changed = false;
+    for (int k = 0; k < n; ++k) {
+      const auto g = static_cast<gpio_num_t>(pins[k]);
+      gpio_wakeup_disable(g);
+      gpio_sleep_sel_dis(g);  // gpio_wakeup_disable lets it float in sleep again
+      gpio_set_intr_type(g, GPIO_INTR_ANYEDGE);
+      changed |= gpio_get_level(g) != self_->armed_level_[k];
+    }
+    armed_ = false;
+    if (changed || (slept_us > 0 && (esp_sleep_get_wakeup_causes() & BIT(ESP_SLEEP_WAKEUP_GPIO)) != 0)) {
+      const uint32_t i = kWakeSource;
+      xQueueSendFromISR(queue_, &i, nullptr);
+    }
+    return ESP_OK;
+  }
+
+  // Buttons whose level differs from what the app was last told.
+  void check_keys() {
+    for (uint32_t k = 0; k < kCount; ++k) {
+      const bool down = gpio_get_level(static_cast<gpio_num_t>(kPins[k].gpio)) == 0;
+      if (down == pressed_[k]) continue;
+      pressed_[k] = down;
+      changed_at_[k] = now_ms() & kTimeMask;
+      vellum::InputEvent ev;
+      ev.type = down ? vellum::InputEvent::Type::KeyDown : vellum::InputEvent::Type::KeyUp;
+      ev.key = kPins[k].key;
+      push(ev);
+    }
   }
 
   // Turns the controller's newest report into Home key and touch events.
@@ -349,6 +533,15 @@ class Input : public vellum::InputSource {
   }
 
   void push(const vellum::InputEvent& ev) {
+    using T = vellum::InputEvent::Type;
+    if (ev.type == T::TouchMove && count_ > 0) {
+      // A newer place for a finger still moving replaces the last one.
+      vellum::InputEvent& last = pending_[(head_ + count_ - 1) % kPending];
+      if (last.type == T::TouchMove) {
+        last = ev;
+        return;
+      }
+    }
     if (count_ < kPending) pending_[(head_ + count_++) % kPending] = ev;
   }
   bool pop(vellum::InputEvent& out) {
@@ -360,9 +553,13 @@ class Input : public vellum::InputSource {
   }
 
   static inline QueueHandle_t queue_ = nullptr;
-  esp_pm_lock_handle_t busy_ = nullptr;  // held while the app works
+  static inline Input* self_ = nullptr;        // for the light sleep callbacks
+  static inline volatile bool armed_ = false;  // wake pins are set to levels
+  uint8_t armed_level_[kCount + 1] = {};       // each wake pin's level before the nap
+  esp_pm_lock_handle_t busy_ = nullptr;        // held while the app works
   bool summary_logged_ = false;
   bool pressed_[kCount] = {};
+  uint32_t changed_at_[kCount] = {};  // ms (24 bits) of each button's last change
   Gt911 touch_;
   bool have_touch_ = false;
   static constexpr int kBusSeen = 8;
@@ -373,7 +570,7 @@ class Input : public vellum::InputSource {
   bool touching_ = false;
   bool home_ = false;
   vellum::InputEvent last_;
-  static constexpr int kPending = 4;
+  static constexpr int kPending = 8;
   vellum::InputEvent pending_[kPending];
   int head_ = 0;
   int count_ = 0;
@@ -402,7 +599,10 @@ class Power : public vellum::Power {
   bool charging() override { return gpio_get_level(static_cast<gpio_num_t>(x4pro::kChargeStatus)) == 1; }
 
   void sleep() override { enter_deep_sleep(wake_after_s_); }
-  void restart() override { esp_restart(); }
+  void restart() override {
+    if (g_display != nullptr) g_display->power_off();
+    esp_restart();
+  }
   void set_wake_timer(uint32_t seconds) override { wake_after_s_ = seconds; }
   bool woke_by_timer() override { return woke_by_timer_; }
   bool after_crash() override { return after_crash_; }
@@ -431,6 +631,7 @@ class Frontlight : public vellum::Frontlight {
     ESP_ERROR_CHECK(ledc_timer_config(&timer));
     configure(LEDC_CHANNEL_0, x4pro::kLightCool);
     configure(LEDC_CHANNEL_1, x4pro::kLightWarm);
+    if (esp_pm_lock_create(ESP_PM_NO_LIGHT_SLEEP, 0, "light", &lit_lock_) != ESP_OK) lit_lock_ = nullptr;
   }
 
   void set(uint8_t level, uint8_t warmth) override {
@@ -439,10 +640,22 @@ class Frontlight : public vellum::Frontlight {
     const uint32_t warm = total * warmth / 255u;
     duty(LEDC_CHANNEL_0, total - warm);
     duty(LEDC_CHANNEL_1, warm);
+    // The PWM stops in light sleep, so the chip stays awake while it shines.
+    const bool on = total > 0;
+    if (on != lit_ && lit_lock_ != nullptr) {
+      if (on) {
+        esp_pm_lock_acquire(lit_lock_);
+      } else {
+        esp_pm_lock_release(lit_lock_);
+      }
+    }
+    lit_ = on;
   }
 
  private:
   static constexpr uint32_t kMaxDuty = (1u << 10) - 1;
+  esp_pm_lock_handle_t lit_lock_ = nullptr;
+  bool lit_ = false;
 
   static void configure(ledc_channel_t ch, int gpio) {
     ledc_channel_config_t c = {};
@@ -471,8 +684,9 @@ void enter_deep_sleep(uint32_t wake_after_s) {
   while (gpio_get_level(power_btn) == 0) vTaskDelay(pdMS_TO_TICKS(10));
   vTaskDelay(pdMS_TO_TICKS(50));
 
-  // Everything off and held off while asleep: frontlight, touch, SD card.
-  // The display controller already powered down after its last refresh.
+  // Everything off and held off while asleep: panel supply, frontlight,
+  // touch, SD card.
+  if (g_display != nullptr) g_display->power_off();
   if (g_input != nullptr) g_input->sleep_touch();
   for (int pin : {x4pro::kLightCool, x4pro::kLightWarm}) {
     const auto g = static_cast<gpio_num_t>(pin);
@@ -488,6 +702,7 @@ void enter_deep_sleep(uint32_t wake_after_s) {
   gpio_hold_en(static_cast<gpio_num_t>(x4pro::kPeripheralRail));
   gpio_deep_sleep_hold_en();
 
+  esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_GPIO);  // light sleep's; only Power wakes deep sleep
   rtc_gpio_pullup_en(power_btn);
   rtc_gpio_pulldown_dis(power_btn);
   esp_sleep_enable_ext0_wakeup(power_btn, 0);
@@ -522,18 +737,30 @@ void init_power_rails() {
 }
 
 // Battery while awake: dynamic frequency scaling between 240 MHz (while the
-// app or the radio works: they hold power management locks) and 80 MHz. 80,
-// not 40: below it the APB clock slows, and with it the front light's PWM.
-// Automatic light sleep would save more, but the buttons, the touch
-// interrupt and the front light must first be set up to work through it
-// (docs/checkup.md).
+// app or the radio works: they hold power management locks) and 80 MHz.
+// Light sleep is switched on once the board is set up
+// (Input::enable_light_sleep).
 void init_power_management() {
   esp_pm_config_t pm = {};
   pm.max_freq_mhz = CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ;
-  pm.min_freq_mhz = 80;
+  pm.min_freq_mhz = kMinFreqMhz;
   pm.light_sleep_enable = false;
   const esp_err_t err = esp_pm_configure(&pm);
   if (err != ESP_OK) ESP_LOGW(kTag, "power management not set: %s", esp_err_to_name(err));
+}
+
+// In light sleep, unless told otherwise, every pin is cut off (no input,
+// output or pull) to save a little current. These keep working through it:
+// the power switches stay on, outputs keep their level (the panel's control
+// lines, the front light held off), and the buttons keep their pull-ups.
+void keep_pins_through_light_sleep() {
+  for (int pin : {x4pro::kEpdSclk,        x4pro::kEpdMosi,     x4pro::kEpdCs,    x4pro::kEpdDc,       x4pro::kEpdRst,
+                  x4pro::kEpdBusy,        x4pro::kBtnPrev,     x4pro::kBtnNext,  x4pro::kBtnPower,    x4pro::kI2cSda,
+                  x4pro::kI2cScl,         x4pro::kTouchInt,    x4pro::kTouchRst, x4pro::kTouchPowerN, x4pro::kLightCool,
+                  x4pro::kLightWarm,      x4pro::kSdClk,       x4pro::kSdCmd,    x4pro::kSdD0,        x4pro::kSdPowerN,
+                  x4pro::kPeripheralRail, x4pro::kChargeStatus}) {
+    gpio_sleep_sel_dis(static_cast<gpio_num_t>(pin));
+  }
 }
 
 // Shared by the touch controller, the fuel gauge and the clock.
@@ -579,6 +806,7 @@ vellum::Board& board_x4pro_init() {
 
   init_power_rails();
   init_power_management();
+  keep_pins_through_light_sleep();
   ESP_ERROR_CHECK(gpio_install_isr_service(0));  // buttons, touch and display BUSY
   input.init();
   light.init();
@@ -587,7 +815,8 @@ vellum::Board& board_x4pro_init() {
   if (!clock.attach(i2c, x4pro::kI2cHz)) ESP_LOGW(kTag, "clock not added");
   input.init_touch(i2c);
   g_input = &input;
-  display.init();
+  display.init(input.busy_lock(), Input::service, &input);
+  g_display = &display;
 
   // Internal, DMA-capable RAM so the panel driver can stream it over SPI.
   auto* fb = static_cast<uint8_t*>(heap_caps_malloc(
@@ -620,6 +849,7 @@ vellum::Board& board_x4pro_init() {
   static HttpNetwork network;
   board.network = &network;
   keep_this_version_once_settled();
+  input.enable_light_sleep();
   ESP_LOGI(kTag, "board ready");
   return board;
 }

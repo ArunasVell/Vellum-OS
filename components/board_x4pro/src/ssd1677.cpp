@@ -96,6 +96,8 @@ class Ssd1677 : public Controller {
     if (power_off) power_down(bus);
   }
 
+  void power_off(Bus& bus) override { power_down(bus); }
+
   void deep_sleep(Bus& bus) override {
     power_down(bus);
     bus.cmd_data(kDeepSleep, {0x03});
@@ -133,7 +135,9 @@ class Ssd1677 : public Controller {
     bus.cmd_data(kBorderWaveform, {kBorderInit});
     bus.cmd_data(kUpdateCtrl2, {0x03});  // analog off, clock off
     bus.cmd(kMasterActivation);
-    Bus::delay_ms(200);
+    // Like a refresh: BUSY rises while the supply winds down. (This waited a
+    // fixed 200 ms before; the controller says when it is done.)
+    bus.wait_for(1, 20, /*quiet=*/true);
     wait_idle(bus);
     powered_ = false;
   }

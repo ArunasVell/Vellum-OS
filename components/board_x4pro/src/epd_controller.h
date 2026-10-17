@@ -31,6 +31,10 @@ class Controller {
   // Shows `frame`, blocking until the refresh completes. With `power_off`
   // the panel's high-voltage supply is switched off afterwards.
   virtual void display(Bus& bus, const uint8_t* frame, Mode mode, bool power_off) = 0;
+  // Switches the high-voltage supply off, when a display() left it on. The
+  // next display() switches it on again, which takes time: leaving it on
+  // for a moment makes quick page turns faster.
+  virtual void power_off(Bus& bus) = 0;
   // Lowest-power state; begin() is required before the next display().
   virtual void deep_sleep(Bus& bus) = 0;
 };

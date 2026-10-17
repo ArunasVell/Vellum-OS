@@ -9,6 +9,7 @@
 #include <initializer_list>
 
 #include "driver/spi_master.h"
+#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
@@ -43,8 +44,20 @@ class Bus {
 
   // Level of the BUSY pin (1 = high).
   int busy_level() const;
-  // Sleeps until BUSY reads `level` or `timeout_ms` passes. Returns false on timeout.
-  bool wait_for(int level, uint32_t timeout_ms);
+  // Sleeps until BUSY reads `level` or `timeout_ms` passes. Returns false on
+  // timeout, with a warning in the log unless `quiet`.
+  bool wait_for(int level, uint32_t timeout_ms, bool quiet = false);
+
+  // A power management lock to let go of while waiting for BUSY (nullptr:
+  // none): a refresh is the panel's work, so the CPU can slow down meanwhile.
+  void set_relax(esp_pm_lock_handle_t lock) { relax_ = lock; }
+
+  // Called about every 10 ms while waiting for BUSY (nullptr: nothing), so
+  // input that cannot wait for the refresh to end is still taken in.
+  void set_waiting(void (*fn)(void*), void* ctx) {
+    waiting_ = fn;
+    waiting_ctx_ = ctx;
+  }
 
   static void delay_ms(uint32_t ms);
 
@@ -60,6 +73,9 @@ class Bus {
   SemaphoreHandle_t busy_edge_ = nullptr;
   uint8_t* chunk_ = nullptr;  // DMA-capable staging buffer
   size_t fill_ = 0;
+  esp_pm_lock_handle_t relax_ = nullptr;
+  void (*waiting_)(void*) = nullptr;
+  void* waiting_ctx_ = nullptr;
 };
 
 }  // namespace epd

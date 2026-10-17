@@ -55,7 +55,7 @@ constexpr int kSettingRowHeight = 52;  // a row of the other pages
 constexpr int kGroupGap = 18;          // between groups of rows
 constexpr int kBackItem = 3000;        // hit item of a screen's ‹ before its title
 
-constexpr uint32_t kHoldMs = 1000;   // holding Power this long sleeps
+constexpr uint32_t kHoldMs = 700;    // holding Power this long sleeps
 constexpr uint32_t kToastMs = 2500;  // a notice at the bottom stays this long
 // Battery levels, unless charging: at kEmptyPercent the reader sleeps with a
 // "charge it" screen before the voltage sags too low for a refresh; under
@@ -3435,8 +3435,14 @@ void App::draw_check() {
 
   // What the board says about itself.
   ui::draw_label(fb_, kSide, kAboutLabelBase, t.about_label);
-  char screen[32], battery[48], clock[32], card[32];
-  std::snprintf(screen, sizeof(screen), "%d \xC3\x97 %d", board_.display.width(), board_.display.height());  // ×
+  char screen[48], battery[48], clock[32], card[32];
+  int used = std::snprintf(screen, sizeof(screen), "%d \xC3\x97 %d", board_.display.width(),
+                           board_.display.height());  // ×
+  if (last_turn_ms_ != 0 && used > 0 && static_cast<size_t>(used) < sizeof(screen)) {
+    // How long the last page turn took, button to new page: speed, measured.
+    used += std::snprintf(screen + used, sizeof(screen) - used, " \xC2\xB7 ");  // ·
+    std::snprintf(screen + used, sizeof(screen) - used, t.page_turn_ms, static_cast<unsigned>(last_turn_ms_));
+  }
   const int level = board_.power.battery_percent();
   if (level >= 0) {
     std::snprintf(battery, sizeof(battery), "%d%% \xC2\xB7 %s", level,
@@ -3576,8 +3582,25 @@ bool App::handle(const InputEvent& ev) {
       return true;
   }
   draw();
-  queue_.submit();
+  // More presses already waiting (made during the last refresh): they are
+  // drawn first and shown together (flush()).
+  if (board_.input.pending()) {
+    deferred_ = true;
+  } else {
+    queue_.submit();
+  }
   return true;
+}
+
+void App::handled(uint32_t started) {
+  if (deferred_) {
+    if (board_.input.pending()) return;  // shown after the next event
+    deferred_ = false;
+    queue_.submit();
+  }
+  if (!turned_) return;
+  turned_ = false;
+  if (started != 0) last_turn_ms_ = board_.input.now_ms() - started;
 }
 
 bool App::at_last_page() const {
@@ -3603,6 +3626,7 @@ bool App::turn(int step) {
     open_finish();
   }
   if (++turns_since_save_ >= 10) save_progress();
+  turned_ = true;
   const uint32_t now = steady_ms();
   stats_.turn(now, today(board_.clock), step > 0);
   if (stats_.save_due(now) && board_.storage != nullptr) stats_.save(*board_.storage);
@@ -3916,7 +3940,9 @@ void run(Board& board) {
       app.timeout();
       continue;
     }
+    const uint32_t started = board.input.now_ms();
     if (!app.handle(ev)) return;
+    app.handled(started);
   }
 }
 

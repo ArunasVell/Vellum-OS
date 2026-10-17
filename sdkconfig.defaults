@@ -25,8 +25,13 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 CONFIG_FREERTOS_HZ=1000
 
 # Battery: dynamic frequency scaling and automatic light sleep when idle.
+# The board arms the buttons and the touch line as wake-ups just before each
+# light sleep (the callbacks), and the USB log keeps the chip awake while a
+# computer is connected (it cannot work through light sleep).
 CONFIG_PM_ENABLE=y
 CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
 
 # Logs and flashing over the built-in USB serial/JTAG port.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
