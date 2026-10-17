@@ -376,6 +376,13 @@ struct Strings {
   const char* add_books_over;    // Wi-Fi settings row: the network Add books uses
   const char* network_names[2];  // its values: the home Wi-Fi when set, the reader's own network
   const char* status_name;       // centred in the status bar: "Vellum" (a closing ❤ is drawn as a heart)
+  // Deleting a book (held in the library: the last row of its shelves screen)
+  const char* delete_book;      // that row
+  const char* delete_question;  // screen title, asking first
+  const char* delete_note;      // under it: what goes with the book
+  const char* delete_yes;
+  const char* delete_no;
+  const char* delete_failed;  // a toast
 };
 
 const Strings& strings(Language lang);

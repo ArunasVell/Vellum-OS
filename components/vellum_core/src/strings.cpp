@@ -365,6 +365,14 @@ constexpr Strings kEnglish = {
     .add_books_over = "Add books over",
     .network_names = {"Home Wi-Fi", "Own network"},
     .status_name = "Vellum",
+    .delete_book = "Delete book",
+    .delete_question = "Delete this book?",
+    .delete_note =
+        "The book is removed from the memory card, with its reading place, bookmarks and highlights. This cannot be "
+        "undone.",
+    .delete_yes = "Yes, delete",
+    .delete_no = "No, keep it",
+    .delete_failed = "Could not delete the book",
 };
 
 constexpr Strings kLithuanian = {
@@ -744,6 +752,14 @@ constexpr Strings kLithuanian = {
     .add_books_over = "Knygų įkėlimas per",
     .network_names = {"Namų Wi-Fi", "Skaityklės tinklą"},
     .status_name = "Vellum",
+    .delete_book = "Ištrinti knygą",
+    .delete_question = "Ištrinti šią knygą?",
+    .delete_note =
+        "Knyga bus pašalinta iš atminties kortelės kartu su skaitymo vieta, žymėmis ir pažymėjimais. To atšaukti "
+        "negalima.",
+    .delete_yes = "Taip, ištrinti",
+    .delete_no = "Ne, palikti",
+    .delete_failed = "Nepavyko ištrinti knygos",
 };
 
 constexpr Strings kGerman = {

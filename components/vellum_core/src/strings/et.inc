@@ -374,3 +374,10 @@
     .add_books_over = "Raamatute lisamise võrk",
     .network_names = {"Kodune Wi-Fi", "Lugeri võrk"},
     .status_name = "Vellum",
+    .delete_book = "Kustuta raamat",
+    .delete_question = "Kas kustutada see raamat?",
+    .delete_note =
+        "Raamat eemaldatakse mälukaardilt koos lugemiskoha, järjehoidjate ja esiletõstetega. Seda ei saa tagasi võtta.",
+    .delete_yes = "Jah, kustuta",
+    .delete_no = "Ei, jäta alles",
+    .delete_failed = "Raamatut ei õnnestunud kustutada",

@@ -1226,21 +1226,44 @@ bool App::library_gesture(const Gesture& g) {
 // ---- Shelves of one book ----------------------------------------------------
 //
 // Rows: Done, Finished reading, the SHELVES label, a row per shelf with a
-// tick when the book is on it, then New shelf.
+// tick when the book is on it, then New shelf and, held in a list, Delete
+// book. Delete asks first, on the same screen: No, keep it; Yes, delete.
 
 void App::open_shelve(int book, Screen back) {
   shelve_book_ = book;
   shelve_back_ = back;
   shelve_sel_ = 0;
+  shelve_confirm_ = false;
   show(Screen::Shelve);
 }
 
-int App::shelve_row_count() const { return 3 + shelves_.count() + (shelves_.count() < Shelves::kMax ? 1 : 0); }
+bool App::shelve_can_delete() const {
+  // Not the open book (from its contents), nor a sample built in.
+  return shelve_back_ != Screen::Reader && board_.storage != nullptr && library_.entry(shelve_book_).builtin == nullptr;
+}
+
+int App::shelve_delete_row() const { return 3 + shelves_.count() + (shelves_.count() < Shelves::kMax ? 1 : 0); }
+
+int App::shelve_row_count() const {
+  if (shelve_confirm_) return 2;
+  return shelve_delete_row() + (shelve_can_delete() ? 1 : 0);
+}
 
 int App::shelve_rows_per_page() const { return (fb_.height() - kListTop - kHintRoom) / kContentsRowHeight; }
 
 bool App::shelve_activate() {
   const int row = shelve_sel_;
+  if (shelve_confirm_) {
+    if (row == 1) return delete_book(), false;
+    shelve_confirm_ = false;
+    shelve_sel_ = shelve_delete_row();
+    return true;
+  }
+  if (row == shelve_delete_row()) {
+    shelve_confirm_ = true;
+    shelve_sel_ = 0;  // No, the safe answer, to begin with
+    return true;
+  }
   if (row == 0) {
     if (shelve_back_ == Screen::Library) {
       build_library_view();
@@ -1270,6 +1293,20 @@ void App::draw_shelve() {
   const int w = fb_.width();
   const Strings& t = text();
   const LibraryEntry& book = library_.entry(shelve_book_);
+  if (shelve_confirm_) {
+    draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.delete_question);
+    ui::draw_fitted(fb_, ui::label_font(), kSide, kSubtitleBase, w - 2 * kSide, book.title);
+    const int text_end =
+        ui::draw_wrapped(fb_, ui::text_font(), kSide, kListTop + 30, w - 2 * kSide, 7, t.delete_note, false);
+    const char* labels[] = {t.delete_no, t.delete_yes};
+    for (int i = 0; i < 2; ++i) {
+      const Rect r = row_rect(fb_, text_end + 24 + i * (kLinkHeight + 16), kLinkHeight);
+      draw_link(fb_, r, labels[i], shelve_sel_ == i);
+      add_hit(r, i);
+    }
+    ui::draw_hint(fb_, t.hint_list);
+    return;
+  }
   draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.shelves);
 
   const int per_page = shelve_rows_per_page();
@@ -1294,6 +1331,8 @@ void App::draw_shelve() {
     const int base = y + 33;
     if (i == 0) {
       draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight}, t.done, selected);
+    } else if (i == shelve_delete_row()) {
+      draw_link(fb_, {r.x, r.y + 2, r.w, kLinkHeight}, t.delete_book, selected);
     } else if (i == 2) {
       ui::draw_label(fb_, kSide, base + 6, t.shelves_label);
       continue;
@@ -1320,6 +1359,44 @@ void App::draw_shelve() {
 
 void App::save_shelves() {
   if (board_.storage != nullptr) shelves_.save(*board_.storage);
+}
+
+void App::delete_book() {
+  shelve_confirm_ = false;
+  if (!shelve_can_delete()) return;
+  Storage& storage = *board_.storage;
+  const LibraryEntry& e = library_.entry(shelve_book_);
+  char path[sizeof(LibraryEntry::path)];
+  std::snprintf(path, sizeof(path), "%s", e.path);
+  const uint32_t size = e.file_size;
+  // A copy held open is closed first, so the file can go.
+  if (std::strcmp(epub_path_, path) == 0) {
+    epub_.close();
+    epub_path_[0] = '\0';
+  }
+  if (std::strcmp(text_path_, path) == 0) {
+    text_book_.close();
+    text_path_[0] = '\0';
+  }
+  if (!library_.remove_book(storage, shelve_book_)) {
+    show_toast(text().delete_failed);
+    shelve_sel_ = shelve_delete_row();
+    return;
+  }
+  TextBook::remove_copies(storage, path, size);
+  for (int shelf = 0; shelf < shelves_.count(); ++shelf) shelves_.set(shelf, path, false);
+  save_shelves();
+  highlights_.remove_book(path);
+  highlights_.save(storage);
+  // The books after it have moved up in the list: everything that counts
+  // them starts again.
+  rescan_library();
+  if (shelve_back_ == Screen::Folders) return open_folder(folder_path_);
+  build_library_view();
+  library_sel_ = std::min(library_sel_, library_item_count() - 1);
+  const int first_book = library_first_book();
+  if (library_sel_ >= first_book) library_page_ = (library_sel_ - first_book) / library_rows();
+  show(Screen::Library);
 }
 
 // ---- Keyboard ------------------------------------------------------------------
@@ -3736,6 +3813,11 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Setup) return setup_back(), false;
       if (screen_ == Screen::Pictures || screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;
       if (screen_ == Screen::Folders) return folder_up(), false;
+      if (screen_ == Screen::Shelve && shelve_confirm_) {
+        shelve_confirm_ = false;  // keeps the book
+        shelve_sel_ = shelve_delete_row();
+        return true;
+      }
       if (screen_ == Screen::Picture) return open_folder(folder_path_, folder_items_[picture_item_].name), false;
       const bool closing_book = screen_ == Screen::Reader || screen_ == Screen::Contents;
       show(Screen::Home);
@@ -3768,7 +3850,7 @@ bool App::handle_key(Key key) {
       if (key == Key::Power) return shelve_activate();
       do {
         shelve_sel_ = wrap_index(shelve_sel_ + step, shelve_row_count());
-      } while (shelve_sel_ == 2);  // the label
+      } while (!shelve_confirm_ && shelve_sel_ == 2);  // the label
       return true;
     case Screen::Settings:
       if (key == Key::Power) settings_activate();

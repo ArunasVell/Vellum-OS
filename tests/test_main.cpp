@@ -6346,6 +6346,101 @@ void test_app_move_finished() {
   std::filesystem::remove_all("test-card-move");
 }
 
+void test_app_delete_book() {
+  std::filesystem::remove_all("test-card-delete");
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  StdioStorage card("test-card-delete");
+  const std::string book = read_all(VELLUM_TEST_DATA "/sample.epub");
+  write_file(card, "books/sample.epub", book);
+  write_file(card, "books/other.epub", book);
+  write_file(card, "vellum/progress.txt", "books/sample.epub\t0\t0\t0\t0\t1\n");  // read last: first in the list
+  write_file(card, "vellum/bookmarks.txt",
+             "books/sample.epub\t0\t0\t0\t5\tFirst words\nbooks/other.epub\t0\t0\t0\t5\tKept\n");
+  {
+    Shelves shelves;
+    shelves.add("Poezija");
+    shelves.set(0, "books/sample.epub", true);
+    shelves.set(0, "books/other.epub", true);
+    CHECK(shelves.save(card));
+    Highlights highlights;
+    Highlight h;
+    std::snprintf(h.path, sizeof(h.path), "books/sample.epub");
+    std::snprintf(h.text, sizeof(h.text), "a passage");
+    CHECK(highlights.add(h) == 0 && highlights.save(card));
+  }
+  Board board{"test", panel, input, power, nullptr, nullptr, &card, Rotation::R90, buf.data()};
+  settled(card);
+  auto* app = new App(board);
+  app->start();
+  const auto file = [](const char* name) { return read_all((std::string("test-card-delete/vellum/") + name).c_str()); };
+  char cover[64];
+  covers::path_for("books/sample.epub", static_cast<uint32_t>(book.size()), cover, sizeof(cover));
+  CHECK(std::filesystem::exists(std::string("test-card-delete/") + cover));
+
+  // Home: the current book, two others, then All books.
+  press(*app, Key::Home);
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);
+  // Holding the book: Done, Finished reading, the label, Poezija, New shelf, Delete book.
+  hold(*app, 240, 268);
+  press(*app, Key::Prev);   // round to the last row: Delete book
+  press(*app, Key::Power);  // asks first, with No selected
+  press(*app, Key::Power);  // No: nothing goes
+  CHECK(std::filesystem::exists("test-card-delete/books/sample.epub"));
+  press(*app, Key::Power);  // Delete book again
+  press(*app, Key::Home);   // Home keeps it too
+  CHECK(std::filesystem::exists("test-card-delete/books/sample.epub"));
+  press(*app, Key::Power);
+  press(*app, Key::Next);  // Yes, delete
+  press(*app, Key::Power);
+  CHECK(!std::filesystem::exists("test-card-delete/books/sample.epub"));
+  CHECK(std::filesystem::exists("test-card-delete/books/other.epub"));
+  CHECK(!std::filesystem::exists(std::string("test-card-delete/") + cover));
+  for (const char* name : {"progress.txt", "bookmarks.txt", "highlights.txt", "shelves.txt", "library.txt"}) {
+    const std::string text = file(name);
+    if (text.find("books/sample.epub") != std::string::npos) std::printf("still in %s\n", name);
+    CHECK(text.find("books/sample.epub") == std::string::npos);
+  }
+  CHECK(file("bookmarks.txt").find("books/other.epub") != std::string::npos);
+  CHECK(file("shelves.txt") == "Poezija\n\tbooks/other.epub\n");
+  delete app;
+
+  // A converted book's page and pictures go with it.
+  const std::string md = "# Part\n\nText.\n";
+  write_file(card, "books/notes.md", md);
+  Epub epub;
+  TextBook text;
+  Library lib;
+  lib.load(builtin_books(), &card, epub, &text);
+  text.close();
+  const auto converted = []() {
+    std::vector<std::string> names;
+    for (const auto& e : std::filesystem::directory_iterator("test-card-delete/vellum/converted"))
+      names.push_back(e.path().filename().string());
+    std::sort(names.begin(), names.end());
+    return names;
+  };
+  CHECK(converted().size() == 1 && converted()[0].ends_with(".html"));
+  // Pictures a page names are kept beside it as "<hash>-<name>"; another book's stay.
+  const std::string hash = converted()[0].substr(0, 8);
+  write_file(card, ("vellum/converted/" + hash + "-1.jpg").c_str(), "x");
+  write_file(card, ("vellum/converted/" + hash + "-cover.png").c_str(), "x");
+  write_file(card, "vellum/converted/00000000-1.jpg", "x");
+  const int at = lib.find("books/notes.md");
+  CHECK(at >= 0);
+  const int count = lib.count();
+  CHECK(!lib.remove_book(card, 0));  // a sample has no file
+  CHECK(lib.remove_book(card, at));
+  CHECK(lib.count() == count - 1 && lib.find("books/notes.md") < 0);
+  TextBook::remove_copies(card, "books/notes.md", static_cast<uint32_t>(md.size()));
+  CHECK(converted() == std::vector<std::string>{"00000000-1.jpg"});
+  CHECK(!std::filesystem::exists("test-card-delete/books/notes.md"));
+  std::filesystem::remove_all("test-card-delete");
+}
+
 void test_app_cover_grid() {
   std::filesystem::remove_all("test-card-grid");
   std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
@@ -6982,6 +7077,7 @@ int main() {
   test_recently_added();
   test_pictures();
   test_app_move_finished();
+  test_app_delete_book();
   test_app_cover_grid();
   test_app_folders_and_pictures();
   test_paragraph_marks();

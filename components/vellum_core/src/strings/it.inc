@@ -374,3 +374,10 @@
     .add_books_over = "Aggiungi libri via",
     .network_names = {"Wi-Fi di casa", "Rete propria"},
     .status_name = "Vellum",
+    .delete_book = "Elimina libro",
+    .delete_question = "Eliminare questo libro?",
+    .delete_note =
+        "Il libro viene tolto dalla scheda di memoria, con il punto di lettura, i segnalibri e le evidenziazioni. Non si può annullare.",
+    .delete_yes = "Sì, elimina",
+    .delete_no = "No, tienilo",
+    .delete_failed = "Impossibile eliminare il libro",

@@ -103,6 +103,12 @@ class Library {
   // bookmarks. Shelves, highlights and reading stats are the caller's.
   // Returns false when the file could not be moved.
   bool move_book(Storage& storage, int i, const char* folder);
+  // Deletes book i's file from the card with its cover thumbnails, cache
+  // line, reading position and bookmarks, and takes it out of the list (the
+  // books after it move up one). Shelves, highlights and copies made for
+  // reading (TextBook::remove_copies) are the caller's. Returns false when
+  // the file could not be deleted; nothing else changes then.
+  bool remove_book(Storage& storage, int i);
 
   int count() const { return count_; }
   const LibraryEntry& entry(int i) const { return entries_[i]; }

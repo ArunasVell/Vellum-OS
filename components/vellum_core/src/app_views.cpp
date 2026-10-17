@@ -280,6 +280,12 @@ bool App::folder_gesture(const Gesture& g) {
   if (g.kind == K::Tap || g.kind == K::LongPress) {
     const int item = hit_at(g.x, g.y);
     if (item < 0) return false;
+    if (g.kind == K::LongPress && folder_items_[item].kind == FolderKind::Book) {
+      // Holding a book: its shelves, and Delete.
+      folder_sel_ = item;
+      open_shelve(folder_items_[item].book, Screen::Folders);
+      return false;
+    }
     folder_sel_ = item;
     folder_activate();
     return false;

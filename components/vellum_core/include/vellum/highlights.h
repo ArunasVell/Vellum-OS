@@ -56,6 +56,8 @@ class Highlights {
   void remove(int k);
   // A book's file moved: its highlights follow it to the new path.
   void rename_book(const char* from, const char* to);
+  // A book was deleted: its highlights go too.
+  void remove_book(const char* path);
   // Sets a note (tabs and line breaks become spaces); false when there is no such id.
   bool set_note(uint32_t id, const char* note);
 
