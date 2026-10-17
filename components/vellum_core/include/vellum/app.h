@@ -20,6 +20,7 @@
 #include "vellum/settings.h"
 #include "vellum/shelves.h"
 #include "vellum/sleep_pictures.h"
+#include "vellum/store.h"
 #include "vellum/strings.h"
 #include "vellum/text_book.h"
 #include "vellum/touch.h"
@@ -402,11 +403,13 @@ class App {
     OpdsEntry detail;  // one book's own feed
     char history[kStoreHistory][256];
     char history_titles[kStoreHistory][64];
-    Catalogues catalogues;   // the reader's own, from the card
-    char auth[192];          // their sign-in header, "" for none
-    char search[256];        // the search of the own catalogue shown: a template or a description
-    bool search_template;    // search holds {searchTerms}
-    char description[4096];  // an OpenSearch description, fetched to search
+    store::Seen seen;                        // books shown in this list so far
+    uint16_t seen_marks[kStoreHistory + 1];  // seen.count before each history page
+    Catalogues catalogues;                   // the reader's own, from the card
+    char auth[192];                          // their sign-in header, "" for none
+    char search[256];                        // the search of the own catalogue shown: a template or a description
+    bool search_template;                    // search holds {searchTerms}
+    char description[4096];                  // an OpenSearch description, fetched to search
   };
   void open_store();
   // Turns the radio off; the screen stays.
@@ -775,8 +778,9 @@ class App {
   bool store_failed_download_ = false;  // Try again downloads (else it reloads)
   int store_sel_ = 0;
   int store_source_ = 0;
-  int store_book_ = 0;   // the list entry the book page shows
-  int store_depth_ = 0;  // pages in store_->history
+  int store_book_ = 0;           // the list entry the book page shows
+  int store_depth_ = 0;          // pages in store_->history
+  int store_loaded_depth_ = -1;  // store_depth_ when a list page last loaded
   int store_percent_ = 0;
   int store_saved_ = -1;        // library index of the book just downloaded
   int store_custom_count_ = 0;  // the reader's own catalogues, as last loaded

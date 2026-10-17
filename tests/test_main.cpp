@@ -3854,6 +3854,40 @@ void test_opds_details() {
   CHECK(std::string(size) == "1,5 MB");
   store::format_size(Language::English, 397286, size, sizeof(size));
   CHECK(std::string(size) == "388 KB");
+
+  // Editions of one book share a key; other books, or authors, do not.
+  CHECK(store::book_key("Pride and Prejudice", "Jane Austen") ==
+        store::book_key("PRIDE AND PREJUDICE: Illustrated", "Jane  Austen"));
+  CHECK(store::book_key("Pride and Prejudice", "Jane Austen") != store::book_key("Emma", "Jane Austen"));
+  CHECK(store::book_key("Poems", "John Keats") != store::book_key("Poems", "Emily Dickinson"));
+
+  // A later page leaves out what earlier ones showed, and its own repeats;
+  // links to other lists stay.
+  OpdsEntry books[5];
+  const auto fill = [&books](int i, const char* title, bool section = false) {
+    books[i] = {};
+    std::snprintf(books[i].title, sizeof(books[i].title), "%s", title);
+    std::snprintf(books[i].author, sizeof(books[i].author), "A");
+    books[i].section = section;
+  };
+  OpdsFeed page;
+  page.entries = books;
+  page.capacity = 5;
+  store::Seen seen;
+  fill(0, "One");
+  fill(1, "Two");
+  page.count = 2;
+  store::drop_repeats(page, seen);
+  CHECK(page.count == 2 && seen.count == 2);
+  fill(0, "Two; Illustrated");
+  fill(1, "Three");
+  fill(2, "More", true);
+  fill(3, "Three");
+  fill(4, "More", true);
+  page.count = 5;
+  store::drop_repeats(page, seen);
+  CHECK(page.count == 3 && std::string(books[0].title) == "Three" && books[1].section && books[2].section);
+  CHECK(seen.count == 3);
 }
 
 // Serves the test feeds and books in place of the internet.
