@@ -1,10 +1,11 @@
 // An on-screen keyboard for short text: a search, a shelf's name.
 //
 // It takes the bottom kHeight pixels of the screen: a line with the text
-// typed so far (and Cancel), then five rows of keys. Three pages share the
-// same shape: English letters with digits on top, Lithuanian letters with
-// ą č ę ė į š ų ū ž on top, and digits with punctuation. Shift makes the
-// next letter a capital.
+// typed so far (and Cancel), then five rows of keys. The pages: English
+// letters with digits on top; the same with the language's accented letters
+// on top (Lithuanian ą č ę ė į š ų ū ž, German ä ö ü ß...); digits with
+// punctuation; and for Ukrainian its own letters. Shift makes the next letter
+// a capital.
 //
 // Fingers tap keys; without touch, the side buttons move a cursor over the
 // keys and Power types the one under it. The keyboard draws itself and
@@ -17,6 +18,7 @@
 
 #include "vellum/framebuffer.h"
 #include "vellum/hal.h"
+#include "vellum/strings.h"
 
 namespace vellum {
 
@@ -25,7 +27,9 @@ class Keyboard {
   static constexpr int kMaxBytes = 64;  // longest text, UTF-8
   static constexpr int kHeight = 372;   // logical px, at the bottom of the screen
 
-  enum class Page : uint8_t { English, Lithuanian, Symbols };
+  // English letters; the same with a row of the language's accented
+  // letters for the digits; symbols; the Ukrainian letters.
+  enum class Page : uint8_t { English, Accents, Symbols, Ukrainian };
 
   // What an input did, so the screen can redraw only what changed.
   enum class Result : uint8_t {
@@ -37,12 +41,13 @@ class Keyboard {
   };
 
   struct Options {
-    std::string_view prompt = {};  // shown in the empty text line
-    std::string_view ok = "OK";    // the key that finishes
-    std::string_view cancel = "";  // the button in the text line; "" leaves it out
-    Page page = Page::English;     // the letters to start with
-    bool capitalize = false;       // shift is on while the text is empty (names)
-    int max_bytes = kMaxBytes;     // at most kMaxBytes
+    std::string_view prompt = {};              // shown in the empty text line
+    std::string_view ok = "OK";                // the key that finishes
+    std::string_view cancel = "";              // the button in the text line; "" leaves it out
+    Page page = Page::English;                 // the letters to start with
+    Language language = Language::Lithuanian;  // whose accents (or Ukrainian letters) the language key gives
+    bool capitalize = false;                   // shift is on while the text is empty (names)
+    int max_bytes = kMaxBytes;                 // at most kMaxBytes
   };
 
   // Shows the keyboard with `text` already typed.
@@ -84,6 +89,9 @@ class Keyboard {
 
  private:
   const KeyDef& def(int i) const;
+  // The letters the symbols key returns to, and the language key's other page.
+  Page letters() const { return last_letters_; }
+  Page other_letters() const { return options_.language == Language::Ukrainian ? Page::Ukrainian : Page::Accents; }
   int row_of(int i) const;
   Result press(int i);
   void draw_key(Framebuffer& fb, int i) const;
@@ -93,6 +101,7 @@ class Keyboard {
   int length_ = 0;
   Options options_;
   Page page_ = Page::English;
+  Page last_letters_ = Page::English;  // the letters shown last, for the symbols key
   bool shift_ = false;
   bool open_ = false;
   int cursor_ = 0;

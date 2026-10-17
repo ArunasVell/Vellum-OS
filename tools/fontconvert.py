@@ -21,11 +21,14 @@ import uharfbuzz as hb
 
 PPI = 217
 
-# Latin-1, Latin Extended-A (Lithuanian, Polish, Czech, ...) and typographic punctuation.
+# Latin-1, Latin Extended-A (Lithuanian, Polish, Czech, ...), Cyrillic for Ukrainian and
+# typographic punctuation.
 CHARSET = (
     list(range(0x20, 0x7F))
     + list(range(0xA0, 0x100))
     + list(range(0x100, 0x180))
+    + list(range(0x400, 0x460))  # Cyrillic: Ukrainian
+    + [0x490, 0x491]
     + [0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D, 0x201E, 0x2022, 0x2026, 0x2039, 0x203A, 0x20AC]
 )
 # Kerning smaller than this is dropped to keep the tables small.

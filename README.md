@@ -14,7 +14,7 @@ Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting 
 - **Sync**: reading position with KOReader sync, and every setting can be changed from a phone page.
 - **Sleep and battery**: the book's cover, your own pictures or stats on the sleep screen; a battery log with a 7-day chart and time left.
 - **Controls**: remap any button, swipe and tap gestures, a quick panel, screen rotation and front light.
-- **Setup and updates**: a short first-time setup (each step can be skipped), English or Lithuanian menus, and updates installed from a phone or a file.
+- **Setup and updates**: a short first-time setup (each step can be skipped), menus in English, Lithuanian, German, French, Spanish, Italian, Polish, Latvian, Estonian or Ukrainian, and updates installed from a phone or a file.
 
 ## Goals
 

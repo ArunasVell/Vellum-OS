@@ -6,7 +6,20 @@
 
 namespace vellum {
 
-enum class Language : uint8_t { English, Lithuanian };
+// Saved by number: new languages go at the end.
+enum class Language : uint8_t {
+  English,
+  Lithuanian,
+  German,
+  French,
+  Spanish,
+  Italian,
+  Polish,
+  Latvian,
+  Estonian,
+  Ukrainian
+};
+constexpr int kLanguageCount = 10;
 
 struct Strings {
   const char* language_name;  // in the language itself
@@ -357,6 +370,10 @@ struct Strings {
   const char* hint_quick;     // the quick panel's hint
   const char* starting_back;  // under "starting": the way out
   const char* back_label;     // a button that leaves the screen
+  // Settings pages
+  const char* add_books_over;    // Wi-Fi settings row: the network Add books uses
+  const char* network_names[2];  // its values: the home Wi-Fi when set, the reader's own network
+  const char* status_name;       // centred in the status bar: "Vellum" (a closing ❤ is drawn as a heart)
 };
 
 const Strings& strings(Language lang);

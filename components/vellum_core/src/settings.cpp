@@ -29,7 +29,7 @@ struct SettingKey {
 };
 
 constexpr SettingKey kKeys[] = {
-    {"language", 2, [](const Settings& s) { return static_cast<int>(s.language); },
+    {"language", kLanguageCount, [](const Settings& s) { return static_cast<int>(s.language); },
      [](Settings& s, int v) { s.language = static_cast<Language>(v); }},
     {"clock", 2, [](const Settings& s) { return static_cast<int>(s.time_format); },
      [](Settings& s, int v) { s.time_format = static_cast<TimeFormat>(v); }},

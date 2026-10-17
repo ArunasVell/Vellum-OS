@@ -235,7 +235,7 @@ void App::draw_quick() {
 
   char time[16];
   time_text(time, sizeof(time));
-  ui::draw_status_bar(fb_, time, board_.power.battery_percent());
+  ui::draw_status_bar(fb_, time, board_.power.battery_percent(), text().status_name);
 
   int sel = 0;
   if (light) {

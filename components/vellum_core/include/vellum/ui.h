@@ -52,7 +52,9 @@ void draw_label(Framebuffer& fb, int x, int baseline, std::string_view text);
 void draw_battery(Framebuffer& fb, int right, int baseline, int percent);
 // Time on the left (may be empty), "Vellum" in the middle, battery on the
 // right, hairline below.
-void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent);
+// The time, a name in the middle ("Vellum"; a closing ❤ is drawn as a heart)
+// and the battery.
+void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent, std::string_view name = "Vellum");
 // Control hint centred at the bottom of the screen.
 void draw_hint(Framebuffer& fb, std::string_view text);
 // Dotted track with a solid bar for the part done, centred on line y.

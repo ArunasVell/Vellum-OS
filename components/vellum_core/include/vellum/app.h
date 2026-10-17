@@ -708,12 +708,13 @@ class App {
   int definition_lines_ = 0;                          // lines it takes, as last drawn
   int definition_rows_ = 1;                           // lines that fit in the panel
   TransferState transfer_state_ = TransferState::Off;
-  bool transfer_setup_ = false;        // the phone page for updates, not books
-  bool transfer_home_ = false;         // the page is on the home Wi-Fi
-  bool transfer_home_failed_ = false;  // it could not be joined: the reader's own network instead
-  bool transfer_cancelled_ = false;    // the reader left while it was starting
-  int transfer_settings_seen_ = 0;     // TransferStatus::settings_saved taken up
-  char* transfer_fonts_ = nullptr;     // TransferInfo::fonts, allocated once
+  bool transfer_setup_ = false;             // the phone page for updates, not books
+  Screen transfer_back_ = Screen::Updates;  // where that phone page goes back to
+  bool transfer_home_ = false;              // the page is on the home Wi-Fi
+  bool transfer_home_failed_ = false;       // it could not be joined: the reader's own network instead
+  bool transfer_cancelled_ = false;         // the reader left while it was starting
+  int transfer_settings_seen_ = 0;          // TransferStatus::settings_saved taken up
+  char* transfer_fonts_ = nullptr;          // TransferInfo::fonts, allocated once
   // Updates: what is known, and what this session has tried.
   enum class UpdateBusy : uint8_t { No, Checking, Installing };
   UpdateState update_state_;
