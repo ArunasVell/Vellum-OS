@@ -451,6 +451,45 @@ bool TextBook::open(Storage& storage, const char* path) {
   return true;
 }
 
+void TextBook::remove_copies(Storage& storage, const char* path, uint32_t size) {
+  uint32_t h = fnv(path);
+  for (int i = 0; i < 4; ++i) h = (h ^ ((size >> (8 * i)) & 0xFF)) * 16777619u;
+  char name[96];
+  std::snprintf(name, sizeof(name), "%s/%08lx.fb2", kUnzipFolder, static_cast<unsigned long>(h));
+  storage.remove(name);
+  h = (h ^ kConverterVersion) * 16777619u;
+  for (const char* ext : {".html", ".no", ".tmp"}) {
+    std::snprintf(name, sizeof(name), "%s/%08lx%s", kConvertFolder, static_cast<unsigned long>(h), ext);
+    storage.remove(name);
+  }
+  // The pictures, "<hash>-<name>": names are collected before deleting, as
+  // the storage may reuse its listing buffer, a few at a time.
+  struct Found {
+    char prefix[16];
+    char names[16][64];
+    int count;
+  } found;
+  std::snprintf(found.prefix, sizeof(found.prefix), "%08lx-", static_cast<unsigned long>(h));
+  for (int round = 0; round < 64; ++round) {
+    found.count = 0;
+    storage.list(
+        kConvertFolder,
+        [](void* ctx, const char* entry, bool is_dir, uint32_t) {
+          auto& f = *static_cast<Found*>(ctx);
+          if (is_dir || f.count >= 16 || std::strncmp(entry, f.prefix, 9) != 0) return;
+          if (std::strlen(entry) >= sizeof(f.names[0])) return;
+          std::snprintf(f.names[f.count++], sizeof(f.names[0]), "%s", entry);
+        },
+        &found);
+    bool removed = false;
+    for (int k = 0; k < found.count; ++k) {
+      std::snprintf(name, sizeof(name), "%s/%s", kConvertFolder, found.names[k]);
+      removed = storage.remove(name) || removed;
+    }
+    if (found.count < 16 || !removed) break;
+  }
+}
+
 bool TextBook::open_zipped(const char* path) {
   File* zipped = storage_->open(path);
   if (zipped == nullptr) return false;

@@ -361,3 +361,10 @@
     .add_books_over = "Bücher hinzufügen über",
     .network_names = {"Wi-Fi zu Hause", "Eigenes Netz"},
     .status_name = "Vellum",
+    .delete_book = "Buch löschen",
+    .delete_question = "Dieses Buch löschen?",
+    .delete_note =
+        "Das Buch wird mit Lesestelle, Lesezeichen und Markierungen von der Speicherkarte entfernt. Das lässt sich nicht rückgängig machen.",
+    .delete_yes = "Ja, löschen",
+    .delete_no = "Nein, behalten",
+    .delete_failed = "Buch konnte nicht gelöscht werden",

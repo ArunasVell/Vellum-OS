@@ -64,10 +64,11 @@ namespace vellum {
 // kept in Settings) under tabs: All, Reading now, Finished and the reader's
 // own shelves (vellum/shelves.txt), then a tab that makes a new one. Search
 // opens an on-screen keyboard (Keyboard) and keeps the books whose title or
-// author holds the text, accents aside. Holding a book in the list, or
-// Contents › Add to shelf, opens its shelves screen: tick the shelves it is
-// on, make a new one, or mark the book finished (reaching the last page
-// asks "Finished the book?" once; Next on the last page asks again).
+// author holds the text, accents aside. Holding a book in the list (or in
+// a folder), or Contents › Add to shelf, opens its shelves screen: tick the
+// shelves it is on, make a new one, or mark the book finished (reaching the
+// last page asks "Finished the book?" once; Next on the last page asks
+// again). Held in a list, its last row deletes the book from the card.
 //
 // Links in a book are underlined lightly (app_reading.cpp). Tapping one, or
 // picking it in Contents › Links on this page, follows it; a footnote shows
@@ -263,13 +264,19 @@ class App {
   bool library_activate();
   bool library_key(Key key);
   bool library_gesture(const Gesture& g);
-  // A book's shelves screen; `back` is where Done returns to.
+  // A book's shelves screen; `back` is where Done returns to. From the
+  // library or a folder, its last row deletes the book (after asking).
   void open_shelve(int book, Screen back);
+  bool shelve_can_delete() const;
+  int shelve_delete_row() const;  // after New shelf, when shelve_can_delete()
   int shelve_row_count() const;
   int shelve_rows_per_page() const;
   bool shelve_activate();
   void draw_shelve();
   void save_shelves();
+  // Deletes the book on the shelves screen and all that was kept about it
+  // (its reading stats stay), then shows the list it was held in.
+  void delete_book();
   // The keyboard: opens it over the current screen, and acts on what it
   // reports. Both return true when the screen needs a redraw.
   bool open_keyboard(Typing typing, std::string_view text);
@@ -673,6 +680,7 @@ class App {
   Typing typing_ = Typing::Off;
   int shelve_book_ = 0;  // the book on the shelves screen
   int shelve_sel_ = 0;
+  bool shelve_confirm_ = false;  // asking "Delete this book?": rows No, Yes
   Screen shelve_back_ = Screen::Library;
   int settings_sel_ = 0;
   int settings_page_ = 0;  // the page of Settings shown (SettingsPage)

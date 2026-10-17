@@ -145,6 +145,12 @@ void Highlights::rename_book(const char* from, const char* to) {
   }
 }
 
+void Highlights::remove_book(const char* path) {
+  for (int k = count_ - 1; k >= 0; --k) {
+    if (std::strcmp(items_[k].path, path) == 0) remove(k);
+  }
+}
+
 bool Highlights::set_note(uint32_t id, const char* note) {
   const int k = find(id);
   if (k < 0) return false;

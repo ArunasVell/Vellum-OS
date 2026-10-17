@@ -405,6 +405,27 @@ bool Library::move_book(Storage& storage, int i, const char* folder) {
   return true;
 }
 
+bool Library::remove_book(Storage& storage, int i) {
+  if (i < 0 || i >= count_) return false;
+  const LibraryEntry& e = entries_[i];
+  if (e.builtin != nullptr || !storage.remove(e.path)) return false;
+  char cover[64];
+  covers::path_for(e.path, e.file_size, cover, sizeof(cover));
+  if (e.cover > 0) storage.remove(cover);
+  for (int k = bookmark_count_ - 1; k >= 0; --k) {
+    if (std::strcmp(bookmarks_[k].path, e.path) == 0) remove_bookmark(k);
+  }
+  for (int c = 0; c < cache_count_; ++c) {
+    if (std::strcmp(cache_[c].path, e.path) == 0) cache_[c].path[0] = '\0';
+  }
+  for (int j = i + 1; j < count_; ++j) entries_[j - 1] = entries_[j];
+  --count_;
+  save_cache(storage);
+  save_progress(storage);
+  save_bookmarks(storage);
+  return true;
+}
+
 void Library::load_progress(Storage& storage) {
   char* buf = file_buffer();
   if (buf == nullptr) return;

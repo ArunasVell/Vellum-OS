@@ -358,3 +358,10 @@
     .add_books_over = "Dodawaj książki przez",
     .network_names = {"Domowe Wi-Fi", "Własna sieć"},
     .status_name = "Vellum",
+    .delete_book = "Usuń książkę",
+    .delete_question = "Usunąć tę książkę?",
+    .delete_note =
+        "Książka zostanie usunięta z karty pamięci razem z miejscem czytania, zakładkami i zaznaczeniami. Tego nie można cofnąć.",
+    .delete_yes = "Tak, usuń",
+    .delete_no = "Nie, zostaw",
+    .delete_failed = "Nie udało się usunąć książki",

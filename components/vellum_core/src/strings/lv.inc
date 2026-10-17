@@ -374,3 +374,10 @@
     .add_books_over = "Pievienot grāmatas caur",
     .network_names = {"Mājas Wi-Fi", "Ierīces tīklu"},
     .status_name = "Vellum",
+    .delete_book = "Dzēst grāmatu",
+    .delete_question = "Dzēst šo grāmatu?",
+    .delete_note =
+        "Grāmata tiks izdzēsta no atmiņas kartes kopā ar lasīšanas vietu, grāmatzīmēm un iezīmējumiem. To nevar atsaukt.",
+    .delete_yes = "Jā, dzēst",
+    .delete_no = "Nē, paturēt",
+    .delete_failed = "Grāmatu neizdevās izdzēst",

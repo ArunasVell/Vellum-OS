@@ -83,6 +83,11 @@ class TextBook : public Document {
   ChapterMarkup markup() const override;
   bool draw_picture(Framebuffer& fb, const Picture& p, Rect r) override;
 
+  // The book at `path` (`size` bytes) is being deleted: removes what was
+  // made from it for reading (an unpacked FB2, a converted page with its
+  // pictures, or the note that it could not be converted).
+  static void remove_copies(Storage& storage, const char* path, uint32_t size);
+
   // Plain text rules, exposed for tests.
   //
   // Whether a line of text (UTF-8, without its line break) is a chapter
