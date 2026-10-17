@@ -473,7 +473,7 @@ class App {
   // Library views (app_views.cpp). The cover grid: home's recent books and
   // the library's books as tiles, kGridCols to a row.
   static constexpr int kGridCols = 3;
-  static constexpr int kHomeTiles = 9;
+  static constexpr int kHomeTiles = 6;
   bool grid() const { return settings_.library_view == LibraryView::Covers; }
   void draw_home_grid();
   // The library's books on this page from y = top, above `bottom`.

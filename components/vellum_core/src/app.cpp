@@ -782,41 +782,29 @@ void App::draw_home() {
     y += kHomeRowHeight;
     ++item;
   }
-  draw_home_buttons(y + 14, item);
+  draw_home_buttons(y + 6, item);
   ui::draw_hint(fb_, t.hint_home);
 }
 
-// All books, Add books and Settings: three big buttons side by side.
+// All books, Add books and Settings: three big buttons, one under another,
+// as tall as the room above the hint allows.
 void App::draw_home_buttons(int y, int first_item) {
   const Strings& t = text();
   const char* names[] = {t.all_books, t.add_books, t.settings};
-  constexpr int kGap = 10;
-  const int bw = (fb_.width() - 2 * kSide - 2 * kGap) / 3;
-  const int room = bw - 12;
+  constexpr int kGap = 8;
+  const int bottom = fb_.height() - ui::kHintBase - 32;  // clear of the hint
+  const int bh = std::clamp((bottom - y - 2 * kGap) / 3, kLinkHeight, kHomeButtonHeight);
+  const Font& font = ui::text_font();
   for (int i = 0; i < 3; ++i) {
-    const Rect r{kSide + i * (bw + kGap), y, bw, kHomeButtonHeight};
+    const Rect r = row_rect(fb_, y + i * (bh + kGap), bh);
     const bool selected = home_sel_ == first_item + i;
     fb_.fill_round_rect(r, 14, Color::Black);
     if (!selected) fb_.fill_round_rect({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, 12, Color::White);
     const Color fg = selected ? Color::White : Color::Black;
-    add_hit({r.x - kGap / 2, r.y - 6, r.w + kGap, r.h + 12}, first_item + i);
-    // The menu type on one line, or two when a word would not fit beside
-    // another; the smaller type when a word alone is too wide.
-    const std::string_view name = names[i];
-    bool words_fit = true;
-    for (size_t start = 0; start < name.size();) {
-      size_t end = name.find(' ', start);
-      if (end == std::string_view::npos) end = name.size();
-      words_fit = words_fit && text_width_px(ui::text_font(), name.substr(start, end - start)) <= room;
-      start = end + 1;
-    }
-    const Font& font = words_fit ? ui::text_font() : ui::label_font();
-    if (text_width_px(font, name) <= room) {
-      ui::draw_wrapped(fb_, font, r.x + 6, r.y + (r.h + font.ascent * 7 / 10) / 2, room, 1, name, true, fg);
-    } else {
-      const int first = r.y + (r.h - 2 * font.line_height) / 2 + font.ascent * 4 / 5;
-      ui::draw_wrapped(fb_, font, r.x + 6, first, room, 2, name, true, fg);
-    }
+    add_hit({r.x, r.y - kGap / 2, r.w, r.h + kGap}, first_item + i);
+    const int base = r.y + (r.h + font.ascent * 7 / 10) / 2;
+    ui::draw_fitted(fb_, font, r.x + kPad + 6, base, r.w - 2 * kPad - 36, names[i], fg);  // clear of the ›
+    ui::draw_right(fb_, font, r.x + r.w - kPad - 6, base, "\xE2\x80\xBA", fg);            // ›
   }
 }
 

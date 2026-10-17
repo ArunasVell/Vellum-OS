@@ -130,7 +130,7 @@ void App::draw_home_grid() {
     ++item;
   }
 
-  draw_home_buttons(kGridTop + kHomeTiles / kGridCols * kTileH + 14, tiles);
+  draw_home_buttons(kGridTop + kHomeTiles / kGridCols * kTileH + 6, tiles);
   ui::draw_hint(fb_, t.hint_home);
 }
 
