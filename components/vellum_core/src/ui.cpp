@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 
 #include "qrcodegen.h"
 #include "vellum/text.h"
@@ -120,9 +121,37 @@ void draw_battery(Framebuffer& fb, int right, int baseline, int percent) {
   draw_right(fb, label_font(), body.x - 6, baseline, label);
 }
 
-void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent) {
+// A small solid heart, `size` wide and high, its point at `bottom`: two
+// round lobes over a triangle.
+static void draw_heart(Framebuffer& fb, int x, int bottom, int size) {
+  const int r = size / 4;
+  const int top = bottom - size + 1;
+  for (int dy = 0; dy < size; ++dy) {
+    for (int dx = 0; dx < size; ++dx) {
+      const auto lobe = [&](int cx) { return (dx - cx) * (dx - cx) + (dy - r) * (dy - r) <= r * r; };
+      const bool point = dy >= r && std::abs(2 * dx - (size - 1)) <= size * (size - 1 - dy) / (size - 1 - r);
+      if (lobe(r) || lobe(size - 1 - r) || point) fb.set_pixel(x + dx, top + dy, Color::Black);
+    }
+  }
+}
+
+void draw_status_bar(Framebuffer& fb, std::string_view time, int battery_percent, std::string_view name) {
   draw_text(fb, label_font(), kSide * 64, kStatusBase, time);
-  draw_centered(fb, small_italic_font(), kStatusBase, "Vellum");
+  // A closing ❤ in the name is drawn as a heart.
+  constexpr std::string_view kHeart = "\xE2\x9D\xA4";
+  const bool heart = name.size() >= kHeart.size() && name.substr(name.size() - kHeart.size()) == kHeart;
+  if (heart) {
+    name.remove_suffix(kHeart.size());
+    while (!name.empty() && name.back() == ' ') name.remove_suffix(1);
+    const Font& font = small_italic_font();
+    const int size = font.ascent * 3 / 4;
+    const int w = text_width_px(font, name) + 6 + size;
+    const int x = (fb.width() - w) / 2;
+    draw_text(fb, font, x * 64, kStatusBase, name);
+    draw_heart(fb, x + w - size, kStatusBase, size);
+  } else {
+    draw_centered(fb, small_italic_font(), kStatusBase, name);
+  }
   draw_battery(fb, fb.width() - kSide, kStatusBase, battery_percent);
   fb.hline(kSide, kStatusRule, fb.width() - 2 * kSide, Color::Black);
 }

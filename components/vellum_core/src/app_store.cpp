@@ -77,6 +77,7 @@ void App::open_store() {
   store_feed_.entries = store_->entries;
   store_feed_.capacity = kStoreEntries;
   store_feed_.count = 0;
+  store_loaded_depth_ = -1;
   store_->catalogues = {};
   if (board_.storage != nullptr) store_->catalogues.load(*board_.storage);  // the phone page may have changed them
   store_custom_count_ = store_->catalogues.count();
@@ -164,7 +165,9 @@ void App::store_push_history() {
     std::memmove(store_->history[0], store_->history[1], sizeof(store_->history[0]) * (kStoreHistory - 1));
     std::memmove(store_->history_titles[0], store_->history_titles[1],
                  sizeof(store_->history_titles[0]) * (kStoreHistory - 1));
+    std::memmove(store_->seen_marks, store_->seen_marks + 1, sizeof(store_->seen_marks[0]) * kStoreHistory);
     --store_depth_;
+    --store_loaded_depth_;
   }
   textfile::copy(store_url_, store_->history[store_depth_], sizeof(store_->history[0]));
   textfile::copy(store_title_, store_->history_titles[store_depth_], sizeof(store_->history_titles[0]));
@@ -362,6 +365,20 @@ void App::store_load(const char* url) {
     textfile::copy(store_->parser.search(), store_->search, sizeof(store_->search));
     store_->search_template = store_->parser.search_is_template();
   }
+  // Books an earlier page of this list showed are left out: going on from
+  // a page remembers its books, coming back (or trying again) forgets the
+  // ones shown from there on.
+  store::Seen& seen = store_->seen;
+  if (store_depth_ == 0) {
+    seen.count = 0;
+  } else if (store_depth_ > store_loaded_depth_) {
+    store_->seen_marks[store_depth_] = static_cast<uint16_t>(seen.count);
+  } else {
+    seen.count = store_->seen_marks[store_depth_];
+  }
+  store_->seen_marks[0] = 0;
+  store_loaded_depth_ = store_depth_;
+  if (r == NetResult::Ok) store::drop_repeats(store_feed_, seen);
   store_state_ = StoreState::Ready;
   store_sel_ = store_feed_.count > 0 ? store_lead_rows() : 0;  // the first book
   if (r != NetResult::Ok) store_fail(net_error(r));

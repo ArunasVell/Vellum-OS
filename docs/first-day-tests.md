@@ -29,7 +29,7 @@ The buttons in this list: the two **page buttons** on the side (one goes back a 
 
 ## 3. Buttons
 
-**Do:** Home screen → **Settings** → **Device check**. Press each page button, Power, and the Home pad once.
+**Do:** Home screen → **Settings** → **General** → **Device check**. Press each page button, Power, and the Home pad once.
 
 **Good:** Each of the four boxes (Up, Down, Home, Power) turns black while pressed and gets a tick afterwards. Holding a button keeps only its own box black. Pressing Home twice leaves the screen.
 
@@ -53,7 +53,7 @@ The buttons in this list: the two **page buttons** on the side (one goes back a 
 
 ## 6. Battery
 
-**Do:** Look at the battery number at the top of the screen. Then **Settings → Device check** shows it as a percentage. Unplug the cable and look again after a minute. Also open **Settings → Battery**.
+**Do:** Look at the battery number at the top of the screen. Then **Settings → General → Device check** shows it as a percentage. Unplug the cable and look again after a minute. Also open **Settings → Battery**.
 
 **Good:** A sensible percentage (not 0 % or stuck at 100 %). With the cable in it says "Charging"; unplugged it says "On battery". The Battery screen opens without errors (its history fills in over the following days).
 
@@ -65,13 +65,13 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 **Do:** Look at the time at the top. If it says the clock is not set, do test 10 (Add books), which sets the clock from your phone, then come back.
 
-**Good:** After the phone has set it, the time is right and stays right after the reader sleeps and wakes (test 11), and the next day. **Settings → Clock** switches between 24-hour and 12-hour.
+**Good:** After the phone has set it, the time is right and stays right after the reader sleeps and wakes (test 11), and the next day. **Settings → General → Clock** switches between 24-hour and 12-hour.
 
 **If not, send:** what time it showed and the real time, and whether it was before or after sleeping.
 
 ## 8. Front light
 
-**Do:** **Settings → Front light**. Use the page buttons to change Brightness, press Power to go to Warmth, and change that too. Tapping the sliders also works.
+**Do:** **Settings → Display & light → Front light**. Use the page buttons to change Brightness, press Power to go to Warmth, and change that too. Tapping the sliders also works.
 
 **Good:** Brightness goes from off to bright in even steps. Warmth set to **Cool** looks white-blue, **Warm** looks orange, and in between it mixes smoothly. No flicker or buzzing.
 
@@ -79,7 +79,7 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 ## 9. Memory card and books
 
-**Do:** Home → **Library**. Open each of your books. In one, turn to page 30, press Home, then open the same book again.
+**Do:** Home → **All books**. Open each of your books. In one, turn to page 30, press Home, then open the same book again.
 
 **Good:** Your books are listed with their titles and authors. Each opens within a few seconds with readable text (accents and Lithuanian letters too). The book reopens on the page you left.
 
@@ -89,13 +89,13 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 **Do:** Home → **Add books**. On your phone, scan the first QR code to join the reader's Wi-Fi, then the second one to open the page. Send one EPUB from the phone. Press Home on the reader when done.
 
-**Good:** The phone joins the `Vellum-…` network, the page opens, the book uploads with a progress bar and appears on the reader's screen under "Received", and then in the Library. Opening the phone page also sets the reader's clock.
+**Good:** The phone joins the `Vellum-…` network, the page opens, the book uploads with a progress bar and appears on the reader's screen under "Received", and then in All books. Opening the phone page also sets the reader's clock.
 
 **If not, send:** which step failed (joining the Wi-Fi, opening the page, or uploading), any message on the reader or phone, and the log.
 
 ## 11. Sleep and wake
 
-**Do:** In a book, hold Power for about a second and let go. Wait a minute, then press Power once. Then leave the reader alone for longer than **Settings → Sleep after** (10 minutes unless changed).
+**Do:** In a book, hold Power for a moment (under a second) and let go. Wait a minute, then press Power once. Then leave the reader alone for longer than **Settings → Sleep → Sleep after** (10 minutes unless changed).
 
 **Good:** Holding Power shows the book's cover across the whole screen; a short press brings you back to the same page within a few seconds. After the idle time it goes to sleep by itself. Overnight asleep the battery should drop only a little (a few percent at most).
 
@@ -103,7 +103,7 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 ## 12. Device check: what the reader knows about itself
 
-**Do:** **Settings → Device check** and look at the "This device" list.
+**Do:** **Settings → General → Device check** and look at the "This device" list.
 
 **Good:** Model, Version, Screen (the screen's controller), Battery, Clock, Memory card, Front light and Wi-Fi all show a value, none says "Missing". The last row, **Free memory**, shows two numbers: the reader's own memory (should be 40 KB or more) and the extra memory chip (should be 2 MB or more).
 
@@ -111,7 +111,7 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 ## 13. Fonts
 
-**Do:** **Settings → Reading → Book font**: pick each of the fonts in turn and go back to a book after each. Then **Settings → Menu font**, and do the same.
+**Do:** **Settings → General → Book font**: pick each of the fonts in turn and go back to a book after each. Then **Settings → General → Menu font**, and do the same.
 
 **Good:** Each font change takes a few seconds at most, and the book and menus redraw in the new font, with nothing overlapping or cut off.
 
@@ -119,9 +119,9 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 ## 14. Update from a file
 
-**Do:** On the computer, download `vellum-<version>.bin` from a release (any version, even the same one). On the reader, **Settings → Updates → Update from a file**, follow the screen to open the page on the phone or computer, and send that `.bin` file.
+**Do:** On the computer, download `vellum-<version>.bin` from a release (any version, even the same one). On the reader, **Settings → General → Updates → Update from a file**, follow the screen to open the page on the phone or computer, and send that `.bin` file.
 
-**Good:** The reader shows "Updating Vellum" with a percentage, restarts, and comes back to Vellum. **Settings → Device check** shows the version you sent.
+**Good:** The reader shows "Updating Vellum" with a percentage, restarts, and comes back to Vellum. **Settings → General → Device check** shows the version you sent.
 
 **If not, send:** the message the reader showed, and the log from the moment you sent the file until it restarted.
 

@@ -26,16 +26,21 @@ namespace vellum {
 namespace {
 
 // The character set of the built-in fonts (tools/fontconvert.py): Latin-1,
-// Latin Extended-A and typographic punctuation.
-constexpr uint32_t kExtra[] = {0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C, 0x201D,
-                               0x201E, 0x2022, 0x2026, 0x2039, 0x203A, 0x20AC};
-constexpr int kCharsetSize = (0x7F - 0x20) + (0x180 - 0xA0) + static_cast<int>(sizeof(kExtra) / sizeof(kExtra[0]));
+// Latin Extended-A, Cyrillic for Ukrainian and typographic punctuation, in
+// code point order.
+constexpr uint32_t kExtra[] = {0x490,  0x491,  0x2013, 0x2014, 0x2018, 0x2019, 0x201A, 0x201C,
+                               0x201D, 0x201E, 0x2022, 0x2026, 0x2039, 0x203A, 0x20AC};
+constexpr int kLatin = (0x7F - 0x20) + (0x180 - 0xA0);
+constexpr int kCyrillic = 0x460 - 0x400;
+constexpr int kCharsetSize = kLatin + kCyrillic + static_cast<int>(sizeof(kExtra) / sizeof(kExtra[0]));
 
 uint32_t charset(int i) {
   if (i < 0x7F - 0x20) return 0x20 + i;
   i -= 0x7F - 0x20;
   if (i < 0x180 - 0xA0) return 0xA0 + i;
-  return kExtra[i - (0x180 - 0xA0)];
+  i -= 0x180 - 0xA0;
+  if (i < kCyrillic) return 0x400 + i;
+  return kExtra[i - kCyrillic];
 }
 
 // Characters worth kerning against each other: fewer than the built-in

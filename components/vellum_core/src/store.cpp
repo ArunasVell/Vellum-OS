@@ -1,8 +1,10 @@
 #include "vellum/store.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
+#include <string_view>
 
 #include "vellum/textfile.h"
 #include "vellum/upload_page.h"
@@ -172,6 +174,39 @@ Saved download(Network& net, Storage& storage, const char* url, const char* path
     default:
       return Saved::NoServer;
   }
+}
+
+uint32_t book_key(const char* title, const char* author) {
+  uint32_t h = 2166136261u;  // FNV-1a over the letters and digits
+  const auto mix = [&h](std::string_view s) {
+    for (const char c : s) {
+      const auto u = static_cast<unsigned char>(c);
+      if (u < 0x80 && !std::isalnum(u)) continue;
+      h = (h ^ static_cast<unsigned char>(u < 0x80 ? std::tolower(u) : u)) * 16777619u;
+    }
+  };
+  std::string_view main(title != nullptr ? title : "");
+  const size_t cut = main.find_first_of(":;");
+  if (cut != std::string_view::npos && cut > 0) main = main.substr(0, cut);
+  mix(main);
+  h = (h ^ '/') * 16777619u;
+  mix(author != nullptr ? author : "");
+  return h;
+}
+
+void drop_repeats(OpdsFeed& feed, Seen& seen) {
+  int kept = 0;
+  for (int i = 0; i < feed.count; ++i) {
+    OpdsEntry& e = feed.entries[i];
+    if (!e.section) {
+      const uint32_t key = book_key(e.title, e.author);
+      if (std::find(seen.keys, seen.keys + seen.count, key) != seen.keys + seen.count) continue;
+      if (seen.count < Seen::kMax) seen.keys[seen.count++] = key;
+    }
+    if (kept != i) feed.entries[kept] = e;
+    ++kept;
+  }
+  feed.count = kept;
 }
 
 void format_size(Language lang, uint32_t bytes, char* out, size_t size) {

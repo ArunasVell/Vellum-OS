@@ -361,6 +361,9 @@ constexpr Strings kEnglish = {
     .hint_quick = "Side buttons move · Power chooses · Home closes",
     .starting_back = "Changed your mind? Tap Back or press Home.",
     .back_label = "Back",
+    .add_books_over = "Add books over",
+    .network_names = {"Home Wi-Fi", "Own network"},
+    .status_name = "Vellum",
 };
 
 constexpr Strings kLithuanian = {
@@ -736,63 +739,250 @@ constexpr Strings kLithuanian = {
     .hint_quick = "Šoniniai: rinktis · Įjungimo: gerai · Namų: uždaryti",
     .starting_back = "Persigalvojote? Spauskite Atgal arba Namų.",
     .back_label = "Atgal",
+    .add_books_over = "Knygų įkėlimas per",
+    .network_names = {"Namų Wi-Fi", "Skaityklės tinklą"},
+    .status_name = "Vellum",
 };
+
+constexpr Strings kGerman = {
+#include "strings/de.inc"
+};
+
+constexpr Strings kFrench = {
+#include "strings/fr.inc"
+};
+
+constexpr Strings kSpanish = {
+#include "strings/es.inc"
+};
+
+constexpr Strings kItalian = {
+#include "strings/it.inc"
+};
+
+constexpr Strings kPolish = {
+#include "strings/pl.inc"
+};
+
+constexpr Strings kLatvian = {
+#include "strings/lv.inc"
+};
+
+constexpr Strings kEstonian = {
+#include "strings/et.inc"
+};
+
+constexpr Strings kUkrainian = {
+#include "strings/uk.inc"
+};
+
+// In Language order.
+constexpr const Strings* kAll[kLanguageCount] = {&kEnglish, &kLithuanian, &kGerman,  &kFrench,   &kSpanish,
+                                                 &kItalian, &kPolish,     &kLatvian, &kEstonian, &kUkrainian};
+
+// Which form of a noun follows a number.
+enum class Plural : uint8_t {
+  OneOther,      // 1 book, 2 books
+  ZeroOneOther,  // French: 0 and 1 take the singular
+  Baltic,        // Lithuanian: 1, 21 / 2-9, 22-29 / 10-20, 30
+  Latvian,       // 1, 21, 31 (not 11) / the rest
+  Slavic,        // Polish, Ukrainian: 1 (21 too, in Ukrainian) / 2-4, 22-24 / the rest
+};
+
+// What the numbers in the interface need, for one language. Each noun has
+// a form per Plural index (0, 1, 2); the time words follow `about`.
+struct Grammar {
+  Plural plural;
+  bool slavic_one_only;  // Polish: only 1 itself takes form 0 (21 takes the "many" form)
+  char decimal;
+  const char* book[3];
+  const char* page[3];  // nullptr: "%d pages" written as page_short
+  const char* page_short;
+  const char* about;  // printf: number, noun ("About %d %s")
+  const char* day[3];
+  const char* hour[3];
+  const char* h;
+  const char* min;
+};
+
+constexpr Grammar kGrammar[kLanguageCount] = {
+    {Plural::OneOther,
+     false,
+     '.',
+     {"book", "books", "books"},
+     {"page", "pages", "pages"},
+     nullptr,
+     "About %d %s",
+     {"day", "days", "days"},
+     {"hour", "hours", "hours"},
+     "h",
+     "min"},
+    {Plural::Baltic,
+     false,
+     ',',
+     {"knyga", "knygos", "knygų"},
+     {nullptr, nullptr, nullptr},
+     "psl.",
+     "Apie %d %s",
+     {"dieną", "dienas", "dienų"},
+     {"valandą", "valandas", "valandų"},
+     "val.",
+     "min."},
+    {Plural::OneOther,
+     false,
+     ',',
+     {"Buch", "Bücher", "Bücher"},
+     {"Seite", "Seiten", "Seiten"},
+     nullptr,
+     "Etwa %d %s",
+     {"Tag", "Tage", "Tage"},
+     {"Stunde", "Stunden", "Stunden"},
+     "h",
+     "min"},
+    {Plural::ZeroOneOther,
+     false,
+     ',',
+     {"livre", "livres", "livres"},
+     {"page", "pages", "pages"},
+     nullptr,
+     "Environ %d %s",
+     {"jour", "jours", "jours"},
+     {"heure", "heures", "heures"},
+     "h",
+     "min"},
+    {Plural::OneOther,
+     false,
+     ',',
+     {"libro", "libros", "libros"},
+     {"página", "páginas", "páginas"},
+     nullptr,
+     "Aprox. %d %s",
+     {"día", "días", "días"},
+     {"hora", "horas", "horas"},
+     "h",
+     "min"},
+    {Plural::OneOther,
+     false,
+     ',',
+     {"libro", "libri", "libri"},
+     {"pagina", "pagine", "pagine"},
+     nullptr,
+     "Circa %d %s",
+     {"giorno", "giorni", "giorni"},
+     {"ora", "ore", "ore"},
+     "h",
+     "min"},
+    // After "około" the genitive: 1 dnia, 2 dni, 5 dni.
+    {Plural::Slavic,
+     true,
+     ',',
+     {"książka", "książki", "książek"},
+     {"strona", "strony", "stron"},
+     nullptr,
+     "Około %d %s",
+     {"dnia", "dni", "dni"},
+     {"godziny", "godzin", "godzin"},
+     "godz.",
+     "min"},
+    // After "apmēram" the accusative: 1 dienu, 3 dienas.
+    {Plural::Latvian,
+     false,
+     ',',
+     {"grāmata", "grāmatas", "grāmatas"},
+     {"lappuse", "lappuses", "lappuses"},
+     nullptr,
+     "Apmēram %d %s",
+     {"dienu", "dienas", "dienas"},
+     {"stundu", "stundas", "stundas"},
+     "h",
+     "min"},
+    // After a number above one, the partitive.
+    {Plural::OneOther,
+     false,
+     ',',
+     {"raamat", "raamatut", "raamatut"},
+     {"lehekülg", "lehekülge", "lehekülge"},
+     nullptr,
+     "Umbes %d %s",
+     {"päev", "päeva", "päeva"},
+     {"tund", "tundi", "tundi"},
+     "h",
+     "min"},
+    // After "близько" the genitive: 1 дня, 2 днів, 5 днів.
+    {Plural::Slavic,
+     false,
+     ',',
+     {"книга", "книги", "книг"},
+     {"сторінка", "сторінки", "сторінок"},
+     nullptr,
+     "Близько %d %s",
+     {"дня", "днів", "днів"},
+     {"години", "годин", "годин"},
+     "год",
+     "хв"},
+};
+
+const Grammar& grammar(Language lang) {
+  const int i = static_cast<int>(lang);
+  return kGrammar[i >= 0 && i < kLanguageCount ? i : 0];
+}
+
+int plural_form(const Grammar& g, int n) {
+  const int ones = n % 10;
+  const int tens = n % 100;
+  switch (g.plural) {
+    case Plural::OneOther:
+      return n == 1 ? 0 : 1;
+    case Plural::ZeroOneOther:
+      return n <= 1 ? 0 : 1;
+    case Plural::Baltic:
+      return (ones == 1 && tens != 11) ? 0 : (ones >= 2 && (tens < 10 || tens >= 20)) ? 1 : 2;
+    case Plural::Latvian:
+      return (ones == 1 && tens != 11) ? 0 : 1;
+    case Plural::Slavic:
+      if (g.slavic_one_only ? n == 1 : (ones == 1 && tens != 11)) return 0;
+      return (ones >= 2 && ones <= 4 && (tens < 12 || tens > 14)) ? 1 : 2;
+  }
+  return 1;
+}
 
 }  // namespace
 
-const Strings& strings(Language lang) { return lang == Language::Lithuanian ? kLithuanian : kEnglish; }
+const Strings& strings(Language lang) {
+  const int i = static_cast<int>(lang);
+  return *kAll[i >= 0 && i < kLanguageCount ? i : 0];
+}
 
 void format_book_count(Language lang, int n, char* out, size_t size) {
-  if (lang == Language::Lithuanian) {
-    // 1, 21, 31 knyga; 2-9, 22-29 knygos; 10-20, 30 knygų.
-    const int tens = n % 100;
-    const char* word = (n % 10 == 1 && tens != 11)                  ? "knyga"
-                       : (n % 10 >= 2 && (tens < 10 || tens >= 20)) ? "knygos"
-                                                                    : "knygų";
-    std::snprintf(out, size, "%d %s", n, word);
-    return;
-  }
-  std::snprintf(out, size, "%d %s", n, n == 1 ? "book" : "books");
+  const Grammar& g = grammar(lang);
+  std::snprintf(out, size, "%d %s", n, g.book[plural_form(g, n)]);
 }
 
 void format_time_left(Language lang, int hours, char* out, size_t size) {
   const bool days = hours >= 48;
   const int n = days ? (hours + 12) / 24 : hours < 1 ? 1 : hours;
-  if (lang == Language::Lithuanian) {
-    // After "apie" (accusative): 1, 21 dieną; 2-9 dienas; 10-20 dienų.
-    const int tens = n % 100;
-    const int form = (n % 10 == 1 && tens != 11) ? 0 : (n % 10 >= 2 && (tens < 10 || tens >= 20)) ? 1 : 2;
-    const char* const day_words[] = {"dieną", "dienas", "dienų"};
-    const char* const hour_words[] = {"valandą", "valandas", "valandų"};
-    std::snprintf(out, size, "Apie %d %s", n, (days ? day_words : hour_words)[form]);
-    return;
-  }
-  std::snprintf(out, size, "About %d %s", n, days ? "days" : n == 1 ? "hour" : "hours");
+  const Grammar& g = grammar(lang);
+  std::snprintf(out, size, g.about, n, (days ? g.day : g.hour)[plural_form(g, n)]);
 }
 
 void format_tenths(Language lang, int tenths, char* out, size_t size) {
-  std::snprintf(out, size, "%d%c%d", tenths / 10, lang == Language::Lithuanian ? ',' : '.', tenths % 10);
+  std::snprintf(out, size, "%d%c%d", tenths / 10, grammar(lang).decimal, tenths % 10);
 }
 
 void format_duration(Language lang, int minutes, char* out, size_t size) {
-  const bool lt = lang == Language::Lithuanian;
-  const char* h = lt ? "val." : "h";
-  const char* min = lt ? "min." : "min";
+  const Grammar& g = grammar(lang);
   if (minutes < 60) {
-    std::snprintf(out, size, "%d %s", minutes, min);
+    std::snprintf(out, size, "%d %s", minutes, g.min);
   } else if (minutes % 60 == 0 || minutes >= 10 * 60) {
-    std::snprintf(out, size, "%d %s", (minutes + (minutes >= 10 * 60 ? 30 : 0)) / 60, h);  // whole hours past ten
+    std::snprintf(out, size, "%d %s", (minutes + (minutes >= 10 * 60 ? 30 : 0)) / 60, g.h);  // whole hours past ten
   } else {
-    std::snprintf(out, size, "%d %s %d %s", minutes / 60, h, minutes % 60, min);
+    std::snprintf(out, size, "%d %s %d %s", minutes / 60, g.h, minutes % 60, g.min);
   }
 }
 
 void format_page_count(Language lang, int n, char* out, size_t size) {
-  if (lang == Language::Lithuanian) {
-    std::snprintf(out, size, "%d psl.", n);
-    return;
-  }
-  std::snprintf(out, size, "%d %s", n, n == 1 ? "page" : "pages");
+  const Grammar& g = grammar(lang);
+  std::snprintf(out, size, "%d %s", n, g.page_short != nullptr ? g.page_short : g.page[plural_form(g, n)]);
 }
 
 }  // namespace vellum

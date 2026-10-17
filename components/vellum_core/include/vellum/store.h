@@ -65,6 +65,23 @@ using ProgressFn = void (*)(void* ctx, int percent);
 Saved download(Network& net, Storage& storage, const char* url, const char* path, ProgressFn progress, void* ctx,
                const char* headers = nullptr);
 
+// Books already shown in one list, so its later pages leave out repeats:
+// Project Gutenberg lists each edition of a book on its own (Pride and
+// Prejudice, and an illustrated Pride and Prejudice, pages apart).
+struct Seen {
+  static constexpr int kMax = 512;
+  uint32_t keys[kMax];
+  int count = 0;
+};
+
+// The same for every edition of a book: its title without the subtitle and
+// its author, ignoring case, spaces and punctuation.
+uint32_t book_key(const char* title, const char* author);
+
+// Leaves out of `feed` the books already in `seen` (and repeats within the
+// page), then adds the rest to `seen`. Links to other lists stay.
+void drop_repeats(OpdsFeed& feed, Seen& seen);
+
 // "1.2 MB" or "640 KB", with the language's decimal mark.
 void format_size(Language lang, uint32_t bytes, char* out, size_t size);
 

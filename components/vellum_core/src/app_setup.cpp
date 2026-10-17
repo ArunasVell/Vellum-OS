@@ -36,8 +36,7 @@ enum Step : int { kLanguage, kClock, kMenuText, kHomeWifi, kBooks, kSteps };
 
 // What a step offers: its choices or its way in, then Skip and Next.
 enum class Item : uint8_t {
-  English,
-  Lithuanian,
+  Language,  // the language is the item's place in the list
   Clock24,
   Clock12,
   MenuNormal,
@@ -47,14 +46,13 @@ enum class Item : uint8_t {
   Skip,
   Next
 };
-constexpr int kMaxItems = 4;
+constexpr int kMaxItems = kLanguageCount + 2;
 
 int step_items(int step, Item (&out)[kMaxItems]) {
   int n = 0;
   switch (step) {
     case kLanguage:
-      out[n++] = Item::English;
-      out[n++] = Item::Lithuanian;
+      while (n < kLanguageCount) out[n++] = Item::Language;
       break;
     case kClock:
       out[n++] = Item::Clock24;
@@ -83,8 +81,9 @@ Color highlight(Framebuffer& fb, Rect r, bool selected) {
   return selected ? Color::White : Color::Black;
 }
 
-void dotted_rule(Framebuffer& fb, int y) {
-  for (int x = kSide; x < fb.width() - kSide; x += 4) fb.set_pixel(x, y, Color::Black);
+// A dotted line between rows, across `r`'s text.
+void dotted_rule(Framebuffer& fb, Rect r) {
+  for (int x = r.x + kPad; x < r.x + r.w - kPad; x += 4) fb.set_pixel(x, r.y, Color::Black);
 }
 
 // A round choice centred on (cx, cy): a ring, with a dot when it is chosen.
@@ -146,10 +145,9 @@ bool App::setup_activate() {
   const int n = step_items(setup_step_, items);
   if (setup_sel_ < 0 || setup_sel_ >= n) return false;
   switch (items[setup_sel_]) {
-    case Item::English:
-    case Item::Lithuanian:
+    case Item::Language:
       // At once: the screen changes language with it.
-      settings_.language = items[setup_sel_] == Item::English ? Language::English : Language::Lithuanian;
+      settings_.language = static_cast<Language>(setup_sel_);
       break;
     case Item::Clock24:
     case Item::Clock12:
@@ -207,10 +205,15 @@ void App::draw_setup() {
   DateTime sample{};
   sample.hour = 14;
   sample.minute = 5;
+  // The languages in two columns, the rest one to a row.
+  const int columns = setup_step_ == kLanguage ? 2 : 1;
+  const int column_w = (w - 2 * (kSide - kPad)) / columns;
   for (int i = 0; i < n - 2; ++i) {
-    const Rect r = row_rect(fb_, y, kRowHeight);
+    Rect r = row_rect(fb_, y, kRowHeight);
+    if (columns > 1)
+      r = {kSide - kPad + (i % columns) * column_w, y, column_w - (i % columns == 0 ? 6 : 0), kRowHeight};
     const bool selected = i == setup_sel_;
-    if (i > 0 && !selected && setup_sel_ != i - 1) dotted_rule(fb_, r.y);
+    if (i >= columns && !selected && setup_sel_ != i - columns) dotted_rule(fb_, r);
     add_hit(r, i);
     const Color fg = highlight(fb_, r, selected);
     const int base = r.y + 32;
@@ -219,9 +222,8 @@ void App::draw_setup() {
     bool radio = true;
     bool on = false;
     switch (items[i]) {
-      case Item::English:
-      case Item::Lithuanian: {
-        const Language lang = items[i] == Item::English ? Language::English : Language::Lithuanian;
+      case Item::Language: {
+        const auto lang = static_cast<Language>(i);
         std::snprintf(name, sizeof(name), "%s", strings(lang).language_name);
         on = settings_.language == lang;
         break;
@@ -252,7 +254,7 @@ void App::draw_setup() {
     } else {
       ui::draw_right(fb_, ui::text_font(), right, base, "\xE2\x80\xBA", fg);  // ›
     }
-    y += kRowHeight;
+    if (i % columns == columns - 1 || i == n - 3) y += kRowHeight;
   }
 
   // Skip and Next (Done on the last step), side by side above the hint.

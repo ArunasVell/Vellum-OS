@@ -270,6 +270,36 @@ void test_book_count_plurals() {
   CHECK(lt(22) == "22 knygos");
   format_book_count(Language::English, 1, out, sizeof(out));
   CHECK(std::string(out) == "1 book");
+
+  // The other languages' plural forms, and their numbers.
+  const auto count = [&](Language lang, int n) {
+    format_book_count(lang, n, out, sizeof(out));
+    return std::string(out);
+  };
+  CHECK(count(Language::Polish, 1) == "1 książka");
+  CHECK(count(Language::Polish, 3) == "3 książki");
+  CHECK(count(Language::Polish, 12) == "12 książek");
+  CHECK(count(Language::Polish, 21) == "21 książek");
+  CHECK(count(Language::Ukrainian, 21) == "21 книга");
+  CHECK(count(Language::Ukrainian, 24) == "24 книги");
+  CHECK(count(Language::Ukrainian, 5) == "5 книг");
+  CHECK(count(Language::French, 0) == "0 livre");
+  CHECK(count(Language::Latvian, 21) == "21 grāmata");
+  CHECK(count(Language::Latvian, 11) == "11 grāmatas");
+  CHECK(count(Language::German, 2) == "2 Bücher");
+  format_time_left(Language::Ukrainian, 72, out, sizeof(out));
+  CHECK(std::string(out) == "Близько 3 днів");
+  format_tenths(Language::German, 42, out, sizeof(out));
+  CHECK(std::string(out) == "4,2");
+  format_page_count(Language::Lithuanian, 3, out, sizeof(out));
+  CHECK(std::string(out) == "3 psl.");
+
+  // Every language has its own name; only Ukrainian's status bar differs.
+  for (int i = 0; i < kLanguageCount; ++i) {
+    const Strings& t = strings(static_cast<Language>(i));
+    CHECK(t.language_name != nullptr && t.language_name[0] != '\0');
+    CHECK((std::string(t.status_name) == "Vellum") == (static_cast<Language>(i) != Language::Ukrainian));
+  }
 }
 
 void test_reading_style_changes_layout() {
@@ -835,7 +865,8 @@ void test_app_update() {
   auto* app = new App(board);
   app->start();
   tap(*app, 240, 715);  // Settings
-  tap(*app, 240, 603);  // Updates
+  tap(*app, 240, 153);  // General
+  tap(*app, 240, 150);  // Updates
   tap(*app, 240, 475);  // Update from a file: the phone page
   CHECK(transfer.starts == 1);
 
@@ -1291,21 +1322,21 @@ void test_app_quick_panel() {
   press(app, Key::Power);  // Contents' first row: back to the page
   // Settings from the panel: the main page, its groups boxed in the margin.
   swipe(app, 240, 20, 240, 400);
-  CHECK(view.pixel(17, 200) == Color::White);
+  CHECK(view.pixel(17, 250) == Color::White);
   tap(app, 239, 401);  // Settings
-  CHECK(view.pixel(17, 200) == Color::Black);
+  CHECK(view.pixel(17, 250) == Color::Black);
   // On a menu a tap on the status bar opens it too; Sleep sleeps.
   tap(app, 240, 30);
   tap(app, 383, 401);  // Sleep
   CHECK(power.sleeps == 1);
   press(app, Key::Next);  // wake: back on Settings, the panel gone
-  CHECK(view.pixel(17, 200) == Color::Black);
+  CHECK(view.pixel(17, 250) == Color::Black);
   CHECK(view.pixel(240, 575) == Color::White);
   tap(app, 240, 30);
   tap(app, 95, 401);                            // Home
   CHECK(view.pixel(240, 575) == Color::Black);  // the edge of All books
   tap(app, 240, 715);                           // Settings
-  CHECK(view.pixel(17, 200) == Color::Black);
+  CHECK(view.pixel(17, 250) == Color::Black);
   std::filesystem::remove_all("test-card-quick");
 }
 
@@ -2070,17 +2101,14 @@ void test_app_fonts() {
   CHECK(ui::menu_fonts().label == &fonts::literata_19);
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  press(*app, Key::Next);
-  press(*app, Key::Next);  // Display & light
-  press(*app, Key::Power);
-  press(*app, Key::Next);  // Menu font
+  press(*app, Key::Power);                             // General
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Menu font
   press(*app, Key::Power);
   CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
   CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
-  press(*app, Key::Home);  // back to the main page, on Display & light
-  press(*app, Key::Prev);
-  press(*app, Key::Prev);  // Reading
-  press(*app, Key::Power);
+  press(*app, Key::Home);   // back to the main page, on General
+  press(*app, Key::Power);  // General
+  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
   press(*app, Key::Power);  // Book font: the next after Literata
   CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
   press(*app, Key::Power);
@@ -2209,7 +2237,8 @@ void test_app_updates_screen() {
   app->start();
 
   tap(*app, 240, 715);  // Settings
-  tap(*app, 240, 603);  // Updates, the eighth row
+  tap(*app, 240, 153);  // General
+  tap(*app, 240, 150);  // Updates, its first row
   tap(*app, 240, 325);  // Check now: the home Wi-Fi is out of reach
   CHECK(updater.checks == 1 && updater.installs == 0);
   CHECK(read_all("test-card/vellum/update.txt").empty());  // a failed check remembers nothing
@@ -2269,13 +2298,15 @@ void test_app_first_setup() {
   board.version = "0.1.42";
   board.updater = &updater;
   const auto settings = [] { return read_all("test-card-setup/vellum/settings.txt"); };
-  // Home's Settings link, the Updates row and Check now: only home has them there.
+  // Home's Settings link, General, Updates and Check now: only home has them there.
   const auto at_home = [&](App& app) {
     const int checks = updater.checks;
     tap(app, 240, 715);
-    tap(app, 240, 603);
+    tap(app, 240, 153);
+    tap(app, 240, 150);
     tap(app, 240, 325);
     const bool home = updater.checks == checks + 1;
+    press(app, Key::Home);
     press(app, Key::Home);
     return home;
   };
@@ -2335,8 +2366,8 @@ void test_app_first_setup() {
 
     // Settings › General › Setup again, its last row, runs it again.
     tap(app, 240, 715);  // Settings
-    tap(app, 240, 465);  // General
-    tap(app, 240, 306);  // Setup again
+    tap(app, 240, 153);  // General
+    tap(app, 240, 678);  // Setup again
     tap(app, kNextX, kButtonY);
     tap(app, kNextX, kButtonY);
     tap(app, kNextX, kButtonY);  // to the home Wi-Fi step
@@ -2557,7 +2588,8 @@ void test_app_device_check() {
   app->start();
   for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // the current book, 2 more, 3 links: Settings
   press(*app, Key::Power);
-  for (int i = 0; i < 8; ++i) press(*app, Key::Next);  // Device check, the last row of the main page
+  press(*app, Key::Power);  // General
+  press(*app, Key::Next);   // Device check, its second row
   CHECK(!on_check());
   press(*app, Key::Power);
   CHECK(on_check());
@@ -2605,7 +2637,8 @@ void test_app_device_check_memory() {
     app.start();
     for (int i = 0; i < 5; ++i) press(app, Key::Next);  // Settings
     press(app, Key::Power);
-    for (int i = 0; i < 8; ++i) press(app, Key::Next);  // Device check
+    press(app, Key::Power);  // General
+    press(app, Key::Next);   // Device check
     press(app, Key::Power);
   };
   auto* app = new App(board);
@@ -2733,10 +2766,8 @@ void test_app_after_crash() {
   // Choosing a menu font again uses it at once.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  press(*app, Key::Next);
-  press(*app, Key::Next);  // Display & light
-  press(*app, Key::Power);
-  press(*app, Key::Next);  // Menu font: the next after Atkinson
+  press(*app, Key::Power);                             // General
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Menu font: the next after Atkinson
   press(*app, Key::Power);
   CHECK(std::string(ui::menu_fonts().label->family) == "EB Garamond");
   delete app;
@@ -3756,11 +3787,14 @@ void test_app_reading_stats() {
   CHECK(panel.full == full + 2);
   CHECK(view.pixel(22, 545) == Color::Black);  // back on Settings, the Reading stats row highlighted
 
-  // Settings › Page › Footer: time left in the chapter, then the percent.
-  for (int i = 0; i < 5; ++i) press(*app, Key::Prev);  // Page
+  // Settings › Reading › Page › Footer: time left in the chapter, then the percent.
+  for (int i = 0; i < 3; ++i) press(*app, Key::Prev);  // Reading
+  press(*app, Key::Power);
+  press(*app, Key::Prev);  // Page, its last row
   press(*app, Key::Power);
   press(*app, Key::Power);  // Footer, its first row
   CHECK(read_all("test-card-stats/vellum/settings.txt").find("footer=1") != std::string::npos);
+  press(*app, Key::Home);
   press(*app, Key::Home);
   press(*app, Key::Home);
   press(*app, Key::Power);  // back in the book
@@ -3769,7 +3803,9 @@ void test_app_reading_stats() {
   press(*app, Key::Home);
   press(*app, Key::Prev);
   press(*app, Key::Power);
-  press(*app, Key::Next);  // Page
+  for (int i = 0; i < 3; ++i) press(*app, Key::Next);  // Reading
+  press(*app, Key::Power);
+  press(*app, Key::Prev);  // Page
   press(*app, Key::Power);
   press(*app, Key::Power);
   CHECK(read_all("test-card-stats/vellum/settings.txt").find("footer=2") != std::string::npos);
@@ -3927,6 +3963,40 @@ void test_opds_details() {
   CHECK(std::string(size) == "1,5 MB");
   store::format_size(Language::English, 397286, size, sizeof(size));
   CHECK(std::string(size) == "388 KB");
+
+  // Editions of one book share a key; other books, or authors, do not.
+  CHECK(store::book_key("Pride and Prejudice", "Jane Austen") ==
+        store::book_key("PRIDE AND PREJUDICE: Illustrated", "Jane  Austen"));
+  CHECK(store::book_key("Pride and Prejudice", "Jane Austen") != store::book_key("Emma", "Jane Austen"));
+  CHECK(store::book_key("Poems", "John Keats") != store::book_key("Poems", "Emily Dickinson"));
+
+  // A later page leaves out what earlier ones showed, and its own repeats;
+  // links to other lists stay.
+  OpdsEntry books[5];
+  const auto fill = [&books](int i, const char* title, bool section = false) {
+    books[i] = {};
+    std::snprintf(books[i].title, sizeof(books[i].title), "%s", title);
+    std::snprintf(books[i].author, sizeof(books[i].author), "A");
+    books[i].section = section;
+  };
+  OpdsFeed page;
+  page.entries = books;
+  page.capacity = 5;
+  store::Seen seen;
+  fill(0, "One");
+  fill(1, "Two");
+  page.count = 2;
+  store::drop_repeats(page, seen);
+  CHECK(page.count == 2 && seen.count == 2);
+  fill(0, "Two; Illustrated");
+  fill(1, "Three");
+  fill(2, "More", true);
+  fill(3, "Three");
+  fill(4, "More", true);
+  page.count = 5;
+  store::drop_repeats(page, seen);
+  CHECK(page.count == 3 && std::string(books[0].title) == "Three" && books[1].section && books[2].section);
+  CHECK(seen.count == 3);
 }
 
 // Serves the test feeds and books in place of the internet.
@@ -4150,7 +4220,7 @@ void test_keyboard() {
   // Every key is finger-sized, inside the keyboard, and apart from the others.
   const Rect area = kb.area(fb);
   CHECK(area.y == fb.height() - Keyboard::kHeight && area.w == fb.width());
-  for (Keyboard::Page page : {Keyboard::Page::English, Keyboard::Page::Lithuanian, Keyboard::Page::Symbols}) {
+  for (Keyboard::Page page : {Keyboard::Page::English, Keyboard::Page::Accents, Keyboard::Page::Symbols}) {
     kb.set_page(page);
     for (int i = 0; i < kb.key_count(); ++i) {
       const Rect r = kb.key_rect(fb, i);
@@ -4175,7 +4245,7 @@ void test_keyboard() {
 
   // Lithuanian letters: all nine, on the top row of their page; backspace
   // takes a whole letter.
-  CHECK(tap_key(kb, fb, "language") == R::Redraw && kb.page() == Keyboard::Page::Lithuanian);
+  CHECK(tap_key(kb, fb, "language") == R::Redraw && kb.page() == Keyboard::Page::Accents);
   for (const char* letter : {"ą", "č", "ę", "ė", "į", "š", "ų", "ū", "ž"}) CHECK(kb.find(letter) >= 0);
   tap_key(kb, fb, "ž");
   tap_key(kb, fb, "shift");
@@ -4192,8 +4262,28 @@ void test_keyboard() {
   tap_key(kb, fb, "?");
   CHECK(kb.text() == "qWe 4€?");
   CHECK(kb.find("q") < 0);
-  tap_key(kb, fb, "symbols");  // ABC: back to the letters
-  CHECK(kb.page() == Keyboard::Page::English && kb.find("q") >= 0);
+  tap_key(kb, fb, "symbols");  // ABC: back to the letters shown before
+  CHECK(kb.page() == Keyboard::Page::Accents && kb.find("q") >= 0);
+
+  // German accents on its accent page; Ukrainian has its own letters.
+  kb.open("", {.prompt = "Suche", .page = Keyboard::Page::Accents, .language = Language::German});
+  CHECK(kb.find("ß") >= 0 && kb.find("ą") < 0);
+  tap_key(kb, fb, "ü");
+  CHECK(kb.text() == "ü");
+  kb.open("", {.page = Keyboard::Page::Ukrainian, .language = Language::Ukrainian});
+  CHECK(kb.find("ї") >= 0 && kb.find("ґ") >= 0 && kb.find("q") < 0);
+  tap_key(kb, fb, "shift");
+  tap_key(kb, fb, "ї");
+  tap_key(kb, fb, "є");
+  CHECK(kb.text() == "Їє");
+  CHECK(tap_key(kb, fb, "language") == R::Redraw && kb.page() == Keyboard::Page::English);
+  tap_key(kb, fb, "language");
+  CHECK(kb.page() == Keyboard::Page::Ukrainian);
+  for (int i = 1; i < kb.key_count(); ++i) {  // every key inside the keyboard
+    const Rect r = kb.key_rect(fb, i);
+    CHECK(r.x >= 0 && r.x + r.w <= fb.width() && r.y >= area.y);
+  }
+  kb.open("", {.prompt = "Search", .ok = "OK", .cancel = "Cancel"});
 
   // OK and Cancel; a tap above the keys is not the keyboard's.
   CHECK(tap_key(kb, fb, "ok") == R::Done);
@@ -4424,7 +4514,7 @@ void test_app_library() {
   type("e");
   type("il");
   tap_named("language");
-  kb.set_page(Keyboard::Page::Lithuanian);
+  kb.set_page(Keyboard::Page::Accents);
   type("ė");
   type("s");
   tap_named("ok");
@@ -5314,10 +5404,11 @@ void test_app_buttons() {
   press(*app, Key::Next);  // wake
   press(*app, Key::Home);  // a short Home: home, as always
 
-  // Settings › Buttons: the fourth row of the main page.
+  // Settings › General › Buttons: the eighth row of General.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 3; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // General
+  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
   full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -6012,7 +6103,7 @@ void test_app_sleep_screens() {
   app->start();
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
-  for (int i = 0; i < 4; ++i) press(*app, Key::Next);  // Sleep & battery
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Sleep
   press(*app, Key::Power);
   press(*app, Key::Next);  // Sleep screen
   press(*app, Key::Power);

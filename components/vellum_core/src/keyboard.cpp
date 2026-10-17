@@ -1,6 +1,7 @@
 #include "vellum/keyboard.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "vellum/text.h"
@@ -52,7 +53,61 @@ constexpr KeyDef kLithuanian[] = {
     {K::Char, 0, 2, "\xC5\xBE", "\xC5\xBD"},  // ž Ž
 };
 
-// Rows 1 to 4 of both letter pages.
+// The top rows of the other languages' accent pages.
+constexpr KeyDef kGerman[] = {
+    // ä ö ü ß
+    {K::Char, 0, 2, "\xC3\xA4", "\xC3\x84"},
+    {K::Char, 0, 2, "\xC3\xB6", "\xC3\x96"},
+    {K::Char, 0, 2, "\xC3\xBC", "\xC3\x9C"},
+    {K::Char, 0, 2, "\xC3\x9F", "\xC3\x9F"},
+};
+constexpr KeyDef kFrench[] = {
+    // é è ê à â ç ô û ë œ
+    {K::Char, 0, 2, "\xC3\xA9", "\xC3\x89"}, {K::Char, 0, 2, "\xC3\xA8", "\xC3\x88"},
+    {K::Char, 0, 2, "\xC3\xAA", "\xC3\x8A"}, {K::Char, 0, 2, "\xC3\xA0", "\xC3\x80"},
+    {K::Char, 0, 2, "\xC3\xA2", "\xC3\x82"}, {K::Char, 0, 2, "\xC3\xA7", "\xC3\x87"},
+    {K::Char, 0, 2, "\xC3\xB4", "\xC3\x94"}, {K::Char, 0, 2, "\xC3\xBB", "\xC3\x9B"},
+    {K::Char, 0, 2, "\xC3\xAB", "\xC3\x8B"}, {K::Char, 0, 2, "\xC5\x93", "\xC5\x92"},
+};
+constexpr KeyDef kSpanish[] = {
+    // á é í ó ú ñ ü ¿ ¡
+    {K::Char, 0, 2, "\xC3\xA1", "\xC3\x81"}, {K::Char, 0, 2, "\xC3\xA9", "\xC3\x89"},
+    {K::Char, 0, 2, "\xC3\xAD", "\xC3\x8D"}, {K::Char, 0, 2, "\xC3\xB3", "\xC3\x93"},
+    {K::Char, 0, 2, "\xC3\xBA", "\xC3\x9A"}, {K::Char, 0, 2, "\xC3\xB1", "\xC3\x91"},
+    {K::Char, 0, 2, "\xC3\xBC", "\xC3\x9C"}, {K::Char, 0, 2, "\xC2\xBF", "\xC2\xBF"},
+    {K::Char, 0, 2, "\xC2\xA1", "\xC2\xA1"},
+};
+constexpr KeyDef kItalian[] = {
+    // à è é ì ò ù
+    {K::Char, 0, 2, "\xC3\xA0", "\xC3\x80"}, {K::Char, 0, 2, "\xC3\xA8", "\xC3\x88"},
+    {K::Char, 0, 2, "\xC3\xA9", "\xC3\x89"}, {K::Char, 0, 2, "\xC3\xAC", "\xC3\x8C"},
+    {K::Char, 0, 2, "\xC3\xB2", "\xC3\x92"}, {K::Char, 0, 2, "\xC3\xB9", "\xC3\x99"},
+};
+constexpr KeyDef kPolish[] = {
+    // ą ć ę ł ń ó ś ź ż
+    {K::Char, 0, 2, "\xC4\x85", "\xC4\x84"}, {K::Char, 0, 2, "\xC4\x87", "\xC4\x86"},
+    {K::Char, 0, 2, "\xC4\x99", "\xC4\x98"}, {K::Char, 0, 2, "\xC5\x82", "\xC5\x81"},
+    {K::Char, 0, 2, "\xC5\x84", "\xC5\x83"}, {K::Char, 0, 2, "\xC3\xB3", "\xC3\x93"},
+    {K::Char, 0, 2, "\xC5\x9B", "\xC5\x9A"}, {K::Char, 0, 2, "\xC5\xBA", "\xC5\xB9"},
+    {K::Char, 0, 2, "\xC5\xBC", "\xC5\xBB"},
+};
+constexpr KeyDef kLatvian[] = {
+    // ā č ē ģ ī ķ ļ ņ š ū ž
+    {K::Char, 0, 2, "\xC4\x81", "\xC4\x80"}, {K::Char, 0, 2, "\xC4\x8D", "\xC4\x8C"},
+    {K::Char, 0, 2, "\xC4\x93", "\xC4\x92"}, {K::Char, 0, 2, "\xC4\xA3", "\xC4\xA2"},
+    {K::Char, 0, 2, "\xC4\xAB", "\xC4\xAA"}, {K::Char, 0, 2, "\xC4\xB7", "\xC4\xB6"},
+    {K::Char, 0, 2, "\xC4\xBC", "\xC4\xBB"}, {K::Char, 0, 2, "\xC5\x86", "\xC5\x85"},
+    {K::Char, 0, 2, "\xC5\xA1", "\xC5\xA0"}, {K::Char, 0, 2, "\xC5\xAB", "\xC5\xAA"},
+    {K::Char, 0, 2, "\xC5\xBE", "\xC5\xBD"},
+};
+constexpr KeyDef kEstonian[] = {
+    // õ ä ö ü š ž
+    {K::Char, 0, 2, "\xC3\xB5", "\xC3\x95"}, {K::Char, 0, 2, "\xC3\xA4", "\xC3\x84"},
+    {K::Char, 0, 2, "\xC3\xB6", "\xC3\x96"}, {K::Char, 0, 2, "\xC3\xBC", "\xC3\x9C"},
+    {K::Char, 0, 2, "\xC5\xA1", "\xC5\xA0"}, {K::Char, 0, 2, "\xC5\xBE", "\xC5\xBD"},
+};
+
+// Rows 1 to 4 of the English and accent pages.
 constexpr KeyDef kLetters[] = {
     {K::Char, 1, 2, "q", "Q"},          {K::Char, 1, 2, "w", "W"},
     {K::Char, 1, 2, "e", "E"},          {K::Char, 1, 2, "r", "R"},
@@ -92,10 +147,89 @@ constexpr KeyDef kSymbols[] = {
     {K::Space, 4, 10, " ", " "},      {K::Ok, 4, 4, "", ""},
 };
 
-constexpr int kDigitCount = sizeof(kDigits) / sizeof(kDigits[0]);
-constexpr int kLithuanianCount = sizeof(kLithuanian) / sizeof(kLithuanian[0]);
-constexpr int kLetterCount = sizeof(kLetters) / sizeof(kLetters[0]);
-constexpr int kSymbolCount = sizeof(kSymbols) / sizeof(kSymbols[0]);
+// All five rows of the Ukrainian page (digits are on the symbols page).
+constexpr KeyDef kUkrainian[] = {
+    {K::Char, 0, 2, "\xD0\xB9", "\xD0\x99"},
+    {K::Char, 0, 2, "\xD1\x86", "\xD0\xA6"},
+    {K::Char, 0, 2, "\xD1\x83", "\xD0\xA3"},
+    {K::Char, 0, 2, "\xD0\xBA", "\xD0\x9A"},
+    {K::Char, 0, 2, "\xD0\xB5", "\xD0\x95"},
+    {K::Char, 0, 2, "\xD0\xBD", "\xD0\x9D"},
+    {K::Char, 0, 2, "\xD0\xB3", "\xD0\x93"},
+    {K::Char, 0, 2, "\xD1\x88", "\xD0\xA8"},
+    {K::Char, 0, 2, "\xD1\x89", "\xD0\xA9"},
+    {K::Char, 0, 2, "\xD0\xB7", "\xD0\x97"},
+    {K::Char, 1, 2, "\xD1\x85", "\xD0\xA5"},
+    {K::Char, 1, 2, "\xD1\x97", "\xD0\x87"},
+    {K::Char, 1, 2, "\xD1\x84", "\xD0\xA4"},
+    {K::Char, 1, 2, "\xD1\x96", "\xD0\x86"},
+    {K::Char, 1, 2, "\xD0\xB2", "\xD0\x92"},
+    {K::Char, 1, 2, "\xD0\xB0", "\xD0\x90"},
+    {K::Char, 1, 2, "\xD0\xBF", "\xD0\x9F"},
+    {K::Char, 1, 2, "\xD1\x80", "\xD0\xA0"},
+    {K::Char, 1, 2, "\xD0\xBE", "\xD0\x9E"},
+    {K::Char, 1, 2, "\xD0\xBB", "\xD0\x9B"},
+    {K::Char, 2, 2, "\xD0\xB4", "\xD0\x94"},
+    {K::Char, 2, 2, "\xD0\xB6", "\xD0\x96"},
+    {K::Char, 2, 2, "\xD1\x94", "\xD0\x84"},
+    {K::Char, 2, 2, "\xD1\x8F", "\xD0\xAF"},
+    {K::Char, 2, 2, "\xD1\x87", "\xD0\xA7"},
+    {K::Char, 2, 2, "\xD1\x81", "\xD0\xA1"},
+    {K::Char, 2, 2, "\xD0\xBC", "\xD0\x9C"},
+    {K::Char, 2, 2, "\xD0\xB8", "\xD0\x98"},
+    {K::Char, 2, 2, "\xD1\x82", "\xD0\xA2"},
+    {K::Char, 2, 2, "\xD1\x8C", "\xD0\xAC"},
+    {K::Shift, 3, 3, "", ""},
+    {K::Char, 3, 2, "\xD0\xB1", "\xD0\x91"},
+    {K::Char, 3, 2, "\xD1\x8E", "\xD0\xAE"},
+    {K::Char, 3, 2, "\xD2\x91", "\xD2\x90"},
+    {K::Char, 3, 2, "\xE2\x80\x99", "\xE2\x80\x99"},  // the apostrophe
+    {K::Char, 3, 2, "-", "-"},
+    {K::Char, 3, 2, ".", "."},
+    {K::Char, 3, 2, ",", ","},
+    {K::Back, 3, 3, "", ""},
+    {K::Symbols, 4, 3, "?123", "?123"},
+    {K::Language, 4, 3, "", ""},
+    {K::Space, 4, 10, " ", " "},
+    {K::Ok, 4, 4, "", ""},
+};
+
+template <size_t N>
+constexpr int count(const KeyDef (&)[N]) {
+  return static_cast<int>(N);
+}
+constexpr int kDigitCount = count(kDigits);
+constexpr int kLetterCount = count(kLetters);
+constexpr int kSymbolCount = count(kSymbols);
+constexpr int kUkrainianCount = count(kUkrainian);
+
+struct Accents {
+  const KeyDef* keys;
+  int count;
+};
+
+// The accent row for a language; English (and Ukrainian, whose own letters
+// have a page of their own) use the Lithuanian one.
+Accents accents_for(Language lang) {
+  switch (lang) {
+    case Language::German:
+      return {kGerman, count(kGerman)};
+    case Language::French:
+      return {kFrench, count(kFrench)};
+    case Language::Spanish:
+      return {kSpanish, count(kSpanish)};
+    case Language::Italian:
+      return {kItalian, count(kItalian)};
+    case Language::Polish:
+      return {kPolish, count(kPolish)};
+    case Language::Latvian:
+      return {kLatvian, count(kLatvian)};
+    case Language::Estonian:
+      return {kEstonian, count(kEstonian)};
+    default:
+      return {kLithuanian, count(kLithuanian)};
+  }
+}
 
 // Length of the UTF-8 character ending at text[n - 1].
 int last_char_bytes(const char* text, int n) {
@@ -142,22 +276,26 @@ void Keyboard::open(std::string_view text, const Options& options) {
   text_[0] = '\0';
   type(text);
   page_ = options.page;
+  last_letters_ = page_ == Page::Symbols ? Page::English : page_;
   shift_ = options_.capitalize && length_ == 0;
   open_ = true;
   show_cursor_ = false;
-  cursor_ = find(page_ == Page::Symbols ? "-" : "q");
+  cursor_ = page_ == Page::Ukrainian ? 1 : find(page_ == Page::Symbols ? "-" : "q");
 }
 
 int Keyboard::key_count() const {
   if (page_ == Page::Symbols) return 1 + kDigitCount + kSymbolCount;
-  return 1 + (page_ == Page::Lithuanian ? kLithuanianCount : kDigitCount) + kLetterCount;
+  if (page_ == Page::Ukrainian) return 1 + kUkrainianCount;
+  return 1 + (page_ == Page::Accents ? accents_for(options_.language).count : kDigitCount) + kLetterCount;
 }
 
 const Keyboard::KeyDef& Keyboard::def(int i) const {
   if (i <= 0) return kCancelKey;
   --i;
-  const KeyDef* top = page_ == Page::Lithuanian ? kLithuanian : kDigits;
-  const int top_count = page_ == Page::Lithuanian ? kLithuanianCount : kDigitCount;
+  if (page_ == Page::Ukrainian) return kUkrainian[i];
+  const Accents accents = accents_for(options_.language);
+  const KeyDef* top = page_ == Page::Accents ? accents.keys : kDigits;
+  const int top_count = page_ == Page::Accents ? accents.count : kDigitCount;
   if (i < top_count) return top[i];
   return (page_ == Page::Symbols ? kSymbols : kLetters)[i - top_count];
 }
@@ -202,10 +340,11 @@ Rect Keyboard::key_rect(const Framebuffer& fb, int i) const {
     if (k < i) before += def(k).width;
     units += def(k).width;
   }
-  const int start = (kRowUnits - units) / 2 + before;  // short rows are centred
+  const int row_units = std::max(units, kRowUnits);    // a long row of accents narrows its keys
+  const int start = (row_units - units) / 2 + before;  // short rows are centred
   const int span = a.w - 2 * kMargin;
-  const int x0 = a.x + kMargin + start * span / kRowUnits;
-  const int x1 = a.x + kMargin + (start + def(i).width) * span / kRowUnits;
+  const int x0 = a.x + kMargin + start * span / row_units;
+  const int x1 = a.x + kMargin + (start + def(i).width) * span / row_units;
   const int y = a.y + kLineH + 6 + row * kRowPitch;
   return {x0 + kKeyGap, y, x1 - x0 - 2 * kKeyGap, kKeyH};
 }
@@ -225,6 +364,7 @@ void Keyboard::backspace() {
 }
 
 void Keyboard::set_page(Page p) {
+  if (p != Page::Symbols) last_letters_ = p;
   // Keep the cursor in the same row, as near its place as the row allows.
   const int row = row_of(cursor_);
   int col = 0;
@@ -257,12 +397,10 @@ Keyboard::Result Keyboard::press(int i) {
       shift_ = !shift_;
       return Result::Redraw;
     case KeyKind::Symbols:
-      set_page(page_ == Page::Symbols ? Page::English : Page::Symbols);
+      set_page(page_ != Page::Symbols ? Page::Symbols : letters());
       return Result::Redraw;
     case KeyKind::Language:
-      set_page(page_ == Page::English      ? Page::Lithuanian
-               : page_ == Page::Lithuanian ? Page::English
-                                           : Page::Lithuanian);
+      set_page(page_ == Page::English ? other_letters() : Page::English);
       return Result::Redraw;
     case KeyKind::Ok:
       return Result::Done;
@@ -386,9 +524,19 @@ void Keyboard::draw_key(Framebuffer& fb, int i) const {
       centred(ui::label_font(), d.lower, r.y + 32);
       break;
     case KeyKind::Language:
-      // The page it leads to.
-      centred(ui::label_font(), page_ == Page::English || page_ == Page::Symbols ? "\xC4\x84\xC4\x8C" : "ABC",
-              r.y + 32);  // ĄČ
+      // The page it leads to: its first two letters, or ABC.
+      if (page_ == Page::English || page_ == Page::Symbols) {
+        char label[16];
+        if (other_letters() == Page::Ukrainian) {
+          std::snprintf(label, sizeof(label), "%s", "\xD0\x90\xD0\x91\xD0\x92");  // АБВ
+        } else {
+          const Accents a = accents_for(options_.language);
+          std::snprintf(label, sizeof(label), "%s%s", a.keys[0].upper, a.keys[1].upper);
+        }
+        centred(ui::label_font(), label, r.y + 32);
+      } else {
+        centred(ui::label_font(), "ABC", r.y + 32);
+      }
       break;
     case KeyKind::Ok:
       centred(ui::text_font(), options_.ok, r.y + 33);
