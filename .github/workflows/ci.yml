@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The "Run workflow" button on the Actions page: builds main and publishes
+  # a release. Merges alone only build and test.
+  workflow_dispatch:
 
 jobs:
   host:
@@ -43,8 +46,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Version number
-        # Each run on main gets the next number; the reader shows it in
-        # Settings › Device check and on the upload page.
+        # Each run gets the next number (shared by merges and releases, so
+        # release numbers only grow); the reader shows it in Settings ›
+        # Device check and on the upload page.
         run: echo "0.1.${{ github.run_number }}" > version.txt
       - name: Build with ESP-IDF
         uses: espressif/esp-idf-ci-action@v1
@@ -73,9 +77,10 @@ jobs:
 
   release:
     name: Publish update file
-    # Every change merged into main becomes a release with an update file
-    # the reader accepts from its upload page.
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Only a manual run on main publishes a release, so readers get one
+    # update when the owner asks instead of one per merge. Never mark it a
+    # prerelease: the reader's online update reads /releases/latest.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: [host, firmware]
     runs-on: ubuntu-24.04
     permissions:
@@ -99,4 +104,5 @@ jobs:
           (cd out && zip -r "../vellum-$VERSION-usb.zip" .)
           gh release create "v$VERSION" "vellum-$VERSION.bin" "vellum-install-$VERSION.html" "vellum-$VERSION-usb.zip" \
             --repo "${{ github.repository }}" --target "${{ github.sha }}" --title "Vellum $VERSION" \
-            --notes "First install: download vellum-install-$VERSION.html and open it in Chrome or Edge, then follow the steps (guide: https://github.com/ArunasVell/Vellum-OS/blob/main/docs/install.md). Already on Vellum: the reader updates itself over home Wi-Fi, or send vellum-$VERSION.bin from Settings › Updates › Update from a file. The USB zip is for flashing with esptool. What's new: https://github.com/ArunasVell/Vellum-OS/blob/main/CHANGELOG.md"
+            --notes "First install: download vellum-install-$VERSION.html and open it in Chrome or Edge, then follow the steps (guide: https://github.com/ArunasVell/Vellum-OS/blob/main/docs/install.md). Already on Vellum: the reader updates itself over home Wi-Fi, or send vellum-$VERSION.bin from Settings › Updates › Update from a file. The USB zip is for flashing with esptool. What's new: https://github.com/ArunasVell/Vellum-OS/blob/main/CHANGELOG.md" \
+            --generate-notes

@@ -91,6 +91,8 @@ Then go through [docs/first-day-tests.md](docs/first-day-tests.md), the checklis
 
 The page is made by `tools/make_installer.py` from a firmware build (`python3 tools/make_installer.py build`), which puts the firmware images and [esptool-js](https://github.com/espressif/esptool-js) (Apache 2.0, pinned and checksum-checked) inside the one file; CI attaches it to each release. Web Serial needs a secure page, and Chrome counts a file opened from disk as one. Installing over other software also wipes the small settings area (NVS), where the original software keeps its own settings; reinstalling over Vellum keeps it (home Wi-Fi, paired readers).
 
+Merging into `main` only builds and tests. A release is published by hand: **Actions › CI › Run workflow** on `main`. Its notes list the changes merged since the previous release.
+
 ## Firmware
 
 Needs [ESP-IDF v6.1](https://docs.espressif.com/projects/esp-idf/en/v6.1/esp32s3/get-started/).
