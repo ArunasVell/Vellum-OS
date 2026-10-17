@@ -763,7 +763,7 @@ void test_app_transfer() {
   app->handle(ev);  // not on the Add books screen: ignored
   CHECK(panel.fast == fast);
 
-  tap(*app, 240, 640);  // "Add books"
+  tap(*app, 240, 657);  // "Add books"
   CHECK(transfer.starts == 1);
   transfer.st.received = 1;
   std::snprintf(transfer.st.last, sizeof(transfer.st.last), "New.epub");
@@ -798,7 +798,7 @@ void test_app_update() {
   settled(card);
   auto* app = new App(board);
   app->start();
-  tap(*app, 378, 620);  // Settings
+  tap(*app, 240, 715);  // Settings
   tap(*app, 240, 603);  // Updates
   tap(*app, 240, 475);  // Update from a file: the phone page
   CHECK(transfer.starts == 1);
@@ -1264,11 +1264,11 @@ void test_app_quick_panel() {
   CHECK(power.sleeps == 1);
   press(app, Key::Next);  // wake: back on Settings, the panel gone
   CHECK(view.pixel(17, 200) == Color::Black);
-  CHECK(view.pixel(28, 620) == Color::White);
+  CHECK(view.pixel(240, 575) == Color::White);
   tap(app, 240, 30);
-  tap(app, 95, 401);                           // Home
-  CHECK(view.pixel(28, 620) == Color::Black);  // the edge of All books
-  tap(app, 378, 620);                          // Settings
+  tap(app, 95, 401);                            // Home
+  CHECK(view.pixel(240, 575) == Color::Black);  // the edge of All books
+  tap(app, 240, 715);                           // Settings
   CHECK(view.pixel(17, 200) == Color::Black);
   std::filesystem::remove_all("test-card-quick");
 }
@@ -1315,23 +1315,23 @@ void test_app_transfer_cancel() {
 
   // Home pressed while it starts: back home, nothing left running.
   input.events.push_back(key_event(InputEvent::Type::KeyDown, Key::Home));
-  tap(app, 240, 640);  // Add books
+  tap(app, 240, 657);  // Add books
   CHECK(transfer.cancelled == 1 && transfer.starts == 0);
   app.handle(key_event(InputEvent::Type::KeyUp, Key::Home));  // its release does nothing more
   // Power is left alone: it starts.
   input.events.push_back(key_event(InputEvent::Type::KeyDown, Key::Power));
   input.events.push_back(key_event(InputEvent::Type::KeyUp, Key::Power));
-  tap(app, 240, 640);
+  tap(app, 240, 657);
   CHECK(transfer.cancelled == 1 && transfer.starts == 1);
   press(app, Key::Home);
   CHECK(transfer.stops == 1);
   // A tap on the Back button under "Starting".
   input.events.push_back(touch_at(InputEvent::Type::TouchDown, 240, 360));
   input.events.push_back(touch_at(InputEvent::Type::TouchUp, 240, 360));
-  tap(app, 240, 640);
+  tap(app, 240, 657);
   CHECK(transfer.cancelled == 2 && transfer.starts == 1);
   // Once it runs, the ‹ by the title leaves too.
-  tap(app, 240, 640);
+  tap(app, 240, 657);
   CHECK(transfer.starts == 2);
   tap(app, 60, 100);
   CHECK(transfer.stops == 2);
@@ -2172,7 +2172,7 @@ void test_app_updates_screen() {
   auto* app = new App(board);
   app->start();
 
-  tap(*app, 378, 620);  // Settings
+  tap(*app, 240, 715);  // Settings
   tap(*app, 240, 603);  // Updates, the eighth row
   tap(*app, 240, 325);  // Check now: the home Wi-Fi is out of reach
   CHECK(updater.checks == 1 && updater.installs == 0);
@@ -2236,7 +2236,7 @@ void test_app_first_setup() {
   // Home's Settings link, the Updates row and Check now: only home has them there.
   const auto at_home = [&](App& app) {
     const int checks = updater.checks;
-    tap(app, 378, 620);
+    tap(app, 240, 715);
     tap(app, 240, 603);
     tap(app, 240, 325);
     const bool home = updater.checks == checks + 1;
@@ -2298,7 +2298,7 @@ void test_app_first_setup() {
     CHECK(at_home(app));
 
     // Settings › General › Setup again, its last row, runs it again.
-    tap(app, 378, 620);  // Settings
+    tap(app, 240, 715);  // Settings
     tap(app, 240, 465);  // General
     tap(app, 240, 306);  // Setup again
     tap(app, kNextX, kButtonY);
@@ -3348,7 +3348,7 @@ void test_app_words() {
     CHECK(phone.count() == 1 && phone.set_note(phone.at(0).id, "Bored, like me.") && phone.save(card));
   }
   press(*app, Key::Home);
-  tap(*app, 240, 640);  // Add books (no Wi-Fi here)
+  tap(*app, 240, 657);  // Add books (no Wi-Fi here)
   press(*app, Key::Home);
   press(*app, Key::Power);  // back to Alice
   press(*app, Key::Power);  // contents: the note follows its highlight and is skipped
@@ -4862,7 +4862,7 @@ void test_app_home_wifi_transfer() {
   app->start();
 
   // A home Wi-Fi is set: the page is served there, with the fonts for its Settings.
-  tap(*app, 240, 640);  // "Add books"
+  tap(*app, 240, 657);  // "Add books"
   CHECK(transfer.starts == 1 && transfer.last_home && transfer.last_fonts.find("Literata\n") != std::string::npos);
   // Power (or the row) switches to the reader's own network, and Settings keeps that.
   press(*app, Key::Power);
@@ -4875,7 +4875,7 @@ void test_app_home_wifi_transfer() {
 
   // Out of reach: the reader's own network instead.
   transfer.fail_home = true;
-  tap(*app, 240, 640);
+  tap(*app, 240, 657);
   CHECK(transfer.starts == 5 && !transfer.last_home);
   transfer.fail_home = false;
 
@@ -4890,13 +4890,13 @@ void test_app_home_wifi_transfer() {
   app->handle(ev);  // nothing new: a plain redraw
   CHECK(panel.full == full + 1);
   press(*app, Key::Home);
-  tap(*app, 240, 640);  // own network now, as the phone said
+  tap(*app, 240, 657);  // own network now, as the phone said
   CHECK(transfer.starts == 6 && !transfer.last_home);
   press(*app, Key::Home);
 
   // Without a home Wi-Fi, the reader's own network and no row to switch.
   updater.network = "";
-  tap(*app, 240, 640);
+  tap(*app, 240, 657);
   const int starts = transfer.starts;
   press(*app, Key::Power);
   CHECK(transfer.starts == starts && !transfer.last_home);
@@ -6213,7 +6213,7 @@ void test_app_cover_grid() {
   };
   int x, y;
 
-  // Home: nine covers, nothing read yet so in library order. Tapping the third opens it.
+  // Home: six covers, nothing read yet so in library order. Tapping the third opens it.
   tile(112, 2, x, y);
   tap(*app, x, y);
   CHECK(opened(2));
@@ -6226,7 +6226,7 @@ void test_app_cover_grid() {
   press(*app, Key::Home);
 
   // After the last cover, All books. The library pages nine covers at a time.
-  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   CHECK(screen.pixel(90, 233) == Color::Black);        // the first cover is selected: inverted
   CHECK(screen.pixel(90 + 149, 233) == Color::White);  // the next is not
@@ -6239,7 +6239,7 @@ void test_app_cover_grid() {
   press(*app, Key::Home);
 
   // Holding a cover opens its shelves, as in the list.
-  for (int i = 0; i < 9; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);
   press(*app, Key::Power);
   tile(230, 4, x, y);
   hold(*app, x, y);
