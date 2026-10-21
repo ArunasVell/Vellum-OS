@@ -45,7 +45,7 @@ Press the button in **step 2, Install Vellum** and pick the reader again if Chro
 
 ## 5. First start
 
-On a memory card Vellum has not seen before, a short setup comes first: language (English or Lithuanian), clock style, menu text size, home Wi-Fi and how to add books. Every step has **Skip**, and you can run it again later from **Settings › Setup again**.
+On a memory card Vellum has not seen before, a short setup comes first: language, clock style, menu text size, home Wi-Fi and how to add books. Every step has **Skip**, and you can run it again later from **Settings › General › Setup again**.
 
 Put the memory card in **before** switching the reader on: for now the card is only looked for at start-up.
 
@@ -64,10 +64,10 @@ Put the memory card in **before** switching the reader on: for now the card is o
 
 ## Updates
 
-Vellum gets a new version every time a change is added. There are two ways to update:
+New versions of Vellum are released from time to time. There are two ways to update:
 
-- **Automatically**: set your home Wi-Fi in **Settings › Updates › Home Wi-Fi** (your phone does the typing). The reader then looks for a new version at 3:00 at night while it sleeps and installs it. In **Settings › Updates › Automatic** you can choose **Ask first** or **Off** instead, and **Check now** looks straight away.
-- **From a file**: download `vellum-0.1.N.bin` from the [latest release](https://github.com/ArunasVell/Vellum-OS/releases/latest), then on the reader choose **Settings › Updates › Update from a file** and send the file from your phone or computer the same way as books.
+- **Automatically**: set your home Wi-Fi in **Settings › General › Updates › Home Wi-Fi** (your phone does the typing). The reader then looks for a new version at 3:00 at night while it sleeps and installs it. In **Settings › General › Updates › Automatic** you can choose **Ask first** or **Off** instead, and **Check now** looks straight away.
+- **From a file**: download `vellum-0.1.N.bin` from the [latest release](https://github.com/ArunasVell/Vellum-OS/releases/latest), then on the reader choose **Settings › General › Updates › Update from a file** and send the file from your phone or computer the same way as books.
 
 Updates keep your books, settings and reading progress.
 
@@ -77,6 +77,8 @@ Open the installer page again, connect the reader, and in **step 3, Go back to t
 
 ## Something wrong?
 
-Please tell us: open an [issue on GitHub](https://github.com/ArunasVell/Vellum-OS/issues) and say what you did, what you expected and what happened. A photo of the screen helps a lot. At the bottom of the installer page, **Show log** shows what the reader prints while connected by cable; copying that text into the issue is the most useful thing you can send.
+First look in [troubleshooting.md](troubleshooting.md): it covers the problems people have run into so far (reader not connecting, screen upside down, touch not working, memory card missing, books that will not open) with what to do for each.
+
+If yours is not there, please tell us: open an [issue on GitHub](https://github.com/ArunasVell/Vellum-OS/issues) and say what you did, what you expected and what happened. A photo of the screen helps a lot. At the bottom of the installer page, **Show log** shows what the reader prints while connected by cable; copying that text into the issue is the most useful thing you can send.
 
 If you want to test everything properly, [first-day-tests.md](first-day-tests.md) walks through each part of the reader in about half an hour.
