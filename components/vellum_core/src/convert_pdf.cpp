@@ -24,6 +24,7 @@ namespace {
 constexpr uint32_t kMaxObjects = 32768;
 constexpr uint32_t kMaxPages = 8192;
 constexpr uint32_t kSlotBytes = 40 * 1024;
+constexpr uint32_t kFirstRead = 2048;
 constexpr int kSlots = 5;
 constexpr uint32_t kObjStmBytes = 160 * 1024;
 constexpr uint32_t kContentBytes = 256 * 1024;
@@ -812,6 +813,71 @@ struct Outline {
   char title[96];
 };
 
+// The book's bytes, read through a cache of recently read blocks. Reading
+// an object means reading a little at an offset, and the same few
+// thousand bytes (page dictionaries, resources, fonts) are read again and
+// again; each read from a memory card costs far more than its bytes, so
+// small reads come from the cache and large ones (streams) go straight to
+// the file. Without cache memory every read goes to the file.
+class CachedFile {
+ public:
+  static constexpr uint32_t kBlock = 4096;
+  static constexpr int kBlocks = 64;
+  static constexpr uint32_t kBytes = kBlock * kBlocks;
+
+  CachedFile(File& f, uint8_t* memory) : f_(f), data_(memory), size_(f.size()) {
+    for (uint32_t& b : block_) b = kNoObject;
+  }
+
+  uint32_t size() const { return size_; }
+
+  int32_t read_at(uint32_t offset, void* out, uint32_t len) {
+    if (offset >= size_) return 0;
+    len = std::min(len, size_ - offset);
+    if (data_ == nullptr || len >= 2 * kBlock) return f_.read_at(offset, out, len);
+    auto* o = static_cast<uint8_t*>(out);
+    uint32_t done = 0;
+    while (done < len) {
+      const uint32_t at = offset + done;
+      const uint8_t* b = block(at / kBlock);
+      if (b == nullptr) return -1;
+      const uint32_t in = at % kBlock;
+      const uint32_t n = std::min(kBlock - in, len - done);
+      std::memcpy(o + done, b + in, n);
+      done += n;
+    }
+    return static_cast<int32_t>(len);
+  }
+
+ private:
+  // Block `index`, from the cache or read into the least recently used one.
+  const uint8_t* block(uint32_t index) {
+    int oldest = 0;
+    for (int i = 0; i < kBlocks; ++i) {
+      if (block_[i] == index) {
+        used_[i] = ++clock_;
+        return data_ + i * kBlock;
+      }
+      if (used_[i] < used_[oldest]) oldest = i;
+    }
+    uint8_t* d = data_ + oldest * kBlock;
+    const uint32_t at = index * kBlock;
+    const uint32_t n = std::min(kBlock, size_ - at);
+    block_[oldest] = kNoObject;
+    if (f_.read_at(at, d, n) != static_cast<int32_t>(n)) return nullptr;
+    block_[oldest] = index;
+    used_[oldest] = ++clock_;
+    return d;
+  }
+
+  File& f_;
+  uint8_t* data_;
+  uint32_t size_;
+  uint32_t block_[kBlocks];
+  uint32_t used_[kBlocks] = {};
+  uint32_t clock_ = 0;
+};
+
 bool sentence_end(uint32_t cp) {
   return cp == '.' || cp == '!' || cp == '?' || cp == ':' || cp == '"' || cp == '\'' || cp == 0x201D || cp == 0x2019 ||
          cp == 0xBB || cp == ')' || cp == 0x2026 || cp == ';';
@@ -819,7 +885,12 @@ bool sentence_end(uint32_t cp) {
 
 class Pdf {
  public:
-  explicit Pdf(Job& job) : job_(job), f_(*job.in) {
+  static constexpr uint32_t kExtraBytes = CachedFile::kBytes + kObjStmBytes;
+
+  // `extra` (kExtraBytes, or nullptr) makes it faster: a cache of the file
+  // and a buffer for fonts' character maps.
+  Pdf(Job& job, uint8_t* extra)
+      : job_(job), f_(*job.in, extra), cmap_(extra != nullptr ? extra + CachedFile::kBytes : nullptr) {
     uint8_t* p = job.work;
     auto take = [&](uint32_t n) {
       uint8_t* at = p;
@@ -884,11 +955,13 @@ class Pdf {
       if (i < page_count_) read_page(i);
     }
     probe_ = false;
+    if (!told(0)) return cancelled();
     for (uint32_t i = 0; i < page_count_; ++i) {
       // Contents entries name a page; each is placed at its heading there.
       while (mark_end_ < outline_count_ && outline_[mark_end_].page <= i) ++mark_end_;
       read_page(i);
       if (!page.ok()) break;
+      if (!told(i + 1)) return cancelled();
     }
     end_paragraph();
     mark_end_ = outline_count_;
@@ -902,6 +975,16 @@ class Pdf {
   }
 
  private:
+  // Says how far it is; false when it should stop.
+  bool told(uint32_t pages_done) {
+    return job_.progress == nullptr || job_.progress(job_.progress_ctx, pages_done, page_count_);
+  }
+
+  Result cancelled() {
+    page_ = nullptr;  // the page is left unfinished and thrown away
+    return Result::Cancelled;
+  }
+
   struct XRef {
     uint32_t at;  // offset, or the object stream's number
     uint16_t index;
@@ -1155,19 +1238,28 @@ class Pdf {
     if (x.type == 1) {
       const uint32_t size = f_.size();
       if (x.at >= size) return false;
-      const uint32_t want = std::min<uint32_t>(kSlotBytes, size - x.at);
-      if (f_.read_at(x.at, reinterpret_cast<uint8_t*>(buf), want) != static_cast<int32_t>(want)) return false;
-      const std::string_view all(buf, want);
-      Lex l(all);
-      const Token a = l.next(), b = l.next(), o = l.next();
-      if (a.kind != Tok::Number || b.kind != Tok::Number || o.text != "obj") return false;
-      l.ws();
-      const size_t start = l.pos();
-      out.text = l.value();
-      if (out.text.empty() && start < all.size()) out.text = all.substr(start);
+      const uint32_t most = std::min<uint32_t>(kSlotBytes, size - x.at);
+      // Most objects are small: a little is read first, the whole slot only
+      // when the object (or the word "stream" after it) runs past that.
+      uint32_t want = std::min<uint32_t>(kFirstRead, most);
+      std::string_view all;
+      size_t start = 0, p = 0;
+      for (;;) {
+        if (f_.read_at(x.at, reinterpret_cast<uint8_t*>(buf), want) != static_cast<int32_t>(want)) return false;
+        all = std::string_view(buf, want);
+        Lex l(all);
+        const Token a = l.next(), b = l.next(), o = l.next();
+        if (a.kind != Tok::Number || b.kind != Tok::Number || o.text != "obj") return false;
+        l.ws();
+        start = l.pos();
+        out.text = l.value();
+        if (out.text.empty() && start < all.size()) out.text = all.substr(start);
+        p = start + out.text.size();
+        while (p < all.size() && is_ws(static_cast<uint8_t>(all[p]))) ++p;
+        if (want == most || p + 8 < all.size()) break;
+        want = most;
+      }
       // A stream follows its dictionary.
-      size_t p = start + out.text.size();
-      while (p < all.size() && is_ws(static_cast<uint8_t>(all[p]))) ++p;
       if (all.substr(p, 6) == "stream") {
         p += 6;
         if (p < all.size() && all[p] == '\r') ++p;
@@ -2041,11 +2133,16 @@ class Pdf {
   void read_to_unicode(uint32_t obj, Font& f) {
     Obj o;
     if (!fetch(obj, 3, o) || !o.stream) return;
-    // Read into the object stream buffer, which is then no longer cached.
-    objstm_num_ = kNoObject;
-    const int32_t n = stream_data(o, objstm_, kObjStmBytes);
+    // Read into a buffer of its own, or else the object stream's, which is
+    // then no longer cached (and read again for the next object in it).
+    uint8_t* into = cmap_;
+    if (into == nullptr) {
+      objstm_num_ = kNoObject;
+      into = objstm_;
+    }
+    const int32_t n = stream_data(o, into, kObjStmBytes);
     if (n <= 0) return;
-    const std::string_view cmap(reinterpret_cast<char*>(objstm_), static_cast<size_t>(n));
+    const std::string_view cmap(reinterpret_cast<char*>(into), static_cast<size_t>(n));
     Lex l(cmap);
     uint32_t* map = f.two_byte ? nullptr : pool_ + f.map;
     const uint32_t start = pool_used_;
@@ -2901,12 +2998,13 @@ class Pdf {
   };
 
   Job& job_;
-  File& f_;
+  CachedFile f_;
   bool ok_ = false;
   XRef* xref_;
   PageRef* pages_;
   char* slot_[kSlots];
   uint8_t* objstm_;
+  uint8_t* cmap_;
   uint32_t objstm_num_ = kNoObject;
   uint32_t objstm_first_ = 0;
   uint32_t objstm_count_ = 0;
@@ -2962,10 +3060,16 @@ class Pdf {
 }  // namespace
 
 Result pdf(Job& job) {
-  auto* book = new (std::nothrow) Pdf(job);
-  if (book == nullptr) return Result::NoMemory;
+  // Only faster with this memory: without it the book is still read.
+  auto* extra = new (std::nothrow) uint8_t[Pdf::kExtraBytes];
+  auto* book = new (std::nothrow) Pdf(job, extra);
+  if (book == nullptr) {
+    delete[] extra;
+    return Result::NoMemory;
+  }
   const Result r = book->run();
   delete book;
+  delete[] extra;
   return r;
 }
 

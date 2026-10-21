@@ -295,7 +295,8 @@ constexpr Strings kEnglish = {
         "from the phone page of Add books.",
     .preparing_pictures = "Preparing pictures\xE2\x80\xA6",
     .preparing_book = "Preparing a book\xE2\x80\xA6",
-    .preparing_book_once = "Only the first time it is added.",
+    .preparing_book_once = "Only the first time it is opened.",
+    .preparing_book_stop = "Tap the screen to stop.",
     .picture_broken = "Cannot be shown",
     .pictures_shuffle_lead = "A new one each time, from the marked ones.",
     .pictures_one_lead = "The marked picture shows every time.",
@@ -373,6 +374,9 @@ constexpr Strings kEnglish = {
     .delete_yes = "Yes, delete",
     .delete_no = "No, keep it",
     .delete_failed = "Could not delete the book",
+    .book_locked = "This book is locked",
+    .book_no_text = "Only pictures of pages, no text",
+    .book_unreadable = "This book could not be read",
 };
 
 constexpr Strings kLithuanian = {
@@ -682,7 +686,8 @@ constexpr Strings kLithuanian = {
         "atsiųskite juos iš telefono puslapio (Įkelti knygas).",
     .preparing_pictures = "Ruošiami paveikslėliai\xE2\x80\xA6",
     .preparing_book = "Ruošiama knyga\xE2\x80\xA6",
-    .preparing_book_once = "Tik pirmą kartą ją įkėlus.",
+    .preparing_book_once = "Tik pirmą kartą ją atidarant.",
+    .preparing_book_stop = "Palieskite ekraną, kad sustabdytumėte.",
     .picture_broken = "Negalima parodyti",
     .pictures_shuffle_lead = "Kaskart kitas, iš pažymėtųjų.",
     .pictures_one_lead = "Pažymėtas paveikslėlis rodomas kaskart.",
@@ -760,6 +765,9 @@ constexpr Strings kLithuanian = {
     .delete_yes = "Taip, ištrinti",
     .delete_no = "Ne, palikti",
     .delete_failed = "Nepavyko ištrinti knygos",
+    .book_locked = "Ši knyga užrakinta",
+    .book_no_text = "Tik puslapių nuotraukos, be teksto",
+    .book_unreadable = "Knygos nepavyko perskaityti",
 };
 
 constexpr Strings kGerman = {

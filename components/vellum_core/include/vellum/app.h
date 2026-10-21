@@ -599,7 +599,11 @@ class App {
   void sleep_setup_activate();
   // The reader's own pictures, as thumbnails to mark.
   void open_pictures();
+  // A book converted as it opens: the screen says how far it is, and a tap
+  // or a button (not Power) stops it.
   static void book_converting(void* ctx, const char* path);
+  static bool book_progress(void* ctx, uint32_t done, uint32_t total);
+  void draw_converting(uint32_t done, uint32_t total);
   void draw_pictures();
   void pictures_activate();
   // The battery is under `percent` and not charging (false when unknown).
@@ -729,6 +733,10 @@ class App {
   bool transfer_home_ = false;              // the page is on the home Wi-Fi
   bool transfer_home_failed_ = false;       // it could not be joined: the reader's own network instead
   bool transfer_cancelled_ = false;         // the reader left while it was starting
+  char converting_name_[64] = {};           // the book being converted, as shown
+  bool converting_ = false;                 // its screen is up
+  uint32_t converting_shown_at_ = 0;        // steady_ms of its last refresh
+  uint32_t converting_shown_ = 0;           // the pages done it showed
   int transfer_settings_seen_ = 0;          // TransferStatus::settings_saved taken up
   char* transfer_fonts_ = nullptr;          // TransferInfo::fonts, allocated once
   // Updates: what is known, and what this session has tried.

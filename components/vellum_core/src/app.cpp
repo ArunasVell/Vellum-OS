@@ -633,7 +633,7 @@ App::App(Board& board)
   large_cover_.px = new (std::nothrow) uint8_t[covers::kLargeW * covers::kLargeH];
   small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   fb_.set_rotation(board.rotation);
-  text_book_.on_convert(&App::book_converting, this);
+  text_book_.on_convert(&App::book_converting, &App::book_progress, this);
   if (board_.storage != nullptr) {
     // A card Vellum has never used (no settings, and it has never slept
     // with it): the first-time setup comes first. Older cards without the
@@ -678,7 +678,8 @@ const CoverImage* App::cover_of(int book, bool large) {
 }
 
 // A book in a new format (Kindle, PDF, Word, ...) is converted the first
-// time the library sees it, which can take a while: the screen says so.
+// time it is opened, which can take a while: the screen says so, and how far
+// it has got.
 void App::book_converting(void* ctx, const char* path) {
   App& app = *static_cast<App*>(ctx);
   const char* slash = std::strrchr(path, '/');
@@ -688,15 +689,66 @@ void App::book_converting(void* ctx, const char* path) {
     while (n > 0 && (static_cast<uint8_t>(name[n]) & 0xC0) == 0x80) --n;  // a whole character
     name = name.substr(0, n);
   }
-  char cut[64];
-  std::snprintf(cut, sizeof(cut), "%.*s%s", static_cast<int>(name.size()), name.data(),
-                name.size() < std::strlen(slash != nullptr ? slash + 1 : path) ? "\xE2\x80\xA6" : "");
-  const int mid = app.fb_.height() / 2;
-  app.fb_.clear(Color::White);
-  ui::draw_centered(app.fb_, ui::large_font(), mid - 30, app.text().preparing_book);
-  ui::draw_centered(app.fb_, ui::text_font(), mid + 14, cut);
-  ui::draw_centered(app.fb_, ui::small_italic_font(), mid + 52, app.text().preparing_book_once);
+  std::snprintf(app.converting_name_, sizeof(app.converting_name_), "%.*s%s", static_cast<int>(name.size()),
+                name.data(), name.size() < std::strlen(slash != nullptr ? slash + 1 : path) ? "\xE2\x80\xA6" : "");
+  app.converting_ = true;
+  app.converting_shown_ = 0;
+  app.converting_shown_at_ = app.steady_ms();
+  app.draw_converting(0, 0);
   app.queue_.submit();
+}
+
+void App::draw_converting(uint32_t done, uint32_t total) {
+  hit_count_ = 0;
+  const int mid = fb_.height() / 2;
+  fb_.clear(Color::White);
+  ui::draw_centered(fb_, ui::large_font(), mid - 30, text().preparing_book);
+  const int room = fb_.width() - 2 * kSide;
+  if (text_width_px(ui::text_font(), converting_name_) <= room) {
+    ui::draw_centered(fb_, ui::text_font(), mid + 14, converting_name_);
+  } else {
+    ui::draw_fitted(fb_, ui::text_font(), kSide, mid + 14, room, converting_name_);  // a long name ends in "…"
+  }
+  if (total > 0) {
+    char line[64];
+    std::snprintf(line, sizeof(line), text().page_of, static_cast<int>(done), static_cast<int>(total));
+    ui::draw_centered(fb_, ui::text_font(), mid + 56, line);
+  }
+  ui::draw_centered(fb_, ui::small_italic_font(), mid + 96, text().preparing_book_once);
+  ui::draw_centered(fb_, ui::small_italic_font(), fb_.height() - 60, text().preparing_book_stop);
+}
+
+// Between pages of the book: a press or a tap stops it, and every few
+// seconds the screen shows how far it is (each refresh pauses the work).
+bool App::book_progress(void* ctx, uint32_t done, uint32_t total) {
+  constexpr uint32_t kShowEveryMs = 4000;
+  App& app = *static_cast<App*>(ctx);
+  InputEvent ev;
+  for (int k = 0; k < 32 && app.board_.input.wait(ev, 0); ++k) {
+    switch (ev.type) {
+      case InputEvent::Type::KeyDown:
+        // Power is left alone: holding it still means sleep, later.
+        if (ev.key != Key::Power) return false;
+        break;
+      case InputEvent::Type::Quit:
+        return false;
+      case InputEvent::Type::TouchDown:
+      case InputEvent::Type::TouchMove:
+      case InputEvent::Type::TouchUp:
+        if (app.touch_.feed(ev, app.fb_).kind == Gesture::Kind::Tap) return false;
+        break;
+      default:
+        break;
+    }
+  }
+  const uint32_t now = app.steady_ms();
+  if (total > 0 && done != app.converting_shown_ && now - app.converting_shown_at_ >= kShowEveryMs) {
+    app.converting_shown_ = done;
+    app.draw_converting(done, total);
+    app.queue_.submit();
+    app.converting_shown_at_ = app.steady_ms();
+  }
+  return true;
 }
 
 void App::reload_library() {
@@ -3139,8 +3191,39 @@ void App::open_book(int index) {
     const bool is_open = text ? text_book_.is_open() : epub_.is_open();
     if (!is_open || std::strcmp(open_path, entry.path) != 0) {
       open_path[0] = '\0';
+      converting_ = false;
       const bool ok = text ? text_book_.open(*board_.storage, entry.path) : epub_.open(*board_.storage, entry.path);
-      if (!ok) return;  // unreadable: stay where we are
+      if (!ok) {
+        // Unreadable: stay where we are, saying why when it is a book Vellum converts.
+        const char* why = nullptr;
+        if (text && convert::kind_of(entry.path) != convert::Kind::None) {
+          switch (text_book_.last_convert()) {
+            case convert::Result::Cancelled:
+              break;
+            case convert::Result::Protected:
+              why = this->text().book_locked;
+              break;
+            case convert::Result::NoText:
+              why = this->text().book_no_text;
+              break;
+            default:
+              why = this->text().book_unreadable;
+              break;
+          }
+        }
+        if (why != nullptr) show_toast(why);
+        if (converting_ || why != nullptr) {
+          converting_ = false;
+          // From the reader the book it showed may be gone (text_book_ is shared).
+          show(screen_ == Screen::Reader ? Screen::Home : screen_);
+        }
+        return;
+      }
+      if (converting_ && entry.cover < 0) {
+        // Named by its file till now: its own title, author and cover.
+        library_.set_details(*board_.storage, index, text_book_);
+      }
+      converting_ = false;
       std::snprintf(open_path, sizeof(epub_path_), "%s", entry.path);
     }
     doc = text ? static_cast<Document*>(&text_book_) : &epub_;

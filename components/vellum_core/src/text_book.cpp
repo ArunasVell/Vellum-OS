@@ -387,8 +387,9 @@ void TextBook::close() {
   zip_.close();
 }
 
-bool TextBook::open(Storage& storage, const char* path) {
+bool TextBook::open(Storage& storage, const char* path, bool convert) {
   close();
+  waiting_ = false;
   if (raw_ == nullptr || text_ == nullptr || paragraphs_ == nullptr || parts_ == nullptr || toc_ == nullptr ||
       toc_section_ == nullptr) {
     return false;
@@ -410,7 +411,7 @@ bool TextBook::open(Storage& storage, const char* path) {
   if (format == Format::Fb2Zip) {
     if (!open_zipped(path)) return false;
   } else if (kind != convert::Kind::None) {
-    if (!open_converted(path, kind)) {
+    if (!open_converted(path, kind, convert)) {
       close();
       return false;
     }
@@ -526,7 +527,7 @@ bool TextBook::open_zipped(const char* path) {
   return ok;
 }
 
-bool TextBook::open_converted(const char* path, convert::Kind kind) {
+bool TextBook::open_converted(const char* path, convert::Kind kind, bool convert) {
   File* in = storage_->open(path);
   if (in == nullptr) return false;
   // One converted copy per book, named by its path, size and the converters' version.
@@ -550,6 +551,11 @@ bool TextBook::open_converted(const char* path, convert::Kind kind) {
       storage_->close(in);
       return false;
     }
+    if (!convert) {
+      waiting_ = true;
+      storage_->close(in);
+      return false;
+    }
     if (convert_fn_ != nullptr) convert_fn_(convert_ctx_, path);
     auto* work = new (std::nothrow) uint8_t[convert::kWorkBytes];
     convert::Result r = convert::Result::NoMemory;
@@ -564,6 +570,8 @@ bool TextBook::open_converted(const char* path, convert::Kind kind) {
       job.work_size = convert::kWorkBytes;
       job.zip = &zip_;
       job.scratch_path = scratch;
+      job.progress = progress_fn_;
+      job.progress_ctx = convert_ctx_;
       r = convert::run(kind, job);
       zip_.close();
     }
@@ -572,7 +580,7 @@ bool TextBook::open_converted(const char* path, convert::Kind kind) {
     storage_->remove(scratch);
     if (r == convert::Result::Ok) {
       file_ = storage_->open(page);
-    } else if (r != convert::Result::NoMemory) {
+    } else if (r != convert::Result::NoMemory && r != convert::Result::Cancelled) {
       const char why = static_cast<char>('0' + static_cast<int>(r));
       storage_->write(note, &why, 1);
     }
@@ -858,7 +866,9 @@ void TextBook::add_toc(std::string_view title, int depth, uint32_t paragraph, ui
   ++toc_count_;
 }
 
-void TextBook::title_from_name(const char* path) {
+void TextBook::title_from_name(const char* path) { title_from_name(path, info_); }
+
+void TextBook::title_from_name(const char* path, EpubInfo& info, bool split) {
   const char* slash = std::strrchr(path, '/');
   std::string_view name(slash != nullptr ? slash + 1 : path);
   for (const char* ext : {".fb2.zip", ".fb2", ".txt", ".html", ".htm", ".mobi", ".azw3", ".azw", ".prc", ".pdb", ".pdf",
@@ -876,11 +886,11 @@ void TextBook::title_from_name(const char* path) {
   std::string_view s(clean, n);
   // "Author - Title", as many downloaded books are named.
   const size_t dash = s.find(" - ");
-  if (info_.author[0] == '\0' && info_.title[0] == '\0' && dash != std::string_view::npos && dash > 0) {
-    copy_utf8(trim(s.substr(0, dash)), info_.author, sizeof(info_.author));
+  if (split && info.author[0] == '\0' && info.title[0] == '\0' && dash != std::string_view::npos && dash > 0) {
+    copy_utf8(trim(s.substr(0, dash)), info.author, sizeof(info.author));
     s = s.substr(dash + 3);
   }
-  if (info_.title[0] == '\0') copy_utf8(trim(s), info_.title, sizeof(info_.title));
+  if (info.title[0] == '\0') copy_utf8(trim(s), info.title, sizeof(info.title));
 }
 
 void TextBook::guess_language(const char* text, uint32_t len) {

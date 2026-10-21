@@ -306,6 +306,7 @@ struct Strings {
   const char* preparing_pictures;     // while converting them
   const char* preparing_book;         // a book in a new format, converted the first time
   const char* preparing_book_once;    // under it
+  const char* preparing_book_stop;    // at the bottom: how to stop it
   const char* picture_broken;         // under a picture that cannot be shown
   const char* pictures_shuffle_lead;  // line under the pictures' title
   const char* pictures_one_lead;
@@ -383,6 +384,11 @@ struct Strings {
   const char* delete_yes;
   const char* delete_no;
   const char* delete_failed;  // a toast
+  // Toasts when a book cannot be opened: DRM or a password, a PDF of
+  // scanned pages, anything else.
+  const char* book_locked;
+  const char* book_no_text;
+  const char* book_unreadable;
 };
 
 const Strings& strings(Language lang);
