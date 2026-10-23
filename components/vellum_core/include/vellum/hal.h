@@ -259,6 +259,11 @@ class Updater {
   // called now and then.
   using ProgressFn = void (*)(void* ctx, int percent);
   virtual UpdateResult install(ProgressFn progress, void* ctx) = 0;
+  // What's new in the release the last check() found, as Markdown (see
+  // tidy_release_notes in vellum/updates.h); "" when it says nothing.
+  virtual void notes(char* out, size_t size) {
+    if (size > 0) out[0] = '\0';
+  }
 };
 
 // Files from the internet over the home Wi-Fi (the same network the Updater
@@ -359,6 +364,10 @@ struct Board {
   Transfer* transfer = nullptr;  // nullptr when the device has no Wi-Fi
   Peers* peers = nullptr;        // nullptr when it cannot reach other readers
   const char* version = "dev";   // the software version running
+  // What's new in this version, as Markdown (see tidy_release_notes in
+  // vellum/updates.h): shown once when it first starts with a card. nullptr
+  // or "" when the build has none.
+  const char* release_notes = nullptr;
   Updater* updater = nullptr;    // nullptr when the device cannot update itself
   Network* network = nullptr;    // nullptr when it cannot reach the internet
   // Fills in the free memory now; nullptr when the board does not tell.

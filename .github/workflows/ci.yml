@@ -45,11 +45,22 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the history and tags back to the previous release, for its notes
       - name: Version number
         # Each run gets the next number (shared by merges and releases, so
         # release numbers only grow); the reader shows it in Settings ›
         # Device check and on the upload page.
         run: echo "0.1.${{ github.run_number }}" > version.txt
+      - name: Release notes
+        # What's new since the previous release, grouped into new features,
+        # bug fixes and other changes. The firmware carries it (the reader
+        # shows it once after updating) and the release page lists it.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 tools/release_notes.py --repo "${{ github.repository }}" > release-notes.md
+          cat release-notes.md
       - name: Build with ESP-IDF
         uses: espressif/esp-idf-ci-action@v1
         with:
@@ -65,6 +76,11 @@ jobs:
             build/ota_data_initial.bin
             build/flash_args
             build/flasher_args.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: ignore
       - name: Installer page
         # One HTML file with the firmware inside: opened in Chrome or Edge it
         # installs Vellum over USB. It needs no internet, so it works as a
@@ -94,6 +110,10 @@ jobs:
         with:
           name: vellum-installer
           path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-notes
+          path: notes
       - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -102,18 +122,13 @@ jobs:
           cp out/vellum.bin "vellum-$VERSION.bin"
           cp installer/vellum-install.html "vellum-install-$VERSION.html"
           (cd out && zip -r "../vellum-$VERSION-usb.zip" .)
-          # Merged changes since the previous release, as plain titles with
-          # no author names.
-          gh api "repos/${{ github.repository }}/releases/generate-notes" \
-            -f tag_name="v$VERSION" -f target_commitish="${{ github.sha }}" --jq .body \
-            | sed -nE '/^\* @/d; s| by @[^ ]+ in https://github\.com/[^ ]+/pull/([0-9]+)$| (#\1)|; /^\* /p' > changes.md
           {
             echo "First install: download vellum-install-$VERSION.html and open it in Chrome or Edge, then follow the steps (guide: https://github.com/ArunasVell/Vellum-OS/blob/main/docs/install.md). Already on Vellum: the reader updates itself over home Wi-Fi, or send vellum-$VERSION.bin from Settings › Updates › Update from a file. The USB zip is for flashing with esptool. All changes so far: https://github.com/ArunasVell/Vellum-OS/blob/main/CHANGELOG.md"
-            if [ -s changes.md ]; then
+            if [ -s notes/release-notes.md ]; then
               echo
               echo "## New in this version"
               echo
-              cat changes.md
+              cat notes/release-notes.md
             fi
           } > notes.md
           gh release create "v$VERSION" "vellum-$VERSION.bin" "vellum-install-$VERSION.html" "vellum-$VERSION-usb.zip" \

@@ -72,20 +72,37 @@ void draw_fitted(Framebuffer& fb, const Font& font, int x, int baseline, int max
   draw_fit(fb, font, x, baseline, text, fit(font, text, max_w), c);
 }
 
+// Where the line starting at `start` ends: whole words while they fit,
+// always at least one.
+static size_t line_end(const Font& font, int max_w, std::string_view text, size_t start) {
+  size_t end = text.find(' ', start);
+  if (end == std::string_view::npos) end = text.size();
+  for (;;) {
+    if (end >= text.size()) break;
+    size_t next = text.find(' ', end + 1);
+    if (next == std::string_view::npos) next = text.size();
+    if (text_width(font, text.substr(start, next - start)) > max_w * 64) break;
+    end = next;
+  }
+  return end;
+}
+
+int wrapped_line_count(const Font& font, int max_w, std::string_view text) {
+  int lines = 0;
+  size_t start = 0;
+  while (start < text.size()) {
+    start = line_end(font, max_w, text, start);
+    while (start < text.size() && text[start] == ' ') ++start;
+    ++lines;
+  }
+  return lines;
+}
+
 int draw_wrapped(Framebuffer& fb, const Font& font, int x, int baseline, int max_w, int max_lines,
                  std::string_view text, bool centered, Color c) {
   size_t start = 0;
   for (int line = 0; line < max_lines && start < text.size(); ++line) {
-    // Take whole words while they fit; always at least one.
-    size_t end = text.find(' ', start);
-    if (end == std::string_view::npos) end = text.size();
-    for (;;) {
-      if (end >= text.size()) break;
-      size_t next = text.find(' ', end + 1);
-      if (next == std::string_view::npos) next = text.size();
-      if (text_width(font, text.substr(start, next - start)) > max_w * 64) break;
-      end = next;
-    }
+    const size_t end = line_end(font, max_w, text, start);
     // The last allowed line takes the rest of the text, cut with an ellipsis.
     const std::string_view part = text.substr(start, (line + 1 == max_lines ? text.size() : end) - start);
     const Fit f = fit(font, part, max_w);

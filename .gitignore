@@ -19,3 +19,6 @@ sdkconfig.old
 
 # Version number written by CI for release builds
 version.txt
+
+# What's new since the previous release, written by CI (tools/release_notes.py)
+release-notes.md

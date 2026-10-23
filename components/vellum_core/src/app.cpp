@@ -629,9 +629,11 @@ App::App(Board& board)
       queue_(board.display, fb_),
       library_(),
       definition_(new(std::nothrow) char[kDefinitionBytes]),
-      safe_fonts_(board.power.after_crash()) {
+      safe_fonts_(board.power.after_crash()),
+      notes_(new(std::nothrow) char[kNotesBytes]) {
   large_cover_.px = new (std::nothrow) uint8_t[covers::kLargeW * covers::kLargeH];
   small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
+  if (notes_ != nullptr) notes_[0] = '\0';
   fb_.set_rotation(board.rotation);
   text_book_.on_convert(&App::book_converting, &App::book_progress, this);
   if (board_.storage != nullptr) {
@@ -662,6 +664,7 @@ App::~App() {
   delete[] large_cover_.px;
   delete[] small_cover_.px;
   delete[] definition_;
+  delete[] notes_;
   delete[] transfer_fonts_;
   delete store_;
   delete[] folder_items_;
@@ -1959,8 +1962,10 @@ void App::restart_into_update() {
   ui::draw_centered(fb_, ui::text_font(), fb_.height() / 2, text().update_done);
   queue_.submit_full();
   board_.power.restart();
-  // Boards that cannot restart carry on at home.
+  // Boards that cannot restart (the simulators) carry on, showing what's
+  // new as the new version would.
   update_busy_ = UpdateBusy::No;
+  if (notes_ != nullptr && notes_[0] != '\0' && notes_version_[0] != '\0') return open_notes(false, Screen::Home);
   show(Screen::Home);
 }
 
@@ -2140,6 +2145,7 @@ void App::record_update_check(UpdateResult result, const char* latest) {
   textfile::copy(result == UpdateResult::Available ? latest : "", update_state_.latest, sizeof(update_state_.latest));
   update_state_.has_checked = board_.clock != nullptr && board_.clock->now(update_state_.checked);
   if (board_.storage != nullptr) save_update_state(*board_.storage, update_state_);
+  if (result == UpdateResult::Available) keep_release_notes(latest);
 }
 
 void App::check_for_update() {
@@ -2154,6 +2160,8 @@ void App::check_for_update() {
   record_update_check(r, latest);
   update_error_ = r != UpdateResult::Available && r != UpdateResult::UpToDate;
   update_result_ = r;
+  // A new version: what's new in it, before installing.
+  if (r == UpdateResult::Available && offered_notes()) open_notes(true, Screen::Updates);
 }
 
 void App::install_update() {
@@ -2182,7 +2190,9 @@ void App::install_update() {
 void App::updates_activate() {
   switch (updates_sel_) {
     case 0:
-      if (update_available()) {
+      if (update_available() && offered_notes()) {
+        open_notes(true, Screen::Updates);  // what's new first; Install is there
+      } else if (update_available()) {
         install_update();
       } else {
         check_for_update();
@@ -3372,6 +3382,9 @@ void App::draw_screen() {
     case Screen::Setup:
       draw_setup();
       break;
+    case Screen::Notes:
+      draw_notes();
+      break;
     case Screen::Pictures:
       draw_pictures();
       break;
@@ -3397,8 +3410,14 @@ void App::start() {
     // Saved at once, so a restart part way through comes back to it.
     save_settings(*board_.storage, settings_);
     resume_reader_ = false;
+    // A new card starts with this version: nothing is new to it.
+    if (std::strcmp(update_state_.started, board_.version) != 0) {
+      textfile::copy(board_.version, update_state_.started, sizeof(update_state_.started));
+      save_update_state(*board_.storage, update_state_);
+    }
     return open_setup(0);
   }
+  if (show_new_version_notes()) return;
   // After sleep (a restart on the device), carry on reading where we were.
   if (resume_reader_ && library_.count() > 0) {
     resume_reader_ = false;
@@ -3894,6 +3913,7 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Store) return store_back(), false;  // up a level
       if (screen_ == Screen::SleepSetup) return close_sleep_setup(), false;
       if (screen_ == Screen::Setup) return setup_back(), false;
+      if (screen_ == Screen::Notes) return close_notes(), false;
       if (screen_ == Screen::Pictures || screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;
       if (screen_ == Screen::Folders) return folder_up(), false;
       if (screen_ == Screen::Shelve && shelve_confirm_) {
@@ -3981,6 +4001,8 @@ bool App::handle_key(Key key) {
       return true;
     case Screen::Setup:
       return setup_key(key);
+    case Screen::Notes:
+      return notes_key(key);
     case Screen::SleepSetup:
       if (key == Key::Power) return sleep_setup_activate(), false;
       sleep_sel_ = wrap_index(sleep_sel_ + step, kSleepSetupRows);
@@ -4093,6 +4115,9 @@ bool App::handle_gesture(const Gesture& g) {
     pictures_sel_ = wrap_index(pictures_sel_ / kPicturesPerPage + forward, pages) * kPicturesPerPage;
     return true;
   }
+  if (screen_ == Screen::Notes && g.kind != K::Tap) {
+    return notes_key(g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? Key::Next : Key::Prev);
+  }
   if (g.kind != K::Tap) return false;
   if (screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;  // a tap anywhere goes back
   if (screen_ == Screen::Battery || screen_ == Screen::Stats)
@@ -4157,6 +4182,9 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Setup:
       setup_sel_ = item;
       return setup_activate();
+    case Screen::Notes:
+      if (item == kBackItem) return close_notes(), false;
+      return notes_key(item == 0 ? Key::Power : Key::Next);  // the button, or the text: the next page
     case Screen::Reader:
     case Screen::Battery:
     case Screen::Light:

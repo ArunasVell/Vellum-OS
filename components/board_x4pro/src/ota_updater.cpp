@@ -52,9 +52,10 @@ vellum::UpdateResult OtaUpdater::check(const char* current, char* latest, size_t
   const vellum::UpdateResult joined = wifi.join();
   if (joined != vellum::UpdateResult::UpToDate) return joined;
 
-  static char* buffer = static_cast<char*>(heap_caps_malloc(kAnswerBytes, MALLOC_CAP_SPIRAM));
-  if (buffer == nullptr) return vellum::UpdateResult::NoServer;
-  Answer answer{buffer, 0};
+  if (answer_ == nullptr) answer_ = static_cast<char*>(heap_caps_malloc(kAnswerBytes, MALLOC_CAP_SPIRAM));
+  if (answer_ == nullptr) return vellum::UpdateResult::NoServer;
+  answer_len_ = 0;
+  Answer answer{answer_, 0};
   esp_http_client_config_t cfg = {};
   cfg.url = kLatestRelease;
   cfg.crt_bundle_attach = esp_crt_bundle_attach;
@@ -79,9 +80,16 @@ vellum::UpdateResult OtaUpdater::check(const char* current, char* latest, size_t
     ESP_LOGW(kTag, "no update file in the latest release");
     return vellum::UpdateResult::NoServer;
   }
+  answer_len_ = answer.len;
   std::snprintf(latest, size, "%s", version);
   ESP_LOGI(kTag, "latest %s, running %s", version, current);
   return vellum::is_newer_version(version, current) ? vellum::UpdateResult::Available : vellum::UpdateResult::UpToDate;
+}
+
+void OtaUpdater::notes(char* out, size_t size) {
+  if (answer_len_ == 0 || !vellum::release_body(answer_, answer_len_, out, size)) {
+    if (size > 0) out[0] = '\0';
+  }
 }
 
 vellum::UpdateResult OtaUpdater::install(ProgressFn progress, void* ctx) {

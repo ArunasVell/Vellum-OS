@@ -69,6 +69,8 @@ New versions of Vellum are released from time to time. There are two ways to upd
 - **Automatically**: set your home Wi-Fi in **Settings › General › Updates › Home Wi-Fi** (your phone does the typing). The reader then looks for a new version at 3:00 at night while it sleeps and installs it. In **Settings › General › Updates › Automatic** you can choose **Ask first** or **Off** instead, and **Check now** looks straight away.
 - **From a file**: download `vellum-0.1.N.bin` from the [latest release](https://github.com/ArunasVell/Vellum-OS/releases/latest), then on the reader choose **Settings › General › Updates › Update from a file** and send the file from your phone or computer the same way as books.
 
+When **Check now** finds a new version, a **What's new** screen lists its new features and bug fixes before you install it (the side buttons turn its pages). After any update, however it was installed, the reader shows what's new once when it first starts.
+
 Updates keep your books, settings and reading progress.
 
 ## Going back to the original software

@@ -2252,6 +2252,38 @@ void test_update_helpers() {
   std::remove("test-card/vellum/update.txt");
 }
 
+void test_release_notes() {
+  // The body of a release answer, unescaped: lines, quotes, letters beyond
+  // ASCII (Lithuanian, and an emoji as a surrogate pair).
+  const char* json =
+      "{\"tag_name\":\"v0.1.50\",\"body\":\"Intro \\\"quoted\\\".\\r\\n\\r\\n## New in this version\\r\\n\\r\\n"
+      "### New features\\r\\n\\r\\n* \\u0160viesa \\ud83d\\udca1 (#12)\\r\\n- Plain dash item\\r\\n\\r\\n"
+      "### Bug fixes\\r\\n\\r\\n* Fix a/b (#7)\\r\\n* Keep (this) (#x)\\r\\n\",\"assets\":[]}";
+  char body[512];
+  CHECK(release_body(json, std::strlen(json), body, sizeof(body)));
+  CHECK(std::string(body).rfind("Intro \"quoted\".\n\n## New in this version\n", 0) == 0);
+  CHECK(std::string(body).find("* \xC5\xA0viesa \xF0\x9F\x92\xA1 (#12)\n") != std::string::npos);
+  CHECK(std::string(body).find('\r') == std::string::npos);
+  // Too small: cut after a whole line.
+  char small[24];
+  CHECK(release_body(json, std::strlen(json), small, sizeof(small)));
+  CHECK(std::string(small) == "Intro \"quoted\".\n\n");
+  CHECK(!release_body("{\"tag_name\":\"v1\"}", 17, body, sizeof(body)));
+
+  // Tidied for the screen, over the same buffer: the part after "New in
+  // this version", groups marked with #, the changes without their numbers.
+  const size_t n = tidy_release_notes(body, std::strlen(body), body, sizeof(body));
+  CHECK(std::string(body) ==
+        "#New features\n\xC5\xA0viesa \xF0\x9F\x92\xA1\nPlain dash item\n#Bug fixes\nFix a/b\nKeep (this) (#x)\n");
+  CHECK(n == std::strlen(body));
+  // The notes built into the firmware have no intro; too little room keeps whole entries.
+  const char* built_in = "### Bug fixes\n\n* Fix the clock (#3)\n* Fix the light (#4)\n";
+  char out[32];
+  CHECK(tidy_release_notes(built_in, std::strlen(built_in), out, sizeof(out)) > 0);
+  CHECK(std::string(out) == "#Bug fixes\nFix the clock\n");
+  CHECK(tidy_release_notes("Nothing listed.\n", 16, out, sizeof(out)) == 0 && out[0] == '\0');
+}
+
 class FakeUpdater : public Updater {
  public:
   void home_network(char* out, size_t size) override { std::snprintf(out, size, "%s", network); }
@@ -2266,6 +2298,8 @@ class FakeUpdater : public Updater {
     for (int p = 0; p <= 100 && progress != nullptr; p += 25) progress(ctx, p);
     return install_result;
   }
+  void notes(char* out, size_t size) override { std::snprintf(out, size, "%s", release_notes); }
+  const char* release_notes = "";
   const char* network = "Home";
   const char* newest = "0.1.50";
   UpdateResult check_result = UpdateResult::Available;
@@ -2311,7 +2345,8 @@ void test_app_updates_screen() {
   tap(*app, 240, 150);  // Updates, its first row
   tap(*app, 240, 325);  // Check now: the home Wi-Fi is out of reach
   CHECK(updater.checks == 1 && updater.installs == 0);
-  CHECK(read_all("test-card/vellum/update.txt").empty());  // a failed check remembers nothing
+  // A failed check remembers nothing (the file only has the version that started).
+  CHECK(read_all("test-card/vellum/update.txt").find("latest=\nchecked=\n") != std::string::npos);
 
   updater.check_result = UpdateResult::Available;
   tap(*app, 240, 325);  // again: 0.1.50 is out
@@ -2350,6 +2385,82 @@ void test_app_updates_screen() {
   delete app;
   std::remove("test-card/vellum/settings.txt");
   std::remove("test-card/vellum/update.txt");
+}
+
+// What's new: before installing, when a check finds a version with notes,
+// and once after an update, from the notes built into the new version.
+void test_app_release_notes() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  NightPower power;
+  TestClock clock;
+  std::filesystem::remove_all("test-card-notes");
+  StdioStorage card("test-card-notes");
+  FakeTransfer transfer;
+  FakeUpdater updater;
+  updater.release_notes =
+      "Intro.\n\n## New in this version\n\n### New features\n\n* Read faster (#60)\n\n### Bug fixes\n\n"
+      "* Fix the clock (#61)\n";
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data(), &transfer};
+  board.version = "0.1.42";
+  board.updater = &updater;
+  settled(card);
+  const auto update_file = [] { return read_all("test-card-notes/vellum/update.txt"); };
+  {
+    App app(board);
+    app.start();  // no notes built in: home
+    CHECK(update_file().find("started=0.1.42\n") != std::string::npos);
+    tap(app, 240, 715);  // Settings
+    tap(app, 240, 153);  // General
+    tap(app, 240, 150);  // Updates
+    tap(app, 240, 325);  // Check now: 0.1.50 is out, and what's new in it shows
+    CHECK(updater.checks == 1 && updater.installs == 0);
+    CHECK(read_all("test-card-notes/vellum/notes.txt") == "#New features\nRead faster\n#Bug fixes\nFix the clock\n");
+    const std::vector<uint8_t> notes = buf;
+    press(app, Key::Next);  // one page only: nothing to turn
+    CHECK(buf == notes);
+    press(app, Key::Home);  // back to Updates, without installing
+    CHECK(buf != notes && updater.installs == 0);
+  }
+  {
+    // After a restart the notes come from the card: the Install row shows them first.
+    App app(board);
+    app.start();
+    tap(app, 240, 715);
+    tap(app, 240, 153);
+    tap(app, 240, 150);
+    tap(app, 240, 325);  // Install Vellum 0.1.50: what's new first
+    CHECK(updater.checks == 1 && updater.installs == 0);
+    press(app, Key::Power);  // Install
+    CHECK(updater.installs == 1 && power.restarts == 1);
+  }
+
+  // The new version starts: its own notes, once.
+  board.version = "0.1.50";
+  board.release_notes = "### Bug fixes\n\n* Fix the clock (#61)\n";
+  std::vector<uint8_t> first;
+  {
+    App app(board);
+    app.start();
+    first = buf;
+    CHECK(update_file().find("started=0.1.50\n") != std::string::npos);
+    press(app, Key::Power);  // Done: home
+    CHECK(buf != first);
+  }
+  {
+    App app(board);
+    app.start();  // seen: home
+    CHECK(buf != first);
+  }
+  // A new card starts with the setup, not with what's new.
+  std::filesystem::remove_all("test-card-notes");
+  {
+    App app(board);
+    app.start();
+    CHECK(update_file().find("started=0.1.50\n") != std::string::npos);
+  }
+  std::filesystem::remove_all("test-card-notes");
 }
 
 // The first-time setup: a card Vellum has never used shows it before home.
@@ -7066,6 +7177,7 @@ int main() {
   test_app_quick_panel();
   test_app_update();
   test_update_helpers();
+  test_release_notes();
   test_app_sleep();
   test_app_contents_and_bookmarks();
   test_dates_and_battery_log();
@@ -7077,6 +7189,7 @@ int main() {
   test_font_library();
   test_app_fonts();
   test_app_updates_screen();
+  test_app_release_notes();
   test_app_first_setup();
   test_app_night_update();
   test_app_device_check_memory();

@@ -44,6 +44,8 @@ void draw_fitted(Framebuffer& fb, const Font& font, int x, int baseline, int max
 // ellipsis when text is left over. Returns the baseline after the last line.
 int draw_wrapped(Framebuffer& fb, const Font& font, int x, int baseline, int max_w, int max_lines,
                  std::string_view text, bool centered, Color c = Color::Black);
+// The number of lines draw_wrapped() breaks `text` into, with no limit.
+int wrapped_line_count(const Font& font, int max_w, std::string_view text);
 // Small capitals-style label: uppercase text with extra letter spacing.
 void draw_label(Framebuffer& fb, int x, int baseline, std::string_view text);
 
