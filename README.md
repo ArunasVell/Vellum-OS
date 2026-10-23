@@ -2,19 +2,22 @@
 
 Fast, battery-friendly, beautifully simple firmware for e-ink readers. Starting with the XTEINK X4 Pro, built to run on more devices.
 
-> **Status: alpha.** Vellum installs and runs on the XTEINK X4 Pro. The screen, touch screen, Home pad, SD card and updates are confirmed working on a device; the rest is still being tested day to day (see [docs/first-day-tests.md](docs/first-day-tests.md)). Expect rough edges, and save the original software before installing (the installer does this for you).
+> **Status: alpha.** Vellum installs and runs on the XTEINK X4 Pro. The screen, touch screen, Home pad, SD card, updates and overnight sleep are confirmed working on a device; the rest is still being tested day to day (see [docs/first-day-tests.md](docs/first-day-tests.md)). Expect rough edges, and save the original software before installing (the installer does this for you).
 
 ## What it does
 
 - **Reading**: justified, hyphenated text (English and Lithuanian) in Literata, Atkinson Hyperlegible Next, EB Garamond or your own font; text size, spacing, margins and alignment; pictures, links and footnotes; night mode, focus mode and go-to page.
-- **Books**: EPUB, Kindle books without DRM (MOBI, AZW3), PDF with text in it, Word, RTF, Markdown, FB2, plain text, web pages and comics (CBZ).
+- **Books**: EPUB, Kindle books without DRM (MOBI, AZW3, PRC), PDF with text in it, Word (DOCX), RTF, Markdown, FB2, plain text, web pages and comics (CBZ). Other formats are converted once, the first time you open them, with a page count on screen and a tap to stop; PDFs open quickly even when they are large.
 - **Finding your place**: chapters, bookmarks, highlights, a dictionary, reading stats, and the page you were on in every book.
-- **Library**: cover grid or list, shelves, folders, search and recently added.
+- **Library**: cover grid or list, shelves, folders, search and recently added; hold a book to put it on a shelf or delete it (it asks first).
 - **Getting books**: send them from a phone or computer over Wi-Fi, download free books from Project Gutenberg, Standard Ebooks or your own catalogue, or send a book from one Vellum reader to another.
 - **Sync**: reading position with KOReader sync, and every setting can be changed from a phone page.
-- **Sleep and battery**: the book's cover, your own pictures or stats on the sleep screen; a battery log with a 7-day chart and time left.
+- **Speed and battery**: the screen stays powered for a moment between page turns so the next one is quicker, the chip sleeps lightly between presses, and Device check shows how long the last page took.
+- **Sleep screen and battery log**: the book's cover, your own pictures or stats on the sleep screen; a battery log with a 7-day chart and time left.
 - **Controls**: remap any button, swipe and tap gestures, a quick panel, screen rotation and front light.
-- **Setup and updates**: a short first-time setup (each step can be skipped), menus in English, Lithuanian, German, French, Spanish, Italian, Polish, Latvian, Estonian or Ukrainian, and updates installed from a phone or a file.
+- **Settings**: grouped into short pages (General, Wi-Fi, Display & light, Reading, Battery, Sleep, Reading stats), with Normal or Large menu text that looks the same size in every font.
+- **Languages**: menus in English, Lithuanian, German, French, Spanish, Italian, Polish, Latvian, Estonian and Ukrainian (book text is hyphenated in English and Lithuanian).
+- **Setup and updates**: a short first-time setup (each step can be skipped), and updates installed over Wi-Fi or from a file.
 
 ## Goals
 
