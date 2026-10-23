@@ -186,7 +186,8 @@ class App {
     Pictures,      // the reader's own sleep pictures, to mark
     SleepPreview,  // the sleep screen, until a button is pressed
     Buttons,       // what each button does
-    Setup          // a step of the first-time setup
+    Setup,         // a step of the first-time setup
+    Notes          // what's new in a version (its release notes)
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -329,6 +330,20 @@ class App {
   bool update_available() const;
   void check_for_update();
   void install_update();
+  // What's new (app_notes.cpp). keep_release_notes() takes the notes of the
+  // version a check just found from the Updater and keeps them on the card;
+  // offered_notes() puts them in notes_, false when there are none.
+  void keep_release_notes(const char* latest);
+  bool offered_notes();
+  // Shows notes_: before installing (`offer`: Power installs) or after an
+  // update. Home goes back to `back`, or into the book when then_book.
+  void open_notes(bool offer, Screen back, bool then_book = false);
+  // Once per version: the first start of a new one shows what's new in it
+  // (Board::release_notes). Returns true when it did.
+  bool show_new_version_notes();
+  void close_notes();
+  bool notes_key(Key key);  // true when the screen needs a redraw
+  void draw_notes();
   // KOReader sync of the open book. sync_progress() first takes a further
   // position from the server (moving there) when `pull`, else (or when there
   // is none) sends this one; it shows how it went on the Contents row.
@@ -747,6 +762,16 @@ class App {
   UpdateResult update_result_ = UpdateResult::UpToDate;
   int install_percent_ = 0;
   int updates_sel_ = 0;
+  // What's new: the notes shown (tidy_release_notes, allocated once) and
+  // which version they are for.
+  static constexpr size_t kNotesBytes = 4096;
+  char* notes_;
+  char notes_version_[32] = {};
+  int notes_page_ = 0;
+  int notes_pages_ = 1;           // counted as the screen is drawn
+  bool notes_offer_ = false;      // before installing: Power installs
+  bool notes_then_book_ = false;  // closing opens the book (a start that would have)
+  Screen notes_back_ = Screen::Home;
   int setup_step_ = 0;           // the setup's step shown
   int setup_sel_ = 0;            // the row or button in hand on it
   bool setup_transfer_ = false;  // the setup opened the transfer screen: back to it afterwards

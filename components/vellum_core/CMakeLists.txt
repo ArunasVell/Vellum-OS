@@ -4,6 +4,7 @@
 set(VELLUM_CORE_SRCS
   src/app.cpp
   src/app_reading.cpp
+  src/app_notes.cpp
   src/app_setup.cpp
   src/app_controls.cpp
   src/app_quick.cpp

@@ -21,6 +21,23 @@ bool is_newer_version(const char* latest, const char* current);
 // false when either is missing.
 bool parse_release(const char* json, size_t len, char* version, size_t version_size, char* url, size_t url_size);
 
+// The release notes in a GitHub "latest release" answer: its "body" string,
+// unescaped into UTF-8 (cut at a whole line when it does not fit). Returns
+// false when there is none.
+bool release_body(const char* json, size_t len, char* out, size_t size);
+
+// Release notes in Markdown (a release's body, or the notes CI builds into
+// the firmware) made ready for the "What's new" screen: only what follows a
+// "## New in this version" line when there is one, then one entry per line,
+// "#Group" for a "### Group" heading and the change itself for a "* " or
+// "- " line, without its " (#N)". Everything else is dropped. `out` may be
+// `md` itself. Returns the length written (out is 0-terminated).
+size_t tidy_release_notes(const char* md, size_t len, char* out, size_t size);
+
+// The notes of the version found but not installed yet (UpdateState::latest),
+// tidied as above.
+constexpr const char* kReleaseNotesPath = "vellum/notes.txt";
+
 // Seconds from `now` until the next time the clock shows hour:00, 1..86400.
 uint32_t seconds_until_hour(const DateTime& now, int hour);
 
@@ -32,6 +49,7 @@ struct UpdateState {
   DateTime checked = {};       // when it was last asked
   bool has_checked = false;    // `checked` is set
   bool night_restart = false;  // a version was installed at night: go back to sleep after the restart
+  char started[32] = {};       // the newest version that has started with this card; another shows What's new
 };
 
 constexpr const char* kUpdateStatePath = "vellum/update.txt";

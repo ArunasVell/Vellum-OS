@@ -31,6 +31,9 @@
 #include "vellum/stdio_storage.h"
 #include "wifi_transfer.h"
 
+// What's new in this version (release-notes.md, embedded by CMakeLists.txt).
+extern const char release_notes_md[] asm("_binary_release_notes_md_start");
+
 namespace {
 
 constexpr const char* kTag = "x4pro";
@@ -842,6 +845,7 @@ vellum::Board& board_x4pro_init() {
       "XTEINK X4 Pro",        display, input,     power, &light, &clock, have_card ? &card : nullptr,
       vellum::Rotation::R270, fb,      &transfer, &peers};
   board.version = esp_app_get_description()->version;
+  board.release_notes = release_notes_md;
   board.builtin_books = false;  // only the card's own books
   board.memory = memory_info;
   static OtaUpdater updater;

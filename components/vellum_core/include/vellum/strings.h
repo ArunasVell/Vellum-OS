@@ -167,6 +167,11 @@ struct Strings {
   const char* hint_setup;
   const char* update_notice;  // printf: version; small notice on the home screen
   const char* update_new;     // settings row value when one is ready
+  // What's new in a version (its release notes)
+  const char* whats_new;        // screen title
+  const char* note_groups[3];   // uppercase labels: new features, bug fixes, other changes
+  const char* hint_notes;       // before installing
+  const char* hint_notes_done;  // once after an update
   // Sending books reader to reader
   const char* send_book;     // contents row
   const char* send_title;    // screen title
