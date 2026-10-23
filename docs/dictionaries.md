@@ -44,6 +44,42 @@ The first lookup in a large dictionary takes a few seconds while Vellum
 writes a small index of it to `vellum/dictionaries` on the card; later
 lookups are quick.
 
+## Ready-made dictionaries
+
+`tools/make_dictionaries.py` builds four dictionaries made for Vellum, from
+free word lists:
+
+| Files | What it is | Words |
+| --- | --- | --- |
+| `english` | English words explained in English (Wiktionary) | 574,000 with forms |
+| `english-lithuanian` | Lithuanian words for English ones (FreeDict) | 6,000 |
+| `lithuanian-english` | Lithuanian words explained in English, with their forms (Wiktionary) | 7,000 words, 130,000 forms |
+| `lithuanian-english-freedict` | Lithuanian words in English, a second list (FreeDict) | 7,000 |
+
+Copy the `dictionaries` folder it makes to the card as it is (about 32 MB;
+the English one is 29 MB of it, leave it out if you do not need it).
+`SOURCES.txt` in that folder names the sources and licences.
+
+They differ from the downloads below in ways that suit the reader:
+
+- **Word forms are words of their own.** Vellum ignores `.syn` files, where
+  most dictionaries keep forms, so here `Afrikoje`, `šuniui` and `ėjo`
+  find `Afrika`, `šuo` and `eiti`, and `went` and `mice` find `go` and
+  `mouse`. Lithuanian forms are stored without stress marks, as books
+  print them.
+- **Short, plain text.** Each meaning is numbered and the text stops at a
+  whole meaning before the 4 KB the reader shows.
+
+For an English book the English one answers first; the
+English–Lithuanian one only when it does not have the word. To get
+Lithuanian words first instead, leave `english.*` off the card.
+
+To build them again (needs git and Python 3):
+
+```sh
+python3 tools/make_dictionaries.py --fetch sources out
+```
+
 ## Free dictionaries
 
 None of these are bundled with Vellum; download them yourself. Check each
