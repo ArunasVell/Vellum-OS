@@ -143,7 +143,7 @@ bool App::draw_sleep_picture(bool preview) {
   sleep_pictures_.scan(card);
   // The shuffle varies with the time and with each sleep.
   DateTime now{};
-  const uint32_t clock = board_.clock != nullptr && board_.clock->now(now) ? seconds_since_2000(now) : 0;
+  const uint32_t clock = clock_ != nullptr && clock_->now(now) ? seconds_since_2000(now) : 0;
   const uint32_t seed = steady_ms() ^ clock ^ (sleeps_ * 2654435761u);
   const int i = sleep_pictures_.choose(card, settings_.sleep_order, seed, !preview);
   if (i < 0) return false;
@@ -230,7 +230,7 @@ void App::draw_sleep_stats() {
   }
 
   // Three figures side by side: today, the last seven days, books finished.
-  const int day = today(board_.clock);
+  const int day = today(clock_);
   char today_text[24] = "\xE2\x80\x93", week_text[24] = "\xE2\x80\x93", done_text[16];  // – without the clock
   if (day >= 0) {
     format_duration(lang, static_cast<int>(stats_.seconds_between(day, day) / 60), today_text, sizeof(today_text));

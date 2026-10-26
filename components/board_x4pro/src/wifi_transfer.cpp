@@ -488,17 +488,24 @@ struct WifiTransfer::Impl {
 
   static esp_err_t post_time(httpd_req_t* req) {
     auto* self = static_cast<Impl*>(req->user_ctx);
-    char body[32];
-    vellum::DateTime t;
+    char body[256];
+    vellum::PhoneTime t;
     const int n = req->content_len < sizeof(body) ? httpd_req_recv(req, body, req->content_len) : -1;
-    if (n <= 0 || !vellum::parse_datetime(body, static_cast<size_t>(n), t)) {
-      return fail(req, "400 Bad Request", "Expected YYYY-MM-DD HH:MM:SS.");
+    if (n <= 0 || !vellum::parse_phone_time(body, static_cast<size_t>(n), t)) {
+      return fail(req, "400 Bad Request", "Expected utc=YYYY-MM-DD HH:MM:SS.");
     }
-    if (self->clock == nullptr || !self->clock->set(t)) {
+    if (self->clock == nullptr || !self->clock->set(t.utc)) {
       return fail(req, "500 Internal Server Error", "The clock could not be set.");
     }
-    ESP_LOGI(kTag, "clock set to %.*s", n, body);
-    self->update([](vellum::TransferStatus&) {});  // redraw with the new time
+    ESP_LOGI(kTag, "clock set to %04u-%02u-%02u %02u:%02u UTC, zone %s %s", unsigned{t.utc.year}, unsigned{t.utc.month},
+             unsigned{t.utc.day}, unsigned{t.utc.hour}, unsigned{t.utc.minute}, t.name, t.rule);
+    // Redraw with the new time; the app takes up the zone.
+    self->update([&](vellum::TransferStatus& s) {
+      if (t.rule[0] == '\0') return;
+      ++s.zones_sent;
+      std::snprintf(s.zone_name, sizeof(s.zone_name), "%s", t.name);
+      std::snprintf(s.zone_rule, sizeof(s.zone_rule), "%s", t.rule);
+    });
     return httpd_resp_sendstr(req, "ok");
   }
 

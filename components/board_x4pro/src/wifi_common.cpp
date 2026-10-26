@@ -1,10 +1,14 @@
 #include "wifi_common.h"
 
+#include <sys/time.h>
+
 #include <cstring>
+#include <ctime>
 
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_netif_sntp.h"
 #include "esp_wifi.h"
 #include "nvs.h"
 #include "nvs_flash.h"
@@ -105,6 +109,17 @@ vellum::UpdateResult HomeWifi::join(CancelFn cancelled, void* ctx) {
     if (bits & kGotIp) {
       ESP_LOGI(kTag, "joined %s", ssid);
       joined_ = true;
+      if (clock_ != nullptr && !asking_time_) {
+        // The answer comes on its own while the network stays up.
+        esp_sntp_config_t time = {};
+        time.wait_for_sync = true;
+        time.start = true;
+        time.sync_cb = on_time;
+        time.ip_event_to_renew = IP_EVENT_STA_GOT_IP;
+        time.num_of_servers = 1;
+        time.servers[0] = "pool.ntp.org";
+        asking_time_ = esp_netif_sntp_init(&time) == ESP_OK;
+      }
       return vellum::UpdateResult::UpToDate;
     }
     esp_wifi_disconnect();
@@ -120,6 +135,10 @@ vellum::UpdateResult HomeWifi::join(CancelFn cancelled, void* ctx) {
 
 void HomeWifi::leave() {
   joined_ = false;
+  if (asking_time_) {
+    esp_netif_sntp_deinit();
+    asking_time_ = false;
+  }
   if (on_) {
     esp_wifi_disconnect();
     esp_wifi_stop();
@@ -134,4 +153,15 @@ void HomeWifi::leave() {
 
 void HomeWifi::on_event(void* arg, esp_event_base_t base, int32_t, void*) {
   xEventGroupSetBits(static_cast<EventGroupHandle_t>(arg), base == IP_EVENT ? kGotIp : kGaveUp);
+}
+
+void HomeWifi::on_time(struct timeval* tv) {
+  const time_t seconds = tv->tv_sec;
+  std::tm utc{};
+  if (clock_ == nullptr || gmtime_r(&seconds, &utc) == nullptr || utc.tm_year + 1900 < 2026) return;
+  const vellum::DateTime t{static_cast<uint16_t>(utc.tm_year + 1900), static_cast<uint8_t>(utc.tm_mon + 1),
+                           static_cast<uint8_t>(utc.tm_mday),         static_cast<uint8_t>(utc.tm_hour),
+                           static_cast<uint8_t>(utc.tm_min),          static_cast<uint8_t>(utc.tm_sec)};
+  const bool ok = clock_->set(t);
+  ESP_LOGI(kTag, "clock %s from the time server: %02d:%02d UTC", ok ? "set" : "not set", utc.tm_hour, utc.tm_min);
 }

@@ -23,6 +23,8 @@
     .clock = "Orologio",
     .clock_24 = "24 ore",
     .clock_12 = "12 ore",
+    .time_zone = "Fuso orario",
+    .zone_auto = "auto",
     .sleep_after = "Stop dopo",
     .sleep_names = {"5 min", "10 min", "30 min", "Mai"},
     .sleeping = "IN STOP",

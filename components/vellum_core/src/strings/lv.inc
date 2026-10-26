@@ -23,6 +23,8 @@
     .clock = "Pulkstenis",
     .clock_24 = "24 stundu",
     .clock_12 = "12 stundu",
+    .time_zone = "Laika josla",
+    .zone_auto = "autom.",
     .sleep_after = "Iemigt pēc",
     .sleep_names = {"5 min", "10 min", "30 min", "Nekad"},
     .sleeping = "MIEGA REŽĪMĀ",

@@ -201,6 +201,13 @@ void draw_tick_box(Framebuffer& fb, int x, int y, bool on, Color c) {
   for (int i = 0; i < 11; ++i) fb.fill_rect({x + 10 + i, y + 16 - i, 3, 3}, paper);
 }
 
+// Copies s into out and clears the rest, so settings compare alike.
+template <size_t N>
+void set_text(char (&out)[N], const char* s) {
+  std::memset(out, 0, N);
+  std::snprintf(out, N, "%s", s);
+}
+
 int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
 
 bool file_exists(Storage& storage, const char* path) {
@@ -218,6 +225,7 @@ enum class Row : uint8_t {
   BookFont,     // the same, for reading
   ReadingPage,  // opens the reading settings
   Clock,
+  TimeZone,  // automatic, or one by hand
   SleepAfter,
   SleepScreen,  // opens the sleep screen settings
   Light,        // opens the front light screen
@@ -267,8 +275,9 @@ enum SettingsPage : int {
 };
 constexpr Row kMainRows[] = {Row::GeneralPage, Row::WifiPage,  Row::DisplayPage, Row::ReadingPage,
                              Row::Battery,     Row::SleepPage, Row::Stats};
-constexpr Row kGeneralRows[] = {Row::Updates,  Row::Check,    Row::Language, Row::Clock,        Row::BookFont,
-                                Row::MenuFont, Row::MenuText, Row::Buttons,  Row::MoveFinished, Row::SetupAgain};
+constexpr Row kGeneralRows[] = {Row::Updates,  Row::Check,        Row::Language,  Row::Clock,
+                                Row::TimeZone, Row::BookFont,     Row::MenuFont,  Row::MenuText,
+                                Row::Buttons,  Row::MoveFinished, Row::SetupAgain};
 constexpr Row kWifiRows[] = {Row::HomeWifi, Row::OwnNetwork};
 constexpr Row kDisplayRows[] = {Row::Light, Row::Orientation, Row::LibraryView};
 constexpr Row kReadingRows[] = {Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins, Row::Alignment,
@@ -288,7 +297,7 @@ constexpr PageRows page_rows(const Row (&rows)[N], Row opener, int parent, uint3
   return {rows, static_cast<int>(N), opener, parent, starts};
 }
 constexpr PageRows kPages[kPageCount] = {page_rows(kMainRows, Row::GeneralPage, kMainPage, 0b0010011),
-                                         page_rows(kGeneralRows, Row::GeneralPage, kMainPage, 0b0010010101),
+                                         page_rows(kGeneralRows, Row::GeneralPage, kMainPage, 0b00100100101),
                                          page_rows(kWifiRows, Row::WifiPage, kMainPage),
                                          page_rows(kDisplayRows, Row::DisplayPage, kMainPage),
                                          page_rows(kReadingRows, Row::ReadingPage, kMainPage, 0b100000001),
@@ -371,6 +380,7 @@ int get(const Settings& s, Row r) {
     case Row::OwnNetwork:
       return s.own_network ? 1 : 0;
     case Row::Buttons:
+    case Row::TimeZone:
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -458,6 +468,7 @@ void set(Settings& s, Row r, int v) {
       s.own_network = v != 0;
       break;
     case Row::Buttons:
+    case Row::TimeZone:
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -486,6 +497,8 @@ const char* row_name(const Strings& t, Row r) {
       return t.menu_text;
     case Row::Clock:
       return t.clock;
+    case Row::TimeZone:
+      return t.time_zone;
     case Row::SleepAfter:
       return t.sleep_after;
     case Row::TextSize:
@@ -598,6 +611,7 @@ const char* value_name(const Strings& t, Row r, int v) {
       return t.refresh_names[v];
     case Row::AutoTurn:  // formatted by draw_settings()
     case Row::Buttons:
+    case Row::TimeZone:
     case Row::MenuFont:
     case Row::BookFont:
     case Row::ReadingPage:
@@ -635,6 +649,8 @@ App::App(Board& board)
   small_cover_.px = new (std::nothrow) uint8_t[covers::kSmallW * covers::kSmallH];
   if (notes_ != nullptr) notes_[0] = '\0';
   fb_.set_rotation(board.rotation);
+  local_clock_.attach(board_.clock);
+  if (board_.clock != nullptr) clock_ = &local_clock_;
   text_book_.on_convert(&App::book_converting, &App::book_progress, this);
   if (board_.storage != nullptr) {
     // A card Vellum has never used (no settings, and it has never slept
@@ -654,6 +670,9 @@ App::App(Board& board)
     shelves_.load(*board_.storage);
     kosync::load_account(*board_.storage, sync_account_);
   }
+  // The clock keeps world time; older versions left local time in it.
+  local_clock_.set_zone(settings_.zone_rule);
+  local_clock_.convert_old_time();
   fb_.set_rotation(rotation_for(screen_));  // Settings › Screen
   library_.load(shipped_books(), board_.storage, epub_, &text_book_);
   fonts_.scan(board_.storage);
@@ -783,7 +802,7 @@ void App::save_progress() {
 
 void App::time_text(char* out, size_t size) const {
   DateTime t;
-  if (board_.clock != nullptr && board_.clock->now(t)) {
+  if (clock_ != nullptr && clock_->now(t)) {
     format_time(t, settings_.time_format, out, size);
   } else if (size > 0) {
     out[0] = '\0';
@@ -1640,7 +1659,7 @@ void App::draw_settings() {
     } else if (row == Row::Stats) {
       // Today's reading so far, and a way in to the rest.
       std::snprintf(value, sizeof(value), "%s", more);
-      if (const int day = today(board_.clock); day >= 0 && stats_.seconds_between(day, day) >= 60) {
+      if (const int day = today(clock_); day >= 0 && stats_.seconds_between(day, day) >= 60) {
         format_duration(settings_.language, static_cast<int>(stats_.seconds_between(day, day) / 60), value,
                         sizeof(value) - 4);
         std::strcat(value, " \xE2\x80\xBA");
@@ -1665,6 +1684,12 @@ void App::draw_settings() {
       std::snprintf(value, sizeof(value), "%s", more);
     } else if (row == Row::MenuFont || row == Row::BookFont) {
       std::snprintf(value, sizeof(value), "%s", row == Row::MenuFont ? settings_.menu_font : settings_.book_font);
+    } else if (row == Row::TimeZone) {
+      if (settings_.zone_auto) {
+        std::snprintf(value, sizeof(value), "%s \xC2\xB7 %s", settings_.time_zone, t.zone_auto);
+      } else {
+        std::snprintf(value, sizeof(value), "%s", settings_.time_zone);
+      }
     } else {
       std::snprintf(value, sizeof(value), "%s", value_name(t, row, get(settings_, row)));
     }
@@ -1736,7 +1761,19 @@ void App::settings_activate() {
   for (int page = kMainPage + 1; page < kPageCount; ++page) {
     if (row == kPages[page].opener) return open_settings_page(page, 0);
   }
-  if (row == Row::MenuFont || row == Row::BookFont) {
+  if (row == Row::TimeZone) {
+    // Automatic, then by hand: the zone in use first, then the next ones
+    // east, and Automatic again after the last.
+    if (settings_.zone_auto) {
+      settings_.zone_auto = false;
+    } else if (const int next = find_zone(settings_.time_zone) + 1; next < zone_count()) {
+      set_text(settings_.time_zone, zone_choice(next).name);
+      set_text(settings_.zone_rule, zone_choice(next).rule);
+    } else {
+      settings_.zone_auto = true;
+    }
+    local_clock_.set_zone(settings_.zone_rule);
+  } else if (row == Row::MenuFont || row == Row::BookFont) {
     // The next typeface in the list, Literata after the last.
     char* name = row == Row::MenuFont ? settings_.menu_font : settings_.book_font;
     safe_fonts_ = false;
@@ -1793,6 +1830,7 @@ void App::open_transfer(bool setup) {
   transfer_back_ = screen_ == Screen::Settings ? Screen::Settings : Screen::Updates;
   transfer_home_failed_ = false;
   transfer_settings_seen_ = 0;
+  transfer_zones_seen_ = 0;
   if (board_.storage == nullptr && !setup) {
     transfer_state_ = TransferState::NoCard;
   } else if (board_.transfer == nullptr) {
@@ -1939,8 +1977,20 @@ void App::take_phone_settings() {
   }
   apply_fonts();
   apply_light();
+  local_clock_.set_zone(settings_.zone_rule);
   kosync::load_account(*board_.storage, sync_account_);
   sync_doc_book_ = sync_sent_book_ = 0;  // the way books are known may have changed
+}
+
+void App::take_phone_zone(const TransferStatus& st) {
+  if (!settings_.zone_auto || st.zone_rule[0] == '\0') return;
+  if (std::strcmp(settings_.time_zone, st.zone_name) == 0 && std::strcmp(settings_.zone_rule, st.zone_rule) == 0) {
+    return;
+  }
+  set_text(settings_.time_zone, st.zone_name);
+  set_text(settings_.zone_rule, st.zone_rule);
+  local_clock_.set_zone(settings_.zone_rule);
+  if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
 }
 
 // A new version of Vellum arrived from the upload page and waits in the spare
@@ -2143,7 +2193,7 @@ void App::open_updates() {
 void App::record_update_check(UpdateResult result, const char* latest) {
   if (result != UpdateResult::Available && result != UpdateResult::UpToDate) return;
   textfile::copy(result == UpdateResult::Available ? latest : "", update_state_.latest, sizeof(update_state_.latest));
-  update_state_.has_checked = board_.clock != nullptr && board_.clock->now(update_state_.checked);
+  update_state_.has_checked = clock_ != nullptr && clock_->now(update_state_.checked);
   if (board_.storage != nullptr) save_update_state(*board_.storage, update_state_);
   if (result == UpdateResult::Available) keep_release_notes(latest);
 }
@@ -2306,7 +2356,7 @@ void App::draw_updates() {
   help_y = ui::draw_wrapped(fb_, ui::label_font(), kSide, help_y, w - 2 * kSide, 3,
                             t.auto_help[static_cast<int>(settings_.auto_update)], false);
   DateTime now;
-  const bool clock_set = board_.clock != nullptr && board_.clock->now(now);
+  const bool clock_set = clock_ != nullptr && clock_->now(now);
   if (settings_.auto_update != AutoUpdate::Off && (network[0] == '\0' || !clock_set)) {
     ui::draw_wrapped(fb_, ui::label_font(), kSide, help_y + 6, w - 2 * kSide, 3, t.night_needs, false);
   }
@@ -2318,8 +2368,7 @@ void App::draw_updates() {
 void App::schedule_night_check() {
   uint32_t seconds = 0;
   DateTime now;
-  if (settings_.auto_update != AutoUpdate::Off && board_.updater != nullptr && board_.clock != nullptr &&
-      board_.clock->now(now)) {
+  if (settings_.auto_update != AutoUpdate::Off && board_.updater != nullptr && clock_ != nullptr && clock_->now(now)) {
     char network[40];
     board_.updater->home_network(network, sizeof(network));
     if (network[0] != '\0') seconds = seconds_until_hour(now, kNightHour);
@@ -2862,7 +2911,7 @@ void App::draw_contents() {
 bool App::record_battery(BatterySample::Kind kind) {
   DateTime now;
   const int level = board_.power.battery_percent();
-  if (board_.clock == nullptr || !board_.clock->now(now) || level < 0) return false;
+  if (clock_ == nullptr || !clock_->now(now) || level < 0) return false;
   BatterySample s;
   s.time = seconds_since_2000(now);
   s.percent = static_cast<uint8_t>(level > 100 ? 100 : level);
@@ -2883,7 +2932,7 @@ void App::sample_battery() {
   const bool was_charging = last != nullptr && last->charging;
   const uint32_t last_time = last != nullptr ? last->time : 0;
   DateTime now;
-  if (board_.clock == nullptr || !board_.clock->now(now)) return;
+  if (clock_ == nullptr || !clock_->now(now)) return;
   const uint32_t t = seconds_since_2000(now);
   const bool charging = board_.power.charging();
   if (last != nullptr && t >= last_time && t - last_time < BatteryLog::kIntervalS && charging == was_charging) return;
@@ -2903,7 +2952,7 @@ void App::draw_battery() {
   draw_text(fb_, ui::label_font(), kSide * 64, kSubtitleBase, board_.power.charging() ? t.charging : t.on_battery);
 
   DateTime now;
-  if (board_.clock == nullptr || !board_.clock->now(now)) {
+  if (clock_ == nullptr || !clock_->now(now)) {
     ui::draw_wrapped(fb_, ui::text_font(), kSide, kChartLabelBase + 30, w - 2 * kSide, 6, t.clock_unset, false);
     ui::draw_hint(fb_, t.hint_battery);
     return;
@@ -2983,13 +3032,13 @@ uint32_t App::steady_ms() const {
   if (const uint32_t ms = board_.input.now_ms(); ms != 0) return ms;
   // Only differences matter, so the clock's milliseconds may wrap.
   DateTime now;
-  if (board_.clock != nullptr && board_.clock->now(now)) return seconds_since_2000(now) * 1000u;
+  if (clock_ != nullptr && clock_->now(now)) return seconds_since_2000(now) * 1000u;
   return 0;
 }
 
 void App::stop_reading() {
   if (!stats_.running()) return;
-  stats_.stop(steady_ms(), today(board_.clock));
+  stats_.stop(steady_ms(), today(clock_));
   if (stats_.dirty() && board_.storage != nullptr) stats_.save(*board_.storage);
 }
 
@@ -3010,7 +3059,7 @@ void App::draw_stats() {
   draw_text(fb_, ui::screen_title_font(), kSide * 64, kTitleBase, t.reading_stats);
   char value[48];
 
-  const int day = today(board_.clock);
+  const int day = today(clock_);
   int y = kStatRowsTop;
   if (day < 0) {
     // Without the clock there are no days: say why, and show the rest.
@@ -3706,10 +3755,10 @@ void App::draw_check() {
     std::snprintf(battery, sizeof(battery), "%s", t.missing);
   }
   DateTime now;
-  if (board_.clock != nullptr && board_.clock->now(now)) {
+  if (clock_ != nullptr && clock_->now(now)) {
     std::snprintf(clock, sizeof(clock), "%04u-%02u-%02u %02u:%02u", now.year, now.month, now.day, now.hour, now.minute);
   } else {
-    std::snprintf(clock, sizeof(clock), "%s", board_.clock == nullptr ? t.missing : t.not_set);
+    std::snprintf(clock, sizeof(clock), "%s", clock_ == nullptr ? t.missing : t.not_set);
   }
   if (board_.storage != nullptr) {
     int books = 0;
@@ -3820,6 +3869,10 @@ bool App::handle(const InputEvent& ev) {
           finish_update();
           break;
         }
+        if (st.zones_sent != transfer_zones_seen_) {
+          transfer_zones_seen_ = st.zones_sent;
+          take_phone_zone(st);
+        }
         if (st.settings_saved != transfer_settings_seen_) {
           // Settings from the phone: the language or fonts may change everything.
           transfer_settings_seen_ = st.settings_saved;
@@ -3883,7 +3936,7 @@ bool App::turn(int step) {
   if (++turns_since_save_ >= 10) save_progress();
   turned_ = true;
   const uint32_t now = steady_ms();
-  stats_.turn(now, today(board_.clock), step > 0);
+  stats_.turn(now, today(clock_), step > 0);
   if (stats_.save_due(now) && board_.storage != nullptr) stats_.save(*board_.storage);
   return true;
 }

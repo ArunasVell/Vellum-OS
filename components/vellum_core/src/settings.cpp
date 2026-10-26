@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "vellum/textfile.h"
+#include "vellum/time_zone.h"
 #include "vellum/upload_page.h"
 
 namespace vellum {
@@ -81,6 +82,8 @@ constexpr SettingKey kKeys[] = {
      [](Settings& s, int v) { s.large_menu_text = v != 0; }},
     {"orientation", 4, [](const Settings& s) { return static_cast<int>(s.orientation); },
      [](Settings& s, int v) { s.orientation = static_cast<Orientation>(v); }},
+    {"zone_auto", 2, [](const Settings& s) { return s.zone_auto ? 1 : 0; },
+     [](Settings& s, int v) { s.zone_auto = v != 0; }},
 };
 
 // The buttons, one line per set: an action number for each ButtonInput.
@@ -156,6 +159,17 @@ void load_settings(Storage& storage, Settings& out) {
     if (key == "book_font" && !value.empty()) textfile::copy(value, out.book_font, sizeof(out.book_font));
     if (key == "menu_font" && !value.empty()) textfile::copy(value, out.menu_font, sizeof(out.menu_font));
     if (key == "setup_done") out.setup_done = value != "0";
+    if (key == "time_zone" && !value.empty()) {
+      char name[sizeof(out.time_zone)] = {};  // all of it written, so settings compare alike
+      textfile::copy(value, name, sizeof(name));
+      std::memcpy(out.time_zone, name, sizeof(name));
+    }
+    if (key == "zone_rule") {
+      char rule[sizeof(out.zone_rule)] = {};
+      textfile::copy(value, rule, sizeof(rule));
+      TimeZone zone;
+      if (parse_time_zone(rule, zone)) std::memcpy(out.zone_rule, rule, sizeof(rule));
+    }
     if (key == kButtonKeys[0]) parse_buttons(value, true, out.buttons.reader);
     if (key == kButtonKeys[1]) parse_buttons(value, false, out.buttons.menu);
     for (const SettingKey& k : kKeys) {
@@ -179,8 +193,9 @@ bool save_settings(Storage& storage, const Settings& s) {
                          static_cast<int>(set[i]));
     }
   }
-  n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), "book_font=%s\nmenu_font=%s\nsetup_done=%d\n",
-                     s.book_font, s.menu_font, s.setup_done ? 1 : 0);
+  n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n),
+                     "book_font=%s\nmenu_font=%s\nsetup_done=%d\ntime_zone=%s\nzone_rule=%s\n", s.book_font,
+                     s.menu_font, s.setup_done ? 1 : 0, s.time_zone, s.zone_rule);
   if (n >= static_cast<int>(sizeof(buf))) return false;
   return storage.write(kSettingsPath, buf, static_cast<uint32_t>(n));
 }

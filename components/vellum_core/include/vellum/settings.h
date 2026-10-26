@@ -46,6 +46,11 @@ constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
 struct Settings {
   Language language = Language::English;
   TimeFormat time_format = TimeFormat::H24;
+  // The time zone (vellum/time_zone.h): a name to show and its POSIX rule.
+  // When automatic, the phone page sets both from the phone's own.
+  bool zone_auto = true;
+  char time_zone[32] = "Vilnius";
+  char zone_rule[64] = "EET-2EEST,M3.5.0/3,M10.5.0/4";
   SleepAfter sleep_after = SleepAfter::Min10;  // idle time before the reader sleeps
   uint8_t light = 0;                           // front light, 0 (off) to kLightSteps
   uint8_t warmth = 3;                          // 0 (coolest) to kLightSteps (warmest)

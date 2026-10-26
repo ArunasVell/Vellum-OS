@@ -23,6 +23,8 @@
     .clock = "Kell",
     .clock_24 = "24-tunnine",
     .clock_12 = "12-tunnine",
+    .time_zone = "Ajavöönd",
+    .zone_auto = "auto",
     .sleep_after = "Uinu pärast",
     .sleep_names = {"5 min", "10 min", "30 min", "Mitte kunagi"},
     .sleeping = "UNEREŽIIMIS",

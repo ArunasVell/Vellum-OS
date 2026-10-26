@@ -1,6 +1,7 @@
 // What the book transfer (soft access point), the updater and the store
 // (stations on the home network) share: one-time network setup, the home
-// Wi-Fi network saved in flash (NVS), and joining it.
+// Wi-Fi network saved in flash (NVS), and joining it (which also sets the
+// clock from a time server).
 #pragma once
 
 #include <cstddef>
@@ -31,9 +32,16 @@ class HomeWifi {
   // Disconnects and turns the radio off.
   void leave();
   bool joined() const { return joined_; }
+  // While joined, a time server on the internet sets `clock` (world time),
+  // so the reader's clock keeps right without the phone page.
+  static void set_clock(vellum::Clock* clock) { clock_ = clock; }
 
  private:
   static void on_event(void* arg, esp_event_base_t base, int32_t, void*);
+  static void on_time(struct timeval* tv);
+
+  static inline vellum::Clock* clock_ = nullptr;
+  bool asking_time_ = false;
 
   EventGroupHandle_t events_ = nullptr;
   static inline esp_pm_lock_handle_t awake_ = nullptr;

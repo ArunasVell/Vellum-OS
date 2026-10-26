@@ -264,7 +264,7 @@ void App::save_highlight() {
   h.percent = static_cast<uint8_t>(reader_.percent());
   reader_.passage(h.begin.text, h.end, h.text, sizeof(h.text));
   DateTime now;
-  if (board_.clock != nullptr && board_.clock->now(now)) {
+  if (clock_ != nullptr && clock_->now(now)) {
     char date[40];
     std::snprintf(date, sizeof(date), "%04u-%02u-%02u %02u:%02u", unsigned{now.year}, unsigned{now.month},
                   unsigned{now.day}, unsigned{now.hour}, unsigned{now.minute});

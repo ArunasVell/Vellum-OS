@@ -123,11 +123,19 @@ struct DateTime {
 class Clock {
  public:
   virtual ~Clock() = default;
-  // Local wall-clock time. Returns false when the time is not known yet
-  // (the clock lost power and has not been set since).
+  // The time: world time (UTC) when world_time(), else local time. Returns
+  // false when the time is not known yet (the clock lost power and has not
+  // been set since).
   virtual bool now(DateTime& out) = 0;
-  // Sets the time. Returns false when the clock cannot be set.
+  // Sets the time, in the same kind. Returns false when it cannot be set.
   virtual bool set(const DateTime&) { return false; }
+  // True for a clock that keeps world time, which the app shows in the
+  // reader's time zone (vellum/time_zone.h); false for one already in local
+  // time, such as the simulators' (they follow the computer's).
+  virtual bool world_time() const { return false; }
+  // A world-time clock last set by a Vellum from before time zones holds
+  // local time instead, until it is set again.
+  virtual bool holds_local_time() { return false; }
 };
 
 // An open file on storage. Reads are random access; files opened for
@@ -222,6 +230,11 @@ struct TransferStatus {
   // Counts changes the page saved on the card for the app to take up: its
   // settings (vellum/settings.txt) and the sync account (vellum/kosync.txt).
   int settings_saved = 0;
+  // Counts time zones sent by the page (the phone's own, POST /time), the
+  // newest in zone_name and zone_rule (vellum/time_zone.h).
+  int zones_sent = 0;
+  char zone_name[32] = {};
+  char zone_rule[64] = {};
 };
 
 class Transfer {
@@ -368,8 +381,8 @@ struct Board {
   // vellum/updates.h): shown once when it first starts with a card. nullptr
   // or "" when the build has none.
   const char* release_notes = nullptr;
-  Updater* updater = nullptr;    // nullptr when the device cannot update itself
-  Network* network = nullptr;    // nullptr when it cannot reach the internet
+  Updater* updater = nullptr;  // nullptr when the device cannot update itself
+  Network* network = nullptr;  // nullptr when it cannot reach the internet
   // Fills in the free memory now; nullptr when the board does not tell.
   void (*memory)(MemoryInfo& out) = nullptr;
   // Whether the library lists the few public-domain books built into the

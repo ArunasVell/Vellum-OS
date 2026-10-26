@@ -41,6 +41,7 @@
 #include "vellum/strings.h"
 #include "vellum/text.h"
 #include "vellum/text_book.h"
+#include "vellum/time_zone.h"
 #include "vellum/touch.h"
 #include "vellum/ui.h"
 #include "vellum/updates.h"
@@ -809,6 +810,181 @@ class FakeTransfer : public Transfer {
   bool fail_home = false;  // which cannot be joined
   std::string last_fonts;
 };
+
+bool same_time(const DateTime& a, const DateTime& b) {
+  return a.year == b.year && a.month == b.month && a.day == b.day && a.hour == b.hour && a.minute == b.minute &&
+         a.second == b.second;
+}
+
+void test_time_zone() {
+  // Days and seconds both ways, over a leap day.
+  for (const DateTime t : {DateTime{2000, 1, 1, 0, 0, 0}, DateTime{2028, 2, 29, 23, 59, 59},
+                           DateTime{2026, 12, 31, 12, 30, 5}, DateTime{2099, 3, 1, 1, 2, 3}}) {
+    CHECK(same_time(from_epoch_seconds(epoch_seconds(t)), t));
+  }
+  CHECK(epoch_seconds({2026, 10, 26, 17, 30, 0}) == 1793035800);
+
+  TimeZone lt;
+  CHECK(parse_time_zone(kDefaultZoneRule, lt));
+  CHECK(lt.offset == 2 * 3600 && lt.summer && lt.summer_offset == 3 * 3600);
+  CHECK(same_time(to_local({2026, 1, 15, 12, 0, 0}, lt), {2026, 1, 15, 14, 0, 0}));
+  CHECK(same_time(to_local({2026, 7, 1, 12, 0, 0}, lt), {2026, 7, 1, 15, 0, 0}));
+  // Summer time starts on the last Sunday of March at 3:00, and ends on the
+  // last Sunday of October at 4:00 (01:00 world time both times).
+  CHECK(same_time(to_local({2026, 3, 29, 0, 59, 59}, lt), {2026, 3, 29, 2, 59, 59}));
+  CHECK(same_time(to_local({2026, 3, 29, 1, 0, 0}, lt), {2026, 3, 29, 4, 0, 0}));
+  CHECK(same_time(to_local({2026, 10, 25, 0, 59, 0}, lt), {2026, 10, 25, 3, 59, 0}));
+  CHECK(same_time(to_local({2026, 10, 25, 1, 0, 0}, lt), {2026, 10, 25, 3, 0, 0}));
+  CHECK(same_time(to_local({2027, 3, 28, 1, 0, 0}, lt), {2027, 3, 28, 4, 0, 0}));  // and every year
+  CHECK(same_time(to_world({2026, 7, 1, 15, 0, 0}, lt), {2026, 7, 1, 12, 0, 0}));
+  CHECK(same_time(to_world({2026, 10, 25, 3, 30, 0}, lt), {2026, 10, 25, 0, 30, 0}));  // the first 3:30
+  CHECK(same_time(to_world({2026, 12, 24, 18, 0, 0}, lt), {2026, 12, 24, 16, 0, 0}));
+
+  // The rule the phone page works out says the same.
+  TimeZone page;
+  CHECK(parse_time_zone("STD-2DST-3,M3.5.0/3,M10.5.0/4", page));
+  CHECK(page.offset == lt.offset && page.summer_offset == lt.summer_offset && page.start.seconds == 3 * 3600);
+
+  TimeZone ny;
+  CHECK(parse_time_zone("STD5DST4,M3.2.0/2,M11.1.0/2", ny));
+  CHECK(same_time(to_local({2026, 3, 8, 6, 59, 0}, ny), {2026, 3, 8, 1, 59, 0}));
+  CHECK(same_time(to_local({2026, 3, 8, 7, 0, 0}, ny), {2026, 3, 8, 3, 0, 0}));
+  CHECK(same_time(to_local({2026, 11, 1, 6, 0, 0}, ny), {2026, 11, 1, 1, 0, 0}));
+
+  // South of the equator summer runs over the new year.
+  TimeZone sydney;
+  CHECK(parse_time_zone("AEST-10AEDT,M10.1.0,M4.1.0/3", sydney));
+  CHECK(same_time(to_local({2026, 1, 15, 0, 0, 0}, sydney), {2026, 1, 15, 11, 0, 0}));
+  CHECK(same_time(to_local({2026, 7, 15, 0, 0, 0}, sydney), {2026, 7, 15, 10, 0, 0}));
+
+  TimeZone india;
+  CHECK(parse_time_zone("<+0530>-5:30", india) && !india.summer);
+  CHECK(same_time(to_local({2026, 7, 1, 12, 0, 0}, india), {2026, 7, 1, 17, 30, 0}));
+  char offset[16];
+  format_offset(india.offset, offset, sizeof(offset));
+  CHECK(std::string(offset) == "UTC+5:30");
+  format_offset(-5 * 3600, offset, sizeof(offset));
+  CHECK(std::string(offset) == "UTC-5");
+
+  TimeZone kept = lt;
+  for (const char* bad : {"", "EE-2", "EET", "EET-2EEST,M13.1.0,M10.5.0", "EET-2EEST,M3.5.0", "EET-2EEST,J60,J300",
+                          "EET-25", "EET-2EEST,M3.5.0/3,M10.5.0/4x"}) {
+    CHECK(!parse_time_zone(bad, kept));
+  }
+  CHECK(kept.offset == lt.offset);
+
+  // Every zone Settings offers reads, west to east.
+  int32_t west = -24 * 3600;
+  for (int i = 0; i < zone_count(); ++i) {
+    TimeZone z;
+    CHECK(parse_time_zone(zone_choice(i).rule, z));
+    CHECK(z.offset >= west);
+    west = z.offset;
+  }
+  CHECK(find_zone(kDefaultZoneName) >= 0 && std::string(zone_choice(find_zone("Vilnius")).rule) == kDefaultZoneRule);
+
+  // POST /time from the phone page.
+  PhoneTime pt;
+  const char body[] = "utc=2026-10-26+17%3A30%3A00&zone=America%2FNew_York&rule=STD5DST4%2CM3.2.0%2F2%2CM11.1.0%2F2";
+  CHECK(parse_phone_time(body, sizeof(body) - 1, pt));
+  CHECK(same_time(pt.utc, {2026, 10, 26, 17, 30, 0}));
+  CHECK(std::string(pt.name) == "New York" && std::string(pt.rule) == "STD5DST4,M3.2.0/2,M11.1.0/2");
+  const char no_rule[] = "utc=2026-10-26+17%3A30%3A00&zone=Europe%2FVilnius&rule=nonsense";
+  CHECK(parse_phone_time(no_rule, sizeof(no_rule) - 1, pt) && pt.rule[0] == '\0' && pt.name[0] == '\0');
+  const char no_name[] = "utc=2026-10-26+17%3A30%3A00&rule=STD-5%3A30";
+  CHECK(parse_phone_time(no_name, sizeof(no_name) - 1, pt) && std::string(pt.name) == "UTC+5:30");
+  const char old[] = "2026-10-26 19:30:00";  // what older pages sent
+  CHECK(!parse_phone_time(old, sizeof(old) - 1, pt));
+
+  // Saved with the other settings.
+  std::filesystem::remove_all("test-card-zone");
+  StdioStorage card("test-card-zone");
+  Settings set;
+  set.zone_auto = false;
+  std::strncpy(set.time_zone, "New York", sizeof(set.time_zone) - 1);  // the rest of each stays zeros
+  std::strncpy(set.zone_rule, "EST5EDT,M3.2.0,M11.1.0", sizeof(set.zone_rule) - 1);
+  CHECK(save_settings(card, set));
+  Settings back;
+  load_settings(card, back);
+  CHECK(back == set);
+  card.write("vellum/settings.txt", "zone_rule=nonsense\n", 19);  // a bad rule keeps Lithuania's
+  Settings fallback;
+  load_settings(card, fallback);
+  CHECK(std::string(fallback.zone_rule) == kDefaultZoneRule && fallback.zone_auto);
+}
+
+// A clock in world time, as the X4 Pro's is; `local` until set, as an
+// older Vellum left it.
+class WorldClock : public Clock {
+ public:
+  bool now(DateTime& out) override {
+    out = from_epoch_seconds(seconds);
+    return true;
+  }
+  bool set(const DateTime& t) override {
+    seconds = epoch_seconds(t);
+    local = false;
+    ++sets;
+    return true;
+  }
+  bool world_time() const override { return true; }
+  bool holds_local_time() override { return local; }
+  int64_t seconds = 0;
+  bool local = false;
+  int sets = 0;
+};
+
+void test_app_time_zone() {
+  std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
+  CountingPanel panel;
+  NoInput input;
+  FixedPower power;
+  std::remove("test-card/vellum/state.txt");
+  StdioStorage card("test-card");
+  settled(card);
+  FakeTransfer transfer;
+  WorldClock clock;
+  clock.seconds = epoch_seconds({2026, 10, 26, 19, 30, 0});  // Vilnius time, from before time zones
+  clock.local = true;
+  Board board{"test", panel, input, power, nullptr, &clock, &card, Rotation::R90, buf.data(), &transfer};
+  {
+    App app(board);
+    CHECK(clock.sets == 1 && !clock.local);
+    CHECK(same_time(from_epoch_seconds(clock.seconds), {2026, 10, 26, 17, 30, 0}));  // world time now
+  }
+  {
+    App app(board);
+    CHECK(clock.sets == 1);  // only once
+    app.start();
+    // The phone page sends the phone's zone: Automatic takes it.
+    tap(app, 240, 657);  // Add books
+    CHECK(transfer.starts == 1);
+    ++transfer.st.zones_sent;
+    std::snprintf(transfer.st.zone_name, sizeof(transfer.st.zone_name), "New York");
+    std::snprintf(transfer.st.zone_rule, sizeof(transfer.st.zone_rule), "STD5DST4,M3.2.0/2,M11.1.0/2");
+    InputEvent ev;
+    ev.type = InputEvent::Type::Transfer;
+    app.handle(ev);
+    const std::string saved = read_all("test-card/vellum/settings.txt");
+    CHECK(saved.find("time_zone=New York\n") != std::string::npos);
+    CHECK(saved.find("zone_rule=STD5DST4,M3.2.0/2,M11.1.0/2\n") != std::string::npos);
+    CHECK(saved.find("zone_auto=1\n") != std::string::npos);
+  }
+  // Picked by hand, the phone's zone is left alone.
+  const std::string by_hand = "zone_auto=0\ntime_zone=Tokyo\nzone_rule=JST-9\n";
+  card.write("vellum/settings.txt", by_hand.data(), static_cast<uint32_t>(by_hand.size()));
+  {
+    App app(board);
+    app.start();
+    tap(app, 240, 657);
+    ++transfer.st.zones_sent;
+    InputEvent ev;
+    ev.type = InputEvent::Type::Transfer;
+    app.handle(ev);
+    CHECK(read_all("test-card/vellum/settings.txt").find("time_zone=New York") == std::string::npos);
+  }
+  std::remove("test-card/vellum/settings.txt");
+}
 
 void test_app_transfer() {
   std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
@@ -2172,13 +2348,13 @@ void test_app_fonts() {
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
   press(*app, Key::Power);                             // General
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Menu font
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);  // Menu font
   press(*app, Key::Power);
   CHECK(read_all("test-card/vellum/settings.txt").find("menu_font=Atkinson Hyperlegible Next") != std::string::npos);
   CHECK(std::string(ui::menu_fonts().label->family) == "Atkinson Hyperlegible Next");
   press(*app, Key::Home);   // back to the main page, on General
   press(*app, Key::Power);  // General
-  for (int i = 0; i < 4; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 5; ++i) press(*app, Key::Next);
   press(*app, Key::Power);  // Book font: the next after Literata
   CHECK(read_all("test-card/vellum/settings.txt").find("book_font=Atkinson Hyperlegible Next") != std::string::npos);
   press(*app, Key::Power);
@@ -2548,7 +2724,7 @@ void test_app_first_setup() {
     // Settings › General › Setup again, its last row, runs it again.
     tap(app, 240, 715);  // Settings
     tap(app, 240, 153);  // General
-    tap(app, 240, 678);  // Setup again
+    tap(app, 240, 730);  // Setup again
     tap(app, kNextX, kButtonY);
     tap(app, kNextX, kButtonY);
     tap(app, kNextX, kButtonY);  // to the home Wi-Fi step
@@ -2948,7 +3124,7 @@ void test_app_after_crash() {
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
   press(*app, Key::Power);                             // General
-  for (int i = 0; i < 5; ++i) press(*app, Key::Next);  // Menu font: the next after Atkinson
+  for (int i = 0; i < 6; ++i) press(*app, Key::Next);  // Menu font: the next after Atkinson
   press(*app, Key::Power);
   CHECK(std::string(ui::menu_fonts().label->family) == "EB Garamond");
   delete app;
@@ -5585,11 +5761,11 @@ void test_app_buttons() {
   press(*app, Key::Next);  // wake
   press(*app, Key::Home);  // a short Home: home, as always
 
-  // Settings › General › Buttons: the eighth row of General.
+  // Settings › General › Buttons: the ninth row of General.
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
   press(*app, Key::Power);  // General
-  for (int i = 0; i < 7; ++i) press(*app, Key::Next);
+  for (int i = 0; i < 8; ++i) press(*app, Key::Next);
   full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -7173,6 +7349,8 @@ int main() {
   test_card_library_and_progress();
   test_covers();
   test_app_transfer();
+  test_time_zone();
+  test_app_time_zone();
   test_app_transfer_cancel();
   test_app_quick_panel();
   test_app_update();

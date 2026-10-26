@@ -10,8 +10,8 @@
 //                           JPEG, PNG or BMP picture for the sleep folder); 200
 //                           when saved, 507 when the card is full, 4xx/5xx
 //                           otherwise
-//   POST /time              the phone's local time, "YYYY-MM-DD HH:MM:SS",
-//                           to set the reader's clock
+//   POST /time              form body for parse_phone_time(): the phone's
+//                           clock and time zone, to set the reader's
 //   GET  /highlights        JSON list of the highlights (Highlights::write_json)
 //   POST /highlights/note   form body id=...&note=...; 200 when saved
 //   POST /highlights/remove form body id=...; 200 when removed
@@ -78,6 +78,18 @@ bool safe_picture_name(const char* in, char* out, size_t size);
 // Parses "YYYY-MM-DD HH:MM:SS" (the body of POST /time). Returns false for
 // anything else, including dates outside 2000-2099.
 bool parse_datetime(const char* in, size_t len, DateTime& out);
+
+// POST /time: utc=YYYY-MM-DD HH:MM:SS (the phone's clock in world time),
+// rule=... (its time zone as a POSIX rule, which the page works out from
+// the phone's clock changes this year) and zone=Europe/Vilnius (the zone's
+// name). Returns false without a good time. A missing or bad rule leaves
+// name and rule empty; a missing name gives one like "UTC+2".
+struct PhoneTime {
+  DateTime utc;
+  char name[32];
+  char rule[64];
+};
+bool parse_phone_time(const char* body, size_t len, PhoneTime& out);
 
 // Appends `s` to out as a JSON string body (without quotes). Returns false
 // when it does not fit.

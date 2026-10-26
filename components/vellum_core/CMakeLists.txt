@@ -55,6 +55,7 @@ set(VELLUM_CORE_SRCS
   src/convert_mobi.cpp
   src/convert_pdf.cpp
   src/textfile.cpp
+  src/time_zone.cpp
   src/touch.cpp
   src/ui.cpp
   src/upload.cpp
