@@ -25,6 +25,8 @@
     .clock_12 = "12 ore",
     .time_zone = "Fuso orario",
     .zone_auto = "auto",
+    .zone_from_phone = "dal telefono",
+    .hint_zones = "Laterali: sposta · Accensione: scegli · Home: indietro",
     .sleep_after = "Stop dopo",
     .sleep_names = {"5 min", "10 min", "30 min", "Mai"},
     .sleeping = "IN STOP",

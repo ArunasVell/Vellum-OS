@@ -25,6 +25,8 @@
     .clock_12 = "12 stundu",
     .time_zone = "Laika josla",
     .zone_auto = "autom.",
+    .zone_from_phone = "no tālruņa",
+    .hint_zones = "Sānu pogas: pārvietot · Barošana: izvēlēties · Sākums: atpakaļ",
     .sleep_after = "Iemigt pēc",
     .sleep_names = {"5 min", "10 min", "30 min", "Nekad"},
     .sleeping = "MIEGA REŽĪMĀ",

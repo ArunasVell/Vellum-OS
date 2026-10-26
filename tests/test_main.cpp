@@ -934,6 +934,8 @@ class WorldClock : public Clock {
   int sets = 0;
 };
 
+void press(App& app, Key key);
+
 void test_app_time_zone() {
   std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
   CountingPanel panel;
@@ -982,6 +984,43 @@ void test_app_time_zone() {
     ev.type = InputEvent::Type::Transfer;
     app.handle(ev);
     CHECK(read_all("test-card/vellum/settings.txt").find("time_zone=New York") == std::string::npos);
+  }
+  // Settings › General › Time zone is a list to pick from.
+  settled(card);  // Automatic
+  {
+    App app(board);
+    app.start();
+    const auto saved = [] { return read_all("test-card/vellum/settings.txt"); };
+    const auto open_list = [&app] {
+      tap(app, 240, 715);  // Settings
+      tap(app, 240, 153);  // General
+      tap(app, 240, 378);  // Time zone
+    };
+    open_list();
+    tap(app, 440, 730);  // ›: the next page
+    tap(app, 240, 410);  // its sixth row
+    CHECK(saved().find("time_zone=London\n") != std::string::npos);
+    CHECK(saved().find("zone_auto=0\n") != std::string::npos);
+    tap(app, 240, 378);              // back on Settings: the list again, on London's page
+    swipe(app, 100, 400, 400, 400);  // the page before: Automatic first
+    press(app, Key::Power);
+    CHECK(saved().find("zone_auto=1\n") != std::string::npos);
+    CHECK(saved().find("time_zone=London\n") != std::string::npos);  // until the phone says
+    // Before Automatic comes the last zone, and after it Automatic again.
+    tap(app, 240, 378);
+    press(app, Key::Prev);
+    press(app, Key::Power);
+    CHECK(saved().find("time_zone=Auckland\n") != std::string::npos);
+    CHECK(saved().find("zone_auto=0\n") != std::string::npos);
+    tap(app, 240, 378);
+    press(app, Key::Next);
+    press(app, Key::Power);
+    CHECK(saved().find("zone_auto=1\n") != std::string::npos);
+    // Home leaves the list as it was.
+    tap(app, 240, 378);
+    press(app, Key::Next);
+    press(app, Key::Home);
+    CHECK(saved().find("zone_auto=1\n") != std::string::npos);
   }
   std::remove("test-card/vellum/settings.txt");
 }

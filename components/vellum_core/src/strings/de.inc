@@ -25,6 +25,8 @@
     .clock_12 = "12 Stunden",
     .time_zone = "Zeitzone",
     .zone_auto = "auto",
+    .zone_from_phone = "vom Telefon",
+    .hint_zones = "Seitentasten: wählen · Power: auswählen · Home: zurück",
     .sleep_after = "Ruhemodus nach",
     .sleep_names = {"5 Min.", "10 Min.", "30 Min.", "Nie"},
     .sleeping = "RUHEMODUS",
