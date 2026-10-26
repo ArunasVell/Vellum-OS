@@ -4094,6 +4094,31 @@ void test_app_waiting_presses_share_a_refresh() {
   std::filesystem::remove_all("test-card-waiting");
 }
 
+void test_reading_streak() {
+  const int d = 9773;  // 2026-10-04
+  ReadingStats stats;
+  // Minutes read on the days d-5 .. d: a 2-minute page turned at a time
+  // (kIdleMs), across two books.
+  auto read = [&](int day, int minutes, const char* path) {
+    stats.start(path, 0);
+    for (int i = 1; i <= minutes / 2; ++i) stats.turn(static_cast<uint32_t>(i) * 120000, day, true);
+    stats.stop(static_cast<uint32_t>(minutes / 2) * 120000, day);
+  };
+  read(d - 5, 40, "books/a.epub");
+  read(d - 3, 20, "books/a.epub");  // two books make up the day's 30
+  read(d - 3, 10, "books/b.epub");
+  read(d - 2, 30, "books/b.epub");
+  read(d - 1, 34, "books/a.epub");
+  CHECK(stats.streak(d, 30 * 60) == 3);  // today not met yet: the run up to yesterday
+  read(d, 12, "books/a.epub");
+  CHECK(stats.streak(d, 30 * 60) == 3);
+  read(d, 18, "books/b.epub");
+  CHECK(stats.streak(d, 30 * 60) == 4);      // today joins once it reaches the goal
+  CHECK(stats.streak(d, 35 * 60) == 0);      // d-1 fell short of 35
+  CHECK(stats.streak(d + 2, 30 * 60) == 0);  // a day missed
+  CHECK(stats.streak(-1, 30 * 60) == 0);     // no clock
+}
+
 void test_app_reading_stats() {
   std::vector<uint8_t> buf(Framebuffer::bytes_for(kW, kH));
   CountingPanel panel;
@@ -4131,17 +4156,37 @@ void test_app_reading_stats() {
   CHECK(saved.find("b\t1\t510\t13\tbuiltin:") != std::string::npos);
   CHECK(saved.find("d\t2026-10-04\t0\t510\t13\n") != std::string::npos);
 
-  // Settings › Reading stats, the seventh row of the main page: opens, Power goes back.
+  // Home now ends with today's reading and the streak, in the hint's place:
+  // Power on it opens Reading stats, and Power again comes back home.
+  press(*app, Key::Prev);                               // the stats line, home's last item
+  CHECK(view.pixel(kW / 2, 800 - 16) == Color::Black);  // highlighted
+  int full = panel.full;
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 1);
+  CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::Black);  // the stats screen's chart
+  press(*app, Key::Power);
+  CHECK(panel.full == full + 2);
+  CHECK(view.pixel(kW / 2, 800 - 16) == Color::White);  // home again, nothing highlighted down there
+
+  // Settings › Reading stats, the seventh row of the main page: a page whose
+  // first row opens the stats screen, Power goes back; then the daily goal.
+  press(*app, Key::Prev);
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
   for (int i = 0; i < 6; ++i) press(*app, Key::Next);
-  int full = panel.full;
+  press(*app, Key::Power);  // the Reading stats page
+  full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
   // Today's weekday sits in a dark pill under the last bar.
   CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::Black);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);
+  CHECK(view.pixel(24, 150) == Color::Black);  // back on the page, its first row highlighted
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // Daily goal: 30 min to 45
+  CHECK(read_all("test-card-stats/vellum/settings.txt").find("daily_goal=4") != std::string::npos);
+  press(*app, Key::Home);
   CHECK(view.pixel(22, 545) == Color::Black);  // back on Settings, the Reading stats row highlighted
 
   // Settings › Reading › Page › Footer: time left in the chapter, then the percent.
@@ -4159,6 +4204,7 @@ void test_app_reading_stats() {
   CHECK(chapter_time != page_number);
   press(*app, Key::Home);
   press(*app, Key::Prev);
+  press(*app, Key::Prev);  // Settings, above the stats line
   press(*app, Key::Power);
   for (int i = 0; i < 3; ++i) press(*app, Key::Next);  // Reading
   press(*app, Key::Power);
@@ -7385,6 +7431,7 @@ int main() {
   test_app_words();
   test_dictionary_upload_names();
   test_reading_stats();
+  test_reading_streak();
   test_reader_pages_left();
   test_reader_long_chapter();
   test_reader_relayout_rendered_fonts();

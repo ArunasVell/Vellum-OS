@@ -234,10 +234,15 @@ class App {
   // What the on-screen keyboard is typing for.
   enum class Typing : uint8_t { Off, Search, NewShelf, RenameShelf, NewShelfForBook, StoreSearch };
 
-  // Home lists the current book, up to kHomeRows others, then these links.
+  // Home lists the current book, up to kHomeRows others, then these links,
+  // then (home_stats_shown()) the line of today's reading and the streak.
   int home_item_count() const;
   void draw_home_buttons(int y, int first_item);
   void home_activate();
+  // Settings › Stats on home, once anything has been read and the clock
+  // is set: the line takes the hint's place at the foot of home.
+  bool home_stats_shown() const;
+  void draw_home_stats(int item);
   // The library: Sort and Search, the tabs, then (on a shelf of the
   // reader's) Rename and Delete, then the books. library_sel_ counts
   // through all of them in that order.
@@ -705,7 +710,8 @@ class App {
   Typing typing_ = Typing::Off;
   int shelve_book_ = 0;  // the book on the shelves screen
   int shelve_sel_ = 0;
-  bool shelve_confirm_ = false;  // asking "Delete this book?": rows No, Yes
+  bool stats_from_home_ = false;  // Reading stats goes back to home, not Settings
+  bool shelve_confirm_ = false;   // asking "Delete this book?": rows No, Yes
   Screen shelve_back_ = Screen::Library;
   int settings_sel_ = 0;
   int settings_page_ = 0;  // the page of Settings shown (SettingsPage)

@@ -234,6 +234,11 @@ constexpr Strings kEnglish = {
     .all_time = "All time",
     .books_label = "BOOKS",
     .nothing_read = "Nothing read yet. Reading time shows here as you turn the pages.",
+    .reading_streak = "Reading streak",
+    .goal_today = "%s today",
+    .home_stats = "Stats on home",
+    .daily_goal = "Daily goal",
+    .open_stats = "Today, week and books",
     .stats_clock =
         "The clock is not set, so reading is not counted by day. Open Add books and load the page on your "
         "phone once: it sets the clock.",
@@ -614,6 +619,11 @@ constexpr Strings kLithuanian = {
     .all_time = "Iš viso",
     .books_label = "KNYGOS",
     .nothing_read = "Dar nieko neskaityta. Skaitymo laikas atsiras čia, kai versite puslapius.",
+    .reading_streak = "Skaitymo serija",
+    .goal_today = "%s šiandien",
+    .home_stats = "Statistika pradžioje",
+    .daily_goal = "Dienos tikslas",
+    .open_stats = "Šiandien, savaitė ir knygos",
     .stats_clock =
         "Laikrodis nenustatytas, todėl skaitymas neskaičiuojamas pagal dienas. Atverkite „Įkelti knygas“ "
         "ir vieną kartą įkelkite puslapį telefone: jis nustatys laikrodį.",
@@ -838,6 +848,7 @@ struct Grammar {
   const char* page_short;
   const char* about;  // printf: number, noun ("About %d %s")
   const char* day[3];
+  const char* days[3];  // standing alone: "4 days" (the streak)
   const char* hour[3];
   const char* h;
   const char* min;
@@ -852,6 +863,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      nullptr,
      "About %d %s",
      {"day", "days", "days"},
+     {"day", "days", "days"},
      {"hour", "hours", "hours"},
      "h",
      "min"},
@@ -863,6 +875,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      "psl.",
      "Apie %d %s",
      {"dieną", "dienas", "dienų"},
+     {"diena", "dienos", "dienų"},
      {"valandą", "valandas", "valandų"},
      "val.",
      "min."},
@@ -873,6 +886,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      {"Seite", "Seiten", "Seiten"},
      nullptr,
      "Etwa %d %s",
+     {"Tag", "Tage", "Tage"},
      {"Tag", "Tage", "Tage"},
      {"Stunde", "Stunden", "Stunden"},
      "h",
@@ -885,6 +899,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      nullptr,
      "Environ %d %s",
      {"jour", "jours", "jours"},
+     {"jour", "jours", "jours"},
      {"heure", "heures", "heures"},
      "h",
      "min"},
@@ -896,6 +911,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      nullptr,
      "Aprox. %d %s",
      {"día", "días", "días"},
+     {"día", "días", "días"},
      {"hora", "horas", "horas"},
      "h",
      "min"},
@@ -906,6 +922,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      {"pagina", "pagine", "pagine"},
      nullptr,
      "Circa %d %s",
+     {"giorno", "giorni", "giorni"},
      {"giorno", "giorni", "giorni"},
      {"ora", "ore", "ore"},
      "h",
@@ -919,6 +936,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      nullptr,
      "Około %d %s",
      {"dnia", "dni", "dni"},
+     {"dzień", "dni", "dni"},
      {"godziny", "godzin", "godzin"},
      "godz.",
      "min"},
@@ -931,6 +949,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      nullptr,
      "Apmēram %d %s",
      {"dienu", "dienas", "dienas"},
+     {"diena", "dienas", "dienas"},
      {"stundu", "stundas", "stundas"},
      "h",
      "min"},
@@ -942,6 +961,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      {"lehekülg", "lehekülge", "lehekülge"},
      nullptr,
      "Umbes %d %s",
+     {"päev", "päeva", "päeva"},
      {"päev", "päeva", "päeva"},
      {"tund", "tundi", "tundi"},
      "h",
@@ -955,6 +975,7 @@ constexpr Grammar kGrammar[kLanguageCount] = {
      nullptr,
      "Близько %d %s",
      {"дня", "днів", "днів"},
+     {"день", "дні", "днів"},
      {"години", "годин", "годин"},
      "год",
      "хв"},
@@ -1016,6 +1037,10 @@ void format_duration(Language lang, int minutes, char* out, size_t size) {
   } else {
     std::snprintf(out, size, "%d %s %d %s", minutes / 60, g.h, minutes % 60, g.min);
   }
+}
+
+void format_day_count(Language lang, int n, char* out, size_t size) {
+  std::snprintf(out, size, "%d %s", n, grammar(lang).days[plural_form(grammar(lang), n)]);
 }
 
 void format_page_count(Language lang, int n, char* out, size_t size) {
