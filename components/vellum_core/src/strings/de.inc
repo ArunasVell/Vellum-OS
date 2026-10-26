@@ -225,6 +225,11 @@
     .all_time = "Insgesamt",
     .books_label = "BÜCHER",
     .nothing_read = "Noch nichts gelesen. Die Lesezeit erscheint hier, sobald Sie umblättern.",
+    .reading_streak = "Lesesträhne",
+    .goal_today = "%s heute",
+    .home_stats = "Statistik auf Start",
+    .daily_goal = "Tagesziel",
+    .open_stats = "Heute, Woche und Bücher",
     .stats_clock =
         "Die Uhr ist nicht gestellt, daher wird das Lesen nicht nach Tagen gezählt. Einmal »Bücher hinzufügen« "
         "öffnen und die Seite auf dem Handy laden: Das stellt die Uhr.",

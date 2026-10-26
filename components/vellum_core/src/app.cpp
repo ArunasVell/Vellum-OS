@@ -2,6 +2,7 @@
 #include "vellum/app.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <new>
@@ -27,6 +28,7 @@ constexpr int kShelfTop = 424;
 constexpr int kHomeRowHeight = 72;
 constexpr int kLinkHeight = 46;
 constexpr int kHomeButtonHeight = 76;  // Home's All books, Add books and Settings
+constexpr int kHomeStatsHeight = 46;   // the line of today's reading at home's foot
 
 // Library and settings geometry.
 constexpr int kTitleBase = 112;  // large screen title
@@ -201,6 +203,60 @@ void draw_tick_box(Framebuffer& fb, int x, int y, bool on, Color c) {
   for (int i = 0; i < 11; ++i) fb.fill_rect({x + 10 + i, y + 16 - i, 3, 3}, paper);
 }
 
+// A ring of radius r around (cx, cy), its band filled clockwise from the
+// top as far as done/total; once full, a solid disc with a tick in it.
+void draw_goal_ring(Framebuffer& fb, int cx, int cy, int r, int done, int total, Color c) {
+  const Color paper = c == Color::Black ? Color::White : Color::Black;
+  const bool full = total > 0 && done >= total;
+  const float reach = total > 0 ? 360.0f * static_cast<float>(std::min(done, total)) / static_cast<float>(total) : 0;
+  for (int dy = -r; dy <= r; ++dy) {
+    for (int dx = -r; dx <= r; ++dx) {
+      const int d2 = dx * dx + dy * dy;
+      if (d2 > r * r) continue;
+      if (full) {
+        fb.set_pixel(cx + dx, cy + dy, c);
+        continue;
+      }
+      if (d2 < (r - 6) * (r - 6)) continue;
+      float angle = std::atan2(static_cast<float>(dx), static_cast<float>(-dy)) * 57.2958f;
+      if (angle < 0) angle += 360.0f;
+      // A thin track all round, the thick band as far as reached.
+      if ((d2 >= (r - 1) * (r - 1) && (dx + dy) % 2 == 0) || angle < reach) fb.set_pixel(cx + dx, cy + dy, c);
+    }
+  }
+  if (!full) return;
+  for (int i = 0; i < 5; ++i) fb.fill_rect({cx - 7 + i, cy - 1 + i, 3, 3}, paper);
+  for (int i = 0; i < 9; ++i) fb.fill_rect({cx - 3 + i, cy + 3 - i, 3, 3}, paper);
+}
+
+// A flame h px tall standing on (cx, bottom), its tip bent to one side:
+// solid with a small inner flame cut out, or hollow when `lit` is false.
+void draw_flame(Framebuffer& fb, int cx, int bottom, int h, bool lit, Color c) {
+  const Color paper = c == Color::Black ? Color::White : Color::Black;
+  // A teardrop h tall: at t px from its tip, its middle and half its
+  // width. The point swells into a round foot and leans right near the top.
+  const auto row = [](int t, int h, int& mid, int& half) {
+    const float r = static_cast<float>(h) * 0.36f;
+    const float centre = static_cast<float>(h) - r;
+    const float y = static_cast<float>(t);
+    const float w =
+        y >= centre ? std::sqrt(std::max(0.0f, r * r - (y - centre) * (y - centre))) : r * std::pow(y / centre, 1.4f);
+    half = static_cast<int>(w + 0.5f);
+    mid = y < centre ? static_cast<int>(r * 0.45f * (1.0f - y / centre) + 0.5f) : 0;
+  };
+  int mid, half;
+  for (int t = 0; t < h; ++t) {
+    row(t, h, mid, half);
+    if (half > 0) fb.hline(cx + mid - half, bottom - h + t, 2 * half + 1, c);
+  }
+  // The inner flame (lit), or the hollow inside the outline (unlit).
+  const int inner = lit ? h / 2 : h - 6;
+  for (int t = 0; t < inner; ++t) {
+    row(t, inner, mid, half);
+    if (half > 0) fb.hline(cx + mid - half, bottom - 3 - inner + t, 2 * half + 1, paper);
+  }
+}
+
 int wrap_index(int i, int count) { return count <= 0 ? 0 : (i % count + count) % count; }
 
 bool file_exists(Storage& storage, const char* path) {
@@ -249,7 +305,10 @@ enum class Row : uint8_t {
   GeneralPage,   // opens the general settings
   WifiPage,      // opens the Wi-Fi settings
   HomeWifi,      // sets the home Wi-Fi from a phone
-  OwnNetwork     // which network Add books uses
+  OwnNetwork,    // which network Add books uses
+  HomeStats,     // today's reading and the streak on home
+  DailyGoal,     // minutes a day for the streak
+  StatsPage      // opens the reading stats settings
 };
 // Settings is sorted into pages: the main page lists them
 // in groups (with the screens that stand alone), and each holds a few rows,
@@ -263,10 +322,11 @@ enum SettingsPage : int {
   kReadingPage,
   kPagePage,
   kSleepPage,
+  kStatsPage,
   kPageCount
 };
 constexpr Row kMainRows[] = {Row::GeneralPage, Row::WifiPage,  Row::DisplayPage, Row::ReadingPage,
-                             Row::Battery,     Row::SleepPage, Row::Stats};
+                             Row::Battery,     Row::SleepPage, Row::StatsPage};
 constexpr Row kGeneralRows[] = {Row::Updates,  Row::Check,    Row::Language, Row::Clock,        Row::BookFont,
                                 Row::MenuFont, Row::MenuText, Row::Buttons,  Row::MoveFinished, Row::SetupAgain};
 constexpr Row kWifiRows[] = {Row::HomeWifi, Row::OwnNetwork};
@@ -275,6 +335,7 @@ constexpr Row kReadingRows[] = {Row::TextSize,    Row::LineSpacing, Row::WordSpa
                                 Row::Hyphenation, Row::Indent,      Row::BookStyles,  Row::PagePage};
 constexpr Row kPageRows[] = {Row::Footer, Row::Night, Row::Focus, Row::AutoTurn, Row::FullRefresh};
 constexpr Row kSleepRows[] = {Row::SleepAfter, Row::SleepScreen};
+constexpr Row kStatsRows[] = {Row::Stats, Row::DailyGoal, Row::HomeStats};
 
 struct PageRows {
   const Row* rows;
@@ -293,7 +354,8 @@ constexpr PageRows kPages[kPageCount] = {page_rows(kMainRows, Row::GeneralPage, 
                                          page_rows(kDisplayRows, Row::DisplayPage, kMainPage),
                                          page_rows(kReadingRows, Row::ReadingPage, kMainPage, 0b100000001),
                                          page_rows(kPageRows, Row::PagePage, kReadingPage),
-                                         page_rows(kSleepRows, Row::SleepPage, kMainPage)};
+                                         page_rows(kSleepRows, Row::SleepPage, kMainPage),
+                                         page_rows(kStatsRows, Row::StatsPage, kMainPage, 0b011)};
 
 // Where a row is on its page.
 constexpr int row_index(int page, Row r) {
@@ -309,6 +371,8 @@ int value_count(Row r) {
       return kLanguageCount;
     case Row::AutoTurn:
       return kAutoTurnSteps;
+    case Row::DailyGoal:
+      return kGoalSteps;
     case Row::FullRefresh:
       return 5;
     case Row::TextSize:
@@ -370,6 +434,10 @@ int get(const Settings& s, Row r) {
       return static_cast<int>(s.full_refresh);
     case Row::OwnNetwork:
       return s.own_network ? 1 : 0;
+    case Row::HomeStats:
+      return s.home_stats ? 0 : 1;
+    case Row::DailyGoal:
+      return s.daily_goal;
     case Row::Buttons:
     case Row::MenuFont:
     case Row::BookFont:
@@ -379,6 +447,7 @@ int get(const Settings& s, Row r) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::StatsPage:
     case Row::SleepScreen:
     case Row::SetupAgain:
     case Row::PagePage:
@@ -457,6 +526,12 @@ void set(Settings& s, Row r, int v) {
     case Row::OwnNetwork:
       s.own_network = v != 0;
       break;
+    case Row::HomeStats:
+      s.home_stats = v == 0;
+      break;
+    case Row::DailyGoal:
+      s.daily_goal = static_cast<uint8_t>(v);
+      break;
     case Row::Buttons:
     case Row::MenuFont:
     case Row::BookFont:
@@ -466,6 +541,7 @@ void set(Settings& s, Row r, int v) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::StatsPage:
     case Row::SleepScreen:
     case Row::SetupAgain:
     case Row::PagePage:
@@ -509,6 +585,8 @@ const char* row_name(const Strings& t, Row r) {
     case Row::Check:
       return t.device_check;
     case Row::Stats:
+      return t.open_stats;
+    case Row::StatsPage:
       return t.reading_stats;
     case Row::SleepScreen:
       return t.sleep_screen;
@@ -556,6 +634,10 @@ const char* row_name(const Strings& t, Row r) {
       return t.home_wifi;
     case Row::OwnNetwork:
       return t.add_books_over;
+    case Row::HomeStats:
+      return t.home_stats;
+    case Row::DailyGoal:
+      return t.daily_goal;
   }
   return "";
 }
@@ -583,6 +665,7 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::BookStyles:
     case Row::Focus:
     case Row::Night:
+    case Row::HomeStats:
       return v == 0 ? t.on : t.off;
     case Row::Indent:
       return t.indent_names[v];
@@ -597,6 +680,7 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::FullRefresh:
       return t.refresh_names[v];
     case Row::AutoTurn:  // formatted by draw_settings()
+    case Row::DailyGoal:
     case Row::Buttons:
     case Row::MenuFont:
     case Row::BookFont:
@@ -606,6 +690,7 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::StatsPage:
     case Row::SleepScreen:
     case Row::SetupAgain:
     case Row::PagePage:
@@ -793,8 +878,55 @@ void App::time_text(char* out, size_t size) const {
 // ---- Home ------------------------------------------------------------------
 
 int App::home_item_count() const {
-  if (grid()) return std::min(kHomeTiles, library_.count()) + 3;  // the covers, three links
-  return 1 + std::min(kHomeRows, library_.count() - 1) + 3;       // current book, others, three links
+  const int stats = home_stats_shown() ? 1 : 0;
+  if (grid()) return std::min(kHomeTiles, library_.count()) + 3 + stats;  // the covers, three links
+  return 1 + std::min(kHomeRows, library_.count() - 1) + 3 + stats;       // current book, others, three links
+}
+
+bool App::home_stats_shown() const {
+  return settings_.home_stats && stats_.book_count() > 0 && today(board_.clock) >= 0;
+}
+
+void App::draw_home_stats(int item) {
+  const Strings& t = text();
+  const Language lang = settings_.language;
+  const int day = today(board_.clock);
+  const int goal = kGoalMinutes[settings_.daily_goal];
+  const int minutes = static_cast<int>(stats_.seconds_between(day, day) / 60);
+  const int streak = stats_.streak(day, static_cast<uint32_t>(goal) * 60);
+
+  const Rect r = row_rect(fb_, fb_.height() - kHomeStatsHeight - 8, kHomeStatsHeight);
+  const Color fg = highlight(fb_, r, home_sel_ == item);
+  add_hit(r, item);
+  const Font& font = ui::text_font();
+  const int base = r.y + (r.h + font.ascent * 7 / 10) / 2;
+  const int mid = r.y + r.h / 2;
+
+  // Today against the goal: a ring, and "12 / 30 min today".
+  constexpr int kRing = 14;
+  draw_goal_ring(fb_, r.x + kPad + kRing, mid, kRing, minutes, goal, fg);
+  char amount[32], line[64];
+  if (minutes < goal) {
+    const int n = std::snprintf(amount, sizeof(amount), "%d / ", minutes);
+    format_duration(lang, goal, amount + n, sizeof(amount) - static_cast<size_t>(n));
+  } else {
+    format_duration(lang, minutes, amount, sizeof(amount));
+  }
+  std::snprintf(line, sizeof(line), t.goal_today, amount);
+
+  // The streak on the right, after a flame.
+  char days[24];
+  format_day_count(lang, streak, days, sizeof(days));
+  const int right = r.x + r.w - kPad;
+  const int days_w = text_width_px(font, days);
+  constexpr int kFlame = 28;
+  draw_flame(fb_, right - days_w - 18, mid + kFlame / 2, kFlame, streak > 0, fg);
+  ui::draw_right(fb_, font, right, base, days, fg);
+
+  // Without "today" when the line would not fit.
+  const int left = r.x + kPad + 2 * kRing + 12;
+  const int room = right - days_w - 40 - left;
+  ui::draw_fitted(fb_, font, left, base, room, text_width_px(font, line) <= room ? line : amount, fg);
 }
 
 void App::draw_update_notice() {
@@ -881,7 +1013,11 @@ void App::draw_home() {
     ++item;
   }
   draw_home_buttons(y + 6, item);
-  ui::draw_hint(fb_, t.hint_home);
+  if (home_stats_shown()) {
+    draw_home_stats(item + 3);
+  } else {
+    ui::draw_hint(fb_, t.hint_home);
+  }
 }
 
 // All books, Add books and Settings: three big buttons, one under another,
@@ -907,7 +1043,11 @@ void App::draw_home_buttons(int y, int first_item) {
 }
 
 void App::home_activate() {
-  const int count = home_item_count();
+  int count = home_item_count();
+  if (home_stats_shown() && home_sel_ == --count) {
+    stats_from_home_ = true;
+    return show(Screen::Stats);
+  }
   if (home_sel_ == count - 1) return open_settings(false);
   if (home_sel_ == count - 2) return open_transfer();
   if (home_sel_ == count - 3) return open_library();
@@ -1590,8 +1730,8 @@ void App::draw_settings() {
   const int w = fb_.width();
   const Strings& t = text();
   const bool main = settings_page_ == kMainPage;
-  const char* titles[kPageCount] = {t.settings, t.general,       t.wifi,       t.display_light,
-                                    t.reading,  t.page_settings, t.sleep_short};
+  const char* titles[kPageCount] = {t.settings, t.general,       t.wifi,        t.display_light,
+                                    t.reading,  t.page_settings, t.sleep_short, t.reading_stats};
   draw_back_title(titles[settings_page_], kSettingsTitleBase);
 
   const PageRows& page = kPages[settings_page_];
@@ -1637,7 +1777,7 @@ void App::draw_settings() {
       }
     } else if (row == Row::Updates) {
       std::snprintf(value, sizeof(value), "%s %s", update_available() ? t.update_new : board_.version, more);
-    } else if (row == Row::Stats) {
+    } else if (row == Row::StatsPage) {
       // Today's reading so far, and a way in to the rest.
       std::snprintf(value, sizeof(value), "%s", more);
       if (const int day = today(board_.clock); day >= 0 && stats_.seconds_between(day, day) >= 60) {
@@ -1647,6 +1787,8 @@ void App::draw_settings() {
       }
     } else if (row == Row::AutoTurn) {
       std::snprintf(value, sizeof(value), t.every_seconds, kAutoTurnSeconds[settings_.auto_turn]);
+    } else if (row == Row::DailyGoal) {
+      format_duration(settings_.language, kGoalMinutes[settings_.daily_goal], value, sizeof(value));
     } else if (row == Row::SleepScreen) {
       std::snprintf(value, sizeof(value), "%s %s", t.sleep_kinds[static_cast<int>(settings_.sleep_screen)], more);
     } else if (row == Row::ReadingPage) {
@@ -1661,7 +1803,8 @@ void App::draw_settings() {
     } else if (row == Row::SleepPage) {
       std::snprintf(value, sizeof(value), "%s %s", value_name(t, Row::SleepAfter, get(settings_, Row::SleepAfter)),
                     more);
-    } else if (row == Row::Check || row == Row::Buttons || row == Row::SetupAgain || row == Row::PagePage) {
+    } else if (row == Row::Check || row == Row::Buttons || row == Row::SetupAgain || row == Row::PagePage ||
+               row == Row::Stats) {
       std::snprintf(value, sizeof(value), "%s", more);
     } else if (row == Row::MenuFont || row == Row::BookFont) {
       std::snprintf(value, sizeof(value), "%s", row == Row::MenuFont ? settings_.menu_font : settings_.book_font);
@@ -1725,7 +1868,10 @@ void App::close_sleep_setup() { open_settings_page(kSleepPage, row_index(kSleepP
 void App::settings_activate() {
   const Row row = kPages[settings_page_].rows[settings_sel_];
   if (row == Row::Battery) return show(Screen::Battery);
-  if (row == Row::Stats) return show(Screen::Stats);
+  if (row == Row::Stats) {
+    stats_from_home_ = false;
+    return show(Screen::Stats);
+  }
   if (row == Row::Light) return open_light(Screen::Settings);
   if (row == Row::Check) return open_check();
   if (row == Row::Updates) return open_updates();
@@ -3016,20 +3162,28 @@ void App::draw_stats() {
     // Without the clock there are no days: say why, and show the rest.
     y = ui::draw_wrapped(fb_, ui::text_font(), kSide, kTodayLabelBase, w - 2 * kSide, 5, t.stats_clock, false) + 6;
   } else {
-    // Today, in large figures.
+    // Today, in large figures; the streak on the right.
     ui::draw_label(fb_, kSide, kTodayLabelBase, t.today_label);
+    const int streak = stats_.streak(day, kGoalMinutes[settings_.daily_goal] * 60u);
+    format_day_count(lang, streak, value, sizeof(value));
+    const int streak_w = text_width_px(ui::label_font(), value);
+    ui::draw_right(fb_, ui::label_font(), w - kSide, kTodayLabelBase, value);
+    draw_flame(fb_, w - kSide - streak_w - 14, kTodayLabelBase + 1, 20, streak > 0, Color::Black);
     format_duration(lang, static_cast<int>(stats_.seconds_between(day, day) / 60), value, sizeof(value));
     draw_text(fb_, ui::screen_title_font(), kSide * 64, kTodayBase, value);
     format_page_count(lang, static_cast<int>(stats_.pages_between(day, day)), value, sizeof(value));
     ui::draw_right(fb_, ui::text_font(), w - kSide, kTodayBase, value);
 
     // The last seven days as bars of minutes, today on the right.
-    ui::draw_label(fb_, kSide, kWeekLabelBase, t.week_label);
+    const int week_end = ui::draw_label(fb_, kSide, kWeekLabelBase, t.week_label);
     const int first = day - (kChartDays - 1);
     format_duration(lang, static_cast<int>(stats_.seconds_between(first, day) / 60), value, sizeof(value));
-    ui::draw_right(fb_, ui::label_font(), w - kSide, kWeekLabelBase, value);
+    if (week_end + 16 + text_width_px(ui::label_font(), value) <= w - kSide) {  // when there is room
+      ui::draw_right(fb_, ui::label_font(), w - kSide, kWeekLabelBase, value);
+    }
     int minutes[kChartDays];
-    int top = kMinScaleMinutes;
+    const int goal = kGoalMinutes[settings_.daily_goal];
+    int top = std::max(kMinScaleMinutes, goal);
     for (int i = 0; i < kChartDays; ++i) {
       minutes[i] = static_cast<int>(stats_.seconds_between(first + i, first + i) / 60);
       top = std::max(top, minutes[i]);
@@ -3037,6 +3191,8 @@ void App::draw_stats() {
     const int slot = (w - 2 * kSide) / kChartDays;
     const int room = kBarsBottom - kBarsTop - 22;  // the figure over the tallest bar
     dotted_rule(fb_, kBarsBottom + 1);
+    // The daily goal as a dashed line across the chart.
+    for (int x = kSide; x < w - kSide; x += 10) fb_.fill_rect({x, kBarsBottom - goal * room / top, 5, 1}, Color::Black);
     for (int i = 0; i < kChartDays; ++i) {
       const int cx = kSide + i * slot + slot / 2;
       const int bar_h = minutes[i] * room / top;
@@ -3081,7 +3237,9 @@ void App::draw_stats() {
   const char* values[] = {month_text, speed_text, all_text};
   for (int i = day < 0 ? 1 : 0; i < 3; ++i) {
     if (i > (day < 0 ? 1 : 0)) dotted_rule(fb_, y);
-    draw_text(fb_, ui::text_font(), kSide * 64, y + 28, names[i]);
+    // A long value gives way to the name.
+    const int value_w = text_width_px(ui::text_font(), values[i]);
+    ui::draw_fitted(fb_, ui::text_font(), kSide, y + 28, w - 2 * kSide - value_w - 16, names[i]);
     ui::draw_right(fb_, ui::text_font(), w - kSide, y + 28, values[i]);
     y += kSettingRowHeight;
   }
@@ -3961,7 +4119,7 @@ bool App::handle_key(Key key) {
       return true;
     case Screen::Battery:
     case Screen::Stats:
-      if (key == Key::Power) show(Screen::Settings);
+      if (key == Key::Power) show(screen_ == Screen::Stats && stats_from_home_ ? Screen::Home : Screen::Settings);
       return false;
     case Screen::Light: {
       if (key == Key::Power) {
@@ -4120,8 +4278,10 @@ bool App::handle_gesture(const Gesture& g) {
   }
   if (g.kind != K::Tap) return false;
   if (screen_ == Screen::SleepPreview) return show(Screen::SleepSetup), false;  // a tap anywhere goes back
-  if (screen_ == Screen::Battery || screen_ == Screen::Stats)
-    return show(Screen::Settings), false;  // a tap anywhere goes back
+  if (screen_ == Screen::Battery || screen_ == Screen::Stats) {
+    // A tap anywhere goes back.
+    return show(screen_ == Screen::Stats && stats_from_home_ ? Screen::Home : Screen::Settings), false;
+  }
   if (screen_ == Screen::Light) return light_tap(g.x, g.y);
   if (screen_ == Screen::Send) {
     // A reader's row sends to it; after sending, a tap anywhere goes on.

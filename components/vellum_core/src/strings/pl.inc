@@ -224,6 +224,11 @@
     .all_time = "Od początku",
     .books_label = "KSIĄŻKI",
     .nothing_read = "Nic jeszcze nie przeczytano. Czas czytania pojawi się tu, gdy zaczniesz przewracać strony.",
+    .reading_streak = "Seria czytania",
+    .goal_today = "%s dziś",
+    .home_stats = "Statystyki na starcie",
+    .daily_goal = "Cel dzienny",
+    .open_stats = "Dziś, tydzień i książki",
     .stats_clock =
         "Zegar nie jest ustawiony, więc czytanie nie jest liczone w dniach. Otwórz Dodaj książki i raz wczytaj "
         "stronę w telefonie: to ustawi zegar.",

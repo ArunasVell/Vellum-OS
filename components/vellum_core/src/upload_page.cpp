@@ -176,6 +176,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       menu_font: "Meniu šriftas", book_font: "Knygos šriftas", text_size: "Teksto dydis", line_spacing: "Eilučių tarpai",
       word_spacing: "Tarpai tarp žodžių", margins: "Paraštės", justify: "Lygiuotė", hyphenate: "Žodžių kėlimas", footer: "Poraštė",
       library_view: "Knygų rodymas", move_finished: "Perkelti perskaitytas",
+      home_stats: "Statistika pradžioje", daily_goal: "Dienos tikslas",
       sleep_screen: "Miego ekranas", sleep_order: "Paveikslėliai",
       orientation: "Ekranas", auto_turn: "Automatinis vertimas", full_refresh: "Pilnas atnaujinimas",
       indent: "Pastraipų įtrauka", book_styles: "Leidėjo stiliai", focus: "Fokusuotas skaitymas", night: "Naktinis režimas" },
@@ -185,6 +186,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       word_spacing: ["Siauri", "Įprasti", "Platūs"], margins: ["Siauros", "Įprastos", "Plačios"], justify: ["Kairinė", "Abipusė"],
       hyphenate: ["Išjungtas", "Įjungtas"], footer: ["Puslapio numeris", "Liko skyriuje", "Perskaityta %"],
       library_view: ["Sąrašas", "Viršeliai"], move_finished: ["Ne", "Į Read/"],
+      home_stats: ["Išjungta", "Įjungta"], daily_goal: ["10 min.", "15 min.", "20 min.", "30 min.", "45 min.", "1 val.", "1 val. 30 min."],
       sleep_screen: ["Knygos viršelis", "Mano paveikslėliai", "Skaitymo statistika", "Minimalus", "Kaip paliktas"],
       sleep_order: ["Maišyti", "Vienas"],
       orientation: ["Stačias", "Apverstas", "Gulsčias, mygt. kairėje", "Gulsčias, mygt. dešinėje"],
@@ -203,6 +205,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       menu_font: "Menu font", book_font: "Book font", text_size: "Text size", line_spacing: "Line spacing",
       word_spacing: "Word spacing", margins: "Margins", justify: "Alignment", hyphenate: "Hyphenation", footer: "Footer",
       library_view: "Home and library view", move_finished: "Move finished books",
+      home_stats: "Stats on home", daily_goal: "Daily goal",
       sleep_screen: "Sleep screen", sleep_order: "Sleep pictures",
       orientation: "Screen", auto_turn: "Auto page turn", full_refresh: "Full refresh",
       indent: "Paragraph indent", book_styles: "Publisher styles", focus: "Focus reading", night: "Night mode" },
@@ -212,6 +215,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       word_spacing: ["Narrow", "Normal", "Wide"], margins: ["Narrow", "Normal", "Wide"], justify: ["Left", "Justified"],
       hyphenate: ["Off", "On"], footer: ["Page number", "Time left in chapter", "Percent read"],
       library_view: ["List", "Covers"], move_finished: ["Off", "To Read/"],
+      home_stats: ["Off", "On"], daily_goal: ["10 min", "15 min", "20 min", "30 min", "45 min", "1 h", "1 h 30 min"],
       sleep_screen: ["Book cover", "My pictures", "Reading stats", "Minimal", "Page as left"],
       sleep_order: ["Shuffle", "One picture"],
       orientation: ["Portrait", "Upside down", "Landscape, keys left", "Landscape, keys right"],
@@ -490,7 +494,7 @@ const char kUploadPage[] = R"page(<!doctype html>
       return r.ok;
     } catch (_) { say(stateEl, false, T.failed); return false; }
   }
-  const order = ["language", "clock", "sleep_after", "sleep_screen", "sleep_order", "updates", "own_network", "library_view", "move_finished", "orientation", "menu_font", "book_font", "text_size",
+  const order = ["language", "clock", "sleep_after", "sleep_screen", "sleep_order", "updates", "own_network", "library_view", "home_stats", "daily_goal", "move_finished", "orientation", "menu_font", "book_font", "text_size",
     "line_spacing", "word_spacing", "margins", "justify", "hyphenate", "footer", "indent", "book_styles", "focus", "night", "auto_turn", "full_refresh"];
   function renderSettings(info) {
     const grid = $("set-grid");

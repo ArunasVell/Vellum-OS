@@ -183,6 +183,16 @@ uint32_t ReadingStats::pages_between(int first, int last) const {
   return total;
 }
 
+int ReadingStats::streak(int day, uint32_t goal_seconds) const {
+  if (day < 0) return 0;
+  int d = seconds_between(day, day) >= goal_seconds ? day : day - 1;
+  int run = 0;
+  for (; d >= 0 && run <= static_cast<int>(kKeepDays); --d, ++run) {
+    if (seconds_between(d, d) < goal_seconds) break;
+  }
+  return run;
+}
+
 int ReadingStats::speed(int book) const {
   uint64_t seconds = 0, pages = 0;
   for (int i = day_count_ - 1; i >= 0 && seconds < kSpeedWindowS; --i) {

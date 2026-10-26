@@ -226,6 +226,11 @@
     .all_time = "Depuis le début",
     .books_label = "LIVRES",
     .nothing_read = "Rien lu pour l’instant. Le temps de lecture s’affiche ici au fil des pages.",
+    .reading_streak = "Série de lecture",
+    .goal_today = "%s aujourd’hui",
+    .home_stats = "Stats sur l’accueil",
+    .daily_goal = "Objectif du jour",
+    .open_stats = "Aujourd’hui, semaine et livres",
     .stats_clock =
         "L’horloge n’est pas réglée, la lecture n’est donc pas comptée par jour. Ouvrez Ajouter des livres et "
         "chargez une fois la page sur votre téléphone : cela règle l’horloge.",

@@ -224,6 +224,11 @@
     .all_time = "Kokku",
     .books_label = "RAAMATUD",
     .nothing_read = "Veel pole midagi loetud. Lugemisaeg ilmub siia, kui lehti keerad.",
+    .reading_streak = "Lugemisseeria",
+    .goal_today = "%s täna",
+    .home_stats = "Statistika avakuval",
+    .daily_goal = "Päeva eesmärk",
+    .open_stats = "Täna, nädal ja raamatud",
     .stats_clock =
         "Kell pole seatud, seega lugemist ei loeta päevade kaupa. Ava „Lisa raamatuid“ ja laadi leht "
         "telefonis korra: see seab kella.",

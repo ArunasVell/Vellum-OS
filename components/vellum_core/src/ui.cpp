@@ -115,7 +115,7 @@ int draw_wrapped(Framebuffer& fb, const Font& font, int x, int baseline, int max
   return baseline;
 }
 
-void draw_label(Framebuffer& fb, int x, int baseline, std::string_view text) {
+int draw_label(Framebuffer& fb, int x, int baseline, std::string_view text) {
   const Font& font = label_font();
   int32_t pen = x * 64;
   size_t i = 0;
@@ -124,6 +124,7 @@ void draw_label(Framebuffer& fb, int x, int baseline, std::string_view text) {
     decode_utf8(text, i);
     pen = draw_text(fb, font, pen, baseline, text.substr(begin, i - begin)) + kLabelTracking;
   }
+  return (pen - kLabelTracking) / 64;
 }
 
 void draw_battery(Framebuffer& fb, int right, int baseline, int percent) {

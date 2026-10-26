@@ -47,7 +47,8 @@ int draw_wrapped(Framebuffer& fb, const Font& font, int x, int baseline, int max
 // The number of lines draw_wrapped() breaks `text` into, with no limit.
 int wrapped_line_count(const Font& font, int max_w, std::string_view text);
 // Small capitals-style label: uppercase text with extra letter spacing.
-void draw_label(Framebuffer& fb, int x, int baseline, std::string_view text);
+// Returns the x where it ends.
+int draw_label(Framebuffer& fb, int x, int baseline, std::string_view text);
 
 // Battery icon ending at `right` with the charge in percent to its left.
 // Draws nothing when the level is unknown (negative).

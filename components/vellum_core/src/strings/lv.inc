@@ -224,6 +224,11 @@
     .all_time = "Kopā",
     .books_label = "GRĀMATAS",
     .nothing_read = "Vēl nekas nav lasīts. Lasīšanas laiks parādīsies šeit, kad šķirsiet lappuses.",
+    .reading_streak = "Lasīšanas sērija",
+    .goal_today = "%s šodien",
+    .home_stats = "Statistika sākumā",
+    .daily_goal = "Dienas mērķis",
+    .open_stats = "Šodien, nedēļa un grāmatas",
     .stats_clock =
         "Pulkstenis nav iestatīts, tāpēc lasīšana netiek skaitīta pa dienām. Atveriet „Pievienot grāmatas” "
         "un vienreiz ielādējiet lapu tālrunī: tā iestatīs pulksteni.",

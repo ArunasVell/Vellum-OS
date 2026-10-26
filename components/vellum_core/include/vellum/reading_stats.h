@@ -64,6 +64,10 @@ class ReadingStats {
   // Totals over days first..last (inclusive), all books.
   uint32_t seconds_between(int first, int last) const;
   uint32_t pages_between(int first, int last) const;
+  // Days in a row, up to `day`, with at least goal_seconds read. Today
+  // joins the run once its goal is met; until then the run up to
+  // yesterday stands.
+  int streak(int day, uint32_t goal_seconds) const;
   // Pages an hour: from this book's latest reading when there is enough of
   // it, else from all books. -1 until enough has been read to tell.
   int pages_per_hour(const char* path) const;
