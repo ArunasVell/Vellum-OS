@@ -23,6 +23,8 @@
     .clock = "Zegar",
     .clock_24 = "24-godzinny",
     .clock_12 = "12-godzinny",
+    .time_zone = "Strefa czasowa",
+    .zone_auto = "auto",
     .sleep_after = "Uśpij po",
     .sleep_names = {"5 min", "10 min", "30 min", "Nigdy"},
     .sleeping = "UŚPIONY",

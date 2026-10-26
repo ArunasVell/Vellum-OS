@@ -23,6 +23,7 @@
 #include "vellum/store.h"
 #include "vellum/strings.h"
 #include "vellum/text_book.h"
+#include "vellum/time_zone.h"
 #include "vellum/touch.h"
 #include "vellum/updates.h"
 
@@ -315,6 +316,8 @@ class App {
   void switch_transfer_network();
   // The phone page saved settings or the sync account: take them up.
   void take_phone_settings();
+  // The phone's time zone, for Settings › Time zone set to Automatic.
+  void take_phone_zone(const TransferStatus& st);
   // An update arrived from the phone page: restart into it.
   void finish_update();
   // The first-time setup: shows step `step` (finishing after the last).
@@ -672,6 +675,9 @@ class App {
   void time_text(char* out, size_t size) const;
 
   Board& board_;
+  // The board's clock in the reader's time zone, or nullptr without one.
+  LocalClock local_clock_;
+  Clock* clock_ = nullptr;
   Framebuffer fb_;
   DisplayQueue queue_;
   Library library_;
@@ -759,6 +765,7 @@ class App {
   uint32_t converting_shown_at_ = 0;        // steady_ms of its last refresh
   uint32_t converting_shown_ = 0;           // the pages done it showed
   int transfer_settings_seen_ = 0;          // TransferStatus::settings_saved taken up
+  int transfer_zones_seen_ = 0;             // TransferStatus::zones_sent taken up
   char* transfer_fonts_ = nullptr;          // TransferInfo::fonts, allocated once
   // Updates: what is known, and what this session has tried.
   enum class UpdateBusy : uint8_t { No, Checking, Installing };

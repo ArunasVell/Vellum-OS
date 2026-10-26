@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "vellum/time_zone.h"
 #include "vellum/upload_page.h"
 
 namespace vellum {
@@ -167,6 +168,31 @@ bool parse_datetime(const char* in, size_t len, DateTime& out) {
   if (hour > 23 || minute > 59 || second > 59) return false;
   out = {static_cast<uint16_t>(year), static_cast<uint8_t>(month),  static_cast<uint8_t>(day),
          static_cast<uint8_t>(hour),  static_cast<uint8_t>(minute), static_cast<uint8_t>(second)};
+  return true;
+}
+
+bool parse_phone_time(const char* body, size_t len, PhoneTime& out) {
+  char value[sizeof(out.rule)];
+  if (!form_field(body, len, "utc", value, sizeof(value)) || !parse_datetime(value, std::strlen(value), out.utc)) {
+    return false;
+  }
+  out.name[0] = out.rule[0] = '\0';
+  TimeZone zone;
+  if (!form_field(body, len, "rule", out.rule, sizeof(out.rule)) || !parse_time_zone(out.rule, zone)) {
+    out.rule[0] = '\0';
+    return true;  // the time alone
+  }
+  // "Europe/Vilnius" shows as "Vilnius", "America/New_York" as "New York".
+  if (!form_field(body, len, "zone", value, sizeof(value)) || value[0] == '\0') {
+    format_offset(zone.offset, out.name, sizeof(out.name));
+    return true;
+  }
+  const char* slash = std::strrchr(value, '/');
+  std::snprintf(out.name, sizeof(out.name), "%s", slash != nullptr ? slash + 1 : value);
+  for (char* c = out.name; *c != '\0'; ++c) {
+    if (*c == '_') *c = ' ';
+    if (*c == '\n' || *c == '\r') *c = ' ';
+  }
   return true;
 }
 

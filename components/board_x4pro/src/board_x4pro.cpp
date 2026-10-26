@@ -29,6 +29,7 @@
 #include "sd_card.h"
 #include "sdkconfig.h"
 #include "vellum/stdio_storage.h"
+#include "wifi_common.h"
 #include "wifi_transfer.h"
 
 // What's new in this version (release-notes.md, embedded by CMakeLists.txt).
@@ -816,6 +817,7 @@ vellum::Board& board_x4pro_init() {
   const i2c_master_bus_handle_t i2c = init_i2c();
   power.init(i2c);
   if (!clock.attach(i2c, x4pro::kI2cHz)) ESP_LOGW(kTag, "clock not added");
+  HomeWifi::set_clock(&clock);  // set from a time server whenever the home Wi-Fi is joined
   input.init_touch(i2c);
   g_input = &input;
   display.init(input.busy_lock(), Input::service, &input);

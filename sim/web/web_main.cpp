@@ -84,18 +84,20 @@ class WebFrontlight : public vellum::Frontlight {
   }
 };
 
-// The browser's local time.
+// The browser's clock in world time: the app shows it in the time zone
+// from Settings, as on the reader.
 class WebClock : public vellum::Clock {
  public:
   bool now(vellum::DateTime& out) override {
     const std::time_t t = std::time(nullptr);
-    std::tm local{};
-    if (localtime_r(&t, &local) == nullptr) return false;
-    out = {static_cast<uint16_t>(local.tm_year + 1900), static_cast<uint8_t>(local.tm_mon + 1),
-           static_cast<uint8_t>(local.tm_mday),         static_cast<uint8_t>(local.tm_hour),
-           static_cast<uint8_t>(local.tm_min),          static_cast<uint8_t>(local.tm_sec)};
+    std::tm utc{};
+    if (gmtime_r(&t, &utc) == nullptr) return false;
+    out = {static_cast<uint16_t>(utc.tm_year + 1900), static_cast<uint8_t>(utc.tm_mon + 1),
+           static_cast<uint8_t>(utc.tm_mday),         static_cast<uint8_t>(utc.tm_hour),
+           static_cast<uint8_t>(utc.tm_min),          static_cast<uint8_t>(utc.tm_sec)};
     return true;
   }
+  bool world_time() const override { return true; }
 };
 
 // The "Add books" screen without a network: books added on the page count

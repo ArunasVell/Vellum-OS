@@ -141,13 +141,47 @@
     xhr.send(f);
   });
 
-  // The phone knows the time: the reader's clock takes it from here (the
-  // nightly check needs it).
-  const d = new Date();
-  const p2 = (n) => String(n).padStart(2, "0");
-  const now = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ` +
-              `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
-  fetch("/time", { method: "POST", body: now }).catch(() => {});
+  // The phone knows the time and its time zone: the reader's clock takes
+  // them from here. The zone goes as a POSIX rule ("STD-2DST-3,M3.5.0/3,
+  // M10.5.0/4"), worked out from when the phone's clock changes this year,
+  // so the reader moves to summer time and back by itself.
+  const zoneRule = () => {
+    const east = (ms) => -new Date(ms).getTimezoneOffset();  // minutes east of UTC
+    const hm = (m) => (m < 0 ? "-" : "") + Math.floor(Math.abs(m) / 60) +
+                      (Math.abs(m) % 60 ? ":" + String(Math.abs(m) % 60).padStart(2, "0") : "");
+    const year = new Date().getFullYear();
+    const hour = 3600e3, minute = 60e3;
+    const changes = [];
+    let last = east(Date.UTC(year, 0, 1));
+    for (let t = Date.UTC(year, 0, 1); t < Date.UTC(year + 1, 0, 1) && changes.length < 4; t += hour) {
+      if (east(t + hour) === last) continue;
+      let lo = t, hi = t + hour;  // the first minute on the new time
+      while (hi - lo > minute) {
+        const mid = lo + Math.floor((hi - lo) / (2 * minute)) * minute;
+        if (east(mid) === last) lo = mid; else hi = mid;
+      }
+      changes.push({ at: hi, from: last, to: east(hi) });
+      last = east(hi);
+    }
+    if (changes.length !== 2) return "STD" + hm(-east(Date.now()));
+    const winter = Math.min(changes[0].from, changes[0].to), summer = Math.max(changes[0].from, changes[0].to);
+    // A change as POSIX writes it: the nth weekday of the month (5 = the
+    // last), at the time the clock showed just before it.
+    const day = (c) => {
+      const w = new Date(c.at + c.from * minute);
+      const month = w.getUTCMonth() + 1, date = w.getUTCDate();
+      const days = new Date(Date.UTC(w.getUTCFullYear(), month, 0)).getUTCDate();
+      const week = date + 7 > days ? 5 : Math.ceil(date / 7);
+      return `M${month}.${week}.${w.getUTCDay()}/${hm(w.getUTCHours() * 60 + w.getUTCMinutes())}`;
+    };
+    const start = changes.find((c) => c.to === summer), end = changes.find((c) => c.to === winter);
+    return `STD${hm(-winter)}DST${hm(-summer)},${day(start)},${day(end)}`;
+  };
+  let zone = "", rule = "";
+  try { zone = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch (e) {}
+  try { rule = zoneRule(); } catch (e) {}
+  const utc = new Date().toISOString().slice(0, 19).replace("T", " ");
+  fetch("/time", { method: "POST", body: new URLSearchParams({ utc, zone, rule }) }).catch(() => {});
 })();
 </script>
 </body>

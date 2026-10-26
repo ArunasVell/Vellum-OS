@@ -7,6 +7,11 @@ constexpr uint8_t kRegSeconds = 0x02;  // bit 7: voltage low, time not reliable
 constexpr uint8_t kVoltageLow = 0x80;
 constexpr uint8_t kCentury = 0x80;  // month register: set for 1900s, clear for 2000s
 constexpr int kTimeoutMs = 50;
+// The minute and hour alarm registers, unused as alarms (bit 7 set keeps
+// them off), say the time was set as world time: older versions kept local
+// time and never wrote them.
+constexpr uint8_t kRegMinuteAlarm = 0x09;
+constexpr uint8_t kWorldMarks[2] = {0x80 | 0x42, 0x80 | 0x17};
 
 uint8_t from_bcd(uint8_t v) { return static_cast<uint8_t>((v >> 4) * 10 + (v & 0x0F)); }
 uint8_t to_bcd(int v) { return static_cast<uint8_t>(((v / 10) << 4) | (v % 10)); }
@@ -39,8 +44,18 @@ bool Bm8563::now(vellum::DateTime& out) {
 
 bool Bm8563::set(const vellum::DateTime& t) {
   if (dev_ == nullptr || t.year < 2000 || t.year > 2099) return false;
-  // Writing the seconds register clears the voltage-low flag. Weekday is unused.
-  const uint8_t buf[9] = {kRegControl2,  0x00, to_bcd(t.second), to_bcd(t.minute),    to_bcd(t.hour),
-                          to_bcd(t.day), 0x00, to_bcd(t.month),  to_bcd(t.year % 100)};
+  // Writing the seconds register clears the voltage-low flag. Weekday is
+  // unused; the two alarm registers after the year take the world-time marks.
+  const uint8_t buf[11] = {kRegControl2,  0x00, to_bcd(t.second), to_bcd(t.minute),     to_bcd(t.hour),
+                           to_bcd(t.day), 0x00, to_bcd(t.month),  to_bcd(t.year % 100), kWorldMarks[0],
+                           kWorldMarks[1]};
   return i2c_master_transmit(dev_, buf, sizeof(buf), kTimeoutMs) == ESP_OK;
+}
+
+bool Bm8563::holds_local_time() {
+  if (dev_ == nullptr) return false;
+  uint8_t r[2];
+  const uint8_t reg = kRegMinuteAlarm;
+  if (i2c_master_transmit_receive(dev_, &reg, 1, r, sizeof(r), kTimeoutMs) != ESP_OK) return false;
+  return r[0] != kWorldMarks[0] || (r[1] & 0xBF) != kWorldMarks[1];  // bit 6 of the hour alarm is not kept
 }
