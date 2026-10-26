@@ -503,8 +503,9 @@ struct WifiTransfer::Impl {
     self->update([&](vellum::TransferStatus& s) {
       if (t.rule[0] == '\0') return;
       ++s.zones_sent;
-      std::snprintf(s.zone_name, sizeof(s.zone_name), "%s", t.name);
-      std::snprintf(s.zone_rule, sizeof(s.zone_rule), "%s", t.rule);
+      static_assert(sizeof(s.zone_name) == sizeof(t.name) && sizeof(s.zone_rule) == sizeof(t.rule));
+      std::memcpy(s.zone_name, t.name, sizeof(t.name));
+      std::memcpy(s.zone_rule, t.rule, sizeof(t.rule));
     });
     return httpd_resp_sendstr(req, "ok");
   }
