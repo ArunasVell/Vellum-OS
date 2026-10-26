@@ -228,6 +228,7 @@
     .goal_today = "%s oggi",
     .home_stats = "Statistiche in Home",
     .daily_goal = "Obiettivo giornaliero",
+    .open_stats = "Oggi, settimana e libri",
     .stats_clock =
         "L’orologio non è impostato, quindi la lettura non è contata per giorno. Apri Aggiungi libri e carica "
         "la pagina sul telefono una volta: così imposta l’orologio.",

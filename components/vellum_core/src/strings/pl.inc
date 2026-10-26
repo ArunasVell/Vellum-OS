@@ -228,6 +228,7 @@
     .goal_today = "%s dziś",
     .home_stats = "Statystyki na starcie",
     .daily_goal = "Cel dzienny",
+    .open_stats = "Dziś, tydzień i książki",
     .stats_clock =
         "Zegar nie jest ustawiony, więc czytanie nie jest liczone w dniach. Otwórz Dodaj książki i raz wczytaj "
         "stronę w telefonie: to ustawi zegar.",

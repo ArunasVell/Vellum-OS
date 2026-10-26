@@ -228,6 +228,7 @@
     .goal_today = "%s šodien",
     .home_stats = "Statistika sākumā",
     .daily_goal = "Dienas mērķis",
+    .open_stats = "Šodien, nedēļa un grāmatas",
     .stats_clock =
         "Pulkstenis nav iestatīts, tāpēc lasīšana netiek skaitīta pa dienām. Atveriet „Pievienot grāmatas” "
         "un vienreiz ielādējiet lapu tālrunī: tā iestatīs pulksteni.",

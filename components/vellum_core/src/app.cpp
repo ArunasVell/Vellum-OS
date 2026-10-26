@@ -307,7 +307,8 @@ enum class Row : uint8_t {
   HomeWifi,      // sets the home Wi-Fi from a phone
   OwnNetwork,    // which network Add books uses
   HomeStats,     // today's reading and the streak on home
-  DailyGoal      // minutes a day for the streak
+  DailyGoal,     // minutes a day for the streak
+  StatsPage      // opens the reading stats settings
 };
 // Settings is sorted into pages: the main page lists them
 // in groups (with the screens that stand alone), and each holds a few rows,
@@ -321,18 +322,20 @@ enum SettingsPage : int {
   kReadingPage,
   kPagePage,
   kSleepPage,
+  kStatsPage,
   kPageCount
 };
 constexpr Row kMainRows[] = {Row::GeneralPage, Row::WifiPage,  Row::DisplayPage, Row::ReadingPage,
-                             Row::Battery,     Row::SleepPage, Row::Stats};
+                             Row::Battery,     Row::SleepPage, Row::StatsPage};
 constexpr Row kGeneralRows[] = {Row::Updates,  Row::Check,    Row::Language, Row::Clock,        Row::BookFont,
                                 Row::MenuFont, Row::MenuText, Row::Buttons,  Row::MoveFinished, Row::SetupAgain};
 constexpr Row kWifiRows[] = {Row::HomeWifi, Row::OwnNetwork};
-constexpr Row kDisplayRows[] = {Row::Light, Row::Orientation, Row::LibraryView, Row::HomeStats, Row::DailyGoal};
+constexpr Row kDisplayRows[] = {Row::Light, Row::Orientation, Row::LibraryView};
 constexpr Row kReadingRows[] = {Row::TextSize,    Row::LineSpacing, Row::WordSpacing, Row::Margins, Row::Alignment,
                                 Row::Hyphenation, Row::Indent,      Row::BookStyles,  Row::PagePage};
 constexpr Row kPageRows[] = {Row::Footer, Row::Night, Row::Focus, Row::AutoTurn, Row::FullRefresh};
 constexpr Row kSleepRows[] = {Row::SleepAfter, Row::SleepScreen};
+constexpr Row kStatsRows[] = {Row::Stats, Row::DailyGoal, Row::HomeStats};
 
 struct PageRows {
   const Row* rows;
@@ -348,10 +351,11 @@ constexpr PageRows page_rows(const Row (&rows)[N], Row opener, int parent, uint3
 constexpr PageRows kPages[kPageCount] = {page_rows(kMainRows, Row::GeneralPage, kMainPage, 0b0010011),
                                          page_rows(kGeneralRows, Row::GeneralPage, kMainPage, 0b0010010101),
                                          page_rows(kWifiRows, Row::WifiPage, kMainPage),
-                                         page_rows(kDisplayRows, Row::DisplayPage, kMainPage, 0b01001),
+                                         page_rows(kDisplayRows, Row::DisplayPage, kMainPage),
                                          page_rows(kReadingRows, Row::ReadingPage, kMainPage, 0b100000001),
                                          page_rows(kPageRows, Row::PagePage, kReadingPage),
-                                         page_rows(kSleepRows, Row::SleepPage, kMainPage)};
+                                         page_rows(kSleepRows, Row::SleepPage, kMainPage),
+                                         page_rows(kStatsRows, Row::StatsPage, kMainPage, 0b011)};
 
 // Where a row is on its page.
 constexpr int row_index(int page, Row r) {
@@ -443,6 +447,7 @@ int get(const Settings& s, Row r) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::StatsPage:
     case Row::SleepScreen:
     case Row::SetupAgain:
     case Row::PagePage:
@@ -536,6 +541,7 @@ void set(Settings& s, Row r, int v) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::StatsPage:
     case Row::SleepScreen:
     case Row::SetupAgain:
     case Row::PagePage:
@@ -579,6 +585,8 @@ const char* row_name(const Strings& t, Row r) {
     case Row::Check:
       return t.device_check;
     case Row::Stats:
+      return t.open_stats;
+    case Row::StatsPage:
       return t.reading_stats;
     case Row::SleepScreen:
       return t.sleep_screen;
@@ -682,6 +690,7 @@ const char* value_name(const Strings& t, Row r, int v) {
     case Row::Updates:
     case Row::Check:
     case Row::Stats:
+    case Row::StatsPage:
     case Row::SleepScreen:
     case Row::SetupAgain:
     case Row::PagePage:
@@ -1721,8 +1730,8 @@ void App::draw_settings() {
   const int w = fb_.width();
   const Strings& t = text();
   const bool main = settings_page_ == kMainPage;
-  const char* titles[kPageCount] = {t.settings, t.general,       t.wifi,       t.display_light,
-                                    t.reading,  t.page_settings, t.sleep_short};
+  const char* titles[kPageCount] = {t.settings, t.general,       t.wifi,        t.display_light,
+                                    t.reading,  t.page_settings, t.sleep_short, t.reading_stats};
   draw_back_title(titles[settings_page_], kSettingsTitleBase);
 
   const PageRows& page = kPages[settings_page_];
@@ -1768,7 +1777,7 @@ void App::draw_settings() {
       }
     } else if (row == Row::Updates) {
       std::snprintf(value, sizeof(value), "%s %s", update_available() ? t.update_new : board_.version, more);
-    } else if (row == Row::Stats) {
+    } else if (row == Row::StatsPage) {
       // Today's reading so far, and a way in to the rest.
       std::snprintf(value, sizeof(value), "%s", more);
       if (const int day = today(board_.clock); day >= 0 && stats_.seconds_between(day, day) >= 60) {
@@ -1794,7 +1803,8 @@ void App::draw_settings() {
     } else if (row == Row::SleepPage) {
       std::snprintf(value, sizeof(value), "%s %s", value_name(t, Row::SleepAfter, get(settings_, Row::SleepAfter)),
                     more);
-    } else if (row == Row::Check || row == Row::Buttons || row == Row::SetupAgain || row == Row::PagePage) {
+    } else if (row == Row::Check || row == Row::Buttons || row == Row::SetupAgain || row == Row::PagePage ||
+               row == Row::Stats) {
       std::snprintf(value, sizeof(value), "%s", more);
     } else if (row == Row::MenuFont || row == Row::BookFont) {
       std::snprintf(value, sizeof(value), "%s", row == Row::MenuFont ? settings_.menu_font : settings_.book_font);

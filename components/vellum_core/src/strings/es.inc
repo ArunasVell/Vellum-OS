@@ -228,6 +228,7 @@
     .goal_today = "%s hoy",
     .home_stats = "Estadísticas en inicio",
     .daily_goal = "Meta diaria",
+    .open_stats = "Hoy, semana y libros",
     .stats_clock =
         "El reloj no está en hora, así que la lectura no se cuenta por días. Abre Añadir libros y carga la "
         "página en el móvil una vez: así se pone en hora.",

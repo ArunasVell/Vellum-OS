@@ -257,8 +257,9 @@ struct Strings {
   const char* nothing_read;      // no reading recorded yet
   const char* reading_streak;    // stats row: days in a row with the daily goal met
   const char* goal_today;        // printf: "12 / 30 min" or "45 min"; at the foot of home
-  const char* home_stats;        // display settings row: that line on home
-  const char* daily_goal;        // display settings row: minutes a day for the streak
+  const char* home_stats;        // reading stats settings row: that line on home
+  const char* daily_goal;        // reading stats settings row: minutes a day for the streak
+  const char* open_stats;        // reading stats settings row: opens the stats screen
   const char* stats_clock;       // without the clock there are no days
   const char* preview_text;      // sample paragraph for the settings preview
   const char* preview_language;  // its BCP 47 tag, for hyphenation

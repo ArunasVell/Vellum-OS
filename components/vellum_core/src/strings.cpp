@@ -236,6 +236,7 @@ constexpr Strings kEnglish = {
     .goal_today = "%s today",
     .home_stats = "Stats on home",
     .daily_goal = "Daily goal",
+    .open_stats = "Today, week and books",
     .stats_clock =
         "The clock is not set, so reading is not counted by day. Open Add books and load the page on your "
         "phone once: it sets the clock.",
@@ -618,6 +619,7 @@ constexpr Strings kLithuanian = {
     .goal_today = "%s šiandien",
     .home_stats = "Statistika pradžioje",
     .daily_goal = "Dienos tikslas",
+    .open_stats = "Šiandien, savaitė ir knygos",
     .stats_clock =
         "Laikrodis nenustatytas, todėl skaitymas neskaičiuojamas pagal dienas. Atverkite „Įkelti knygas“ "
         "ir vieną kartą įkelkite puslapį telefone: jis nustatys laikrodį.",

@@ -3992,11 +3992,13 @@ void test_app_reading_stats() {
   CHECK(panel.full == full + 2);
   CHECK(view.pixel(kW / 2, 800 - 16) == Color::White);  // home again, nothing highlighted down there
 
-  // Settings › Reading stats, the seventh row of the main page: opens, Power goes back.
+  // Settings › Reading stats, the seventh row of the main page: a page whose
+  // first row opens the stats screen, Power goes back; then the daily goal.
   press(*app, Key::Prev);
   press(*app, Key::Prev);  // Settings, the last link
   press(*app, Key::Power);
   for (int i = 0; i < 6; ++i) press(*app, Key::Next);
+  press(*app, Key::Power);  // the Reading stats page
   full = panel.full;
   press(*app, Key::Power);
   CHECK(panel.full == full + 1);
@@ -4004,6 +4006,11 @@ void test_app_reading_stats() {
   CHECK(view.pixel(28 + 6 * 60 + 30 - 24, 426 - 6) == Color::Black);
   press(*app, Key::Power);
   CHECK(panel.full == full + 2);
+  CHECK(view.pixel(24, 150) == Color::Black);  // back on the page, its first row highlighted
+  press(*app, Key::Next);
+  press(*app, Key::Power);  // Daily goal: 30 min to 45
+  CHECK(read_all("test-card-stats/vellum/settings.txt").find("daily_goal=4") != std::string::npos);
+  press(*app, Key::Home);
   CHECK(view.pixel(22, 545) == Color::Black);  // back on Settings, the Reading stats row highlighted
 
   // Settings › Reading › Page › Footer: time left in the chapter, then the percent.
