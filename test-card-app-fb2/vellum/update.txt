@@ -1,4 +1,0 @@
-latest=
-checked=
-night_restart=0
-started=dev
