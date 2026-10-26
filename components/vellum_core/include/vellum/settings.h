@@ -42,6 +42,9 @@ enum class SleepScreen : uint8_t { Cover, Pictures, Stats, Minimal, Page };
 // Which of the reader's own pictures: a different one each time, or one kept.
 enum class SleepOrder : uint8_t { Shuffle, One };
 constexpr int kLightSteps = 10;  // front light brightness and warmth go 0..10
+// Minutes a day that count towards the reading streak, by Settings::daily_goal.
+constexpr uint8_t kGoalMinutes[] = {10, 15, 20, 30, 45, 60, 90};
+constexpr int kGoalSteps = sizeof(kGoalMinutes);
 
 struct Settings {
   Language language = Language::English;
@@ -58,6 +61,8 @@ struct Settings {
   SleepOrder sleep_order = SleepOrder::Shuffle;
   LibraryView library_view = LibraryView::List;
   bool move_finished = false;  // finished books move to books/Read/
+  bool home_stats = true;      // today's reading and the streak at the foot of home
+  uint8_t daily_goal = 3;      // index into kGoalMinutes: 30 min
   // Reading
   TextSize text_size = TextSize::Medium;
   Spacing line_spacing = Spacing::Normal;

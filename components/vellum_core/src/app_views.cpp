@@ -131,7 +131,11 @@ void App::draw_home_grid() {
   }
 
   draw_home_buttons(kGridTop + kHomeTiles / kGridCols * kTileH + 6, tiles);
-  ui::draw_hint(fb_, t.hint_home);
+  if (home_stats_shown()) {
+    draw_home_stats(tiles + 3);
+  } else {
+    ui::draw_hint(fb_, t.hint_home);
+  }
 }
 
 int App::library_grid_rows() const { return std::max(1, (fb_.height() - kHintRoom - library_list_top()) / kTileH); }

@@ -224,6 +224,10 @@
     .all_time = "In totale",
     .books_label = "LIBRI",
     .nothing_read = "Non hai ancora letto nulla. Il tempo di lettura appare qui mentre giri le pagine.",
+    .reading_streak = "Serie di lettura",
+    .goal_today = "%s oggi",
+    .home_stats = "Statistiche in Home",
+    .daily_goal = "Obiettivo giornaliero",
     .stats_clock =
         "L’orologio non è impostato, quindi la lettura non è contata per giorno. Apri Aggiungi libri e carica "
         "la pagina sul telefono una volta: così imposta l’orologio.",
