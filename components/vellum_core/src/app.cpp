@@ -1904,22 +1904,11 @@ void App::settings_activate() {
   if (row == Row::SleepScreen) return open_sleep_setup();
   if (row == Row::SetupAgain) return open_setup(0);
   if (row == Row::HomeWifi) return open_transfer(true);  // the phone page sets it; back here after
+  if (row == Row::TimeZone) return open_zones();
   for (int page = kMainPage + 1; page < kPageCount; ++page) {
     if (row == kPages[page].opener) return open_settings_page(page, 0);
   }
-  if (row == Row::TimeZone) {
-    // Automatic, then by hand: the zone in use first, then the next ones
-    // east, and Automatic again after the last.
-    if (settings_.zone_auto) {
-      settings_.zone_auto = false;
-    } else if (const int next = find_zone(settings_.time_zone) + 1; next < zone_count()) {
-      set_text(settings_.time_zone, zone_choice(next).name);
-      set_text(settings_.zone_rule, zone_choice(next).rule);
-    } else {
-      settings_.zone_auto = true;
-    }
-    local_clock_.set_zone(settings_.zone_rule);
-  } else if (row == Row::MenuFont || row == Row::BookFont) {
+  if (row == Row::MenuFont || row == Row::BookFont) {
     // The next typeface in the list, Literata after the last.
     char* name = row == Row::MenuFont ? settings_.menu_font : settings_.book_font;
     safe_fonts_ = false;
@@ -1930,6 +1919,107 @@ void App::settings_activate() {
   }
   apply_fonts();
   if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
+}
+
+// ---- Settings › Time zone --------------------------------------------------
+
+constexpr int kZonesPrevItem = 3001;  // hit items of the ‹ and › under the list
+constexpr int kZonesNextItem = 3002;
+constexpr int kZonesNavHeight = 52;
+
+int App::zones_per_page() const { return (fb_.height() - kSettingsTop - 8 - kZonesNavHeight - 40) / kSettingRowHeight; }
+
+void App::open_zones() {
+  // On the choice in use, on its page.
+  zones_sel_ = settings_.zone_auto ? 0 : std::max(find_zone(settings_.time_zone), 0) + 1;
+  show(Screen::Zones);
+}
+
+void App::draw_zones() {
+  const int w = fb_.width();
+  const Strings& t = text();
+  draw_back_title(t.time_zone, kSettingsTitleBase);
+
+  const int count = zone_count() + 1;
+  const int per_page = zones_per_page();
+  const int first = zones_sel_ / per_page * per_page;
+  const int rows = std::min(per_page, count - first);
+  const int chosen = settings_.zone_auto ? 0 : find_zone(settings_.time_zone) + 1;
+  int y = kSettingsTop;
+  draw_group(fb_, {kSide - kPad, y, w - 2 * (kSide - kPad), rows * kSettingRowHeight + 4});
+  y += 2;
+  for (int k = 0; k < rows; ++k) {
+    const int i = first + k;
+    const bool selected = i == zones_sel_;
+    const Rect r{kSide - kPad + 4, y, w - 2 * (kSide - kPad) - 8, kSettingRowHeight};
+    add_hit({r.x - 4, r.y, r.w + 8, r.h}, i);
+    if (k > 0 && !selected && zones_sel_ != i - 1) {
+      for (int x = r.x + kPad; x < r.x + r.w - kPad; x += 4) fb_.set_pixel(x, r.y, Color::Black);
+    }
+    if (selected) fb_.fill_round_rect({r.x, r.y + 2, r.w, r.h - 4}, 10, Color::Black);
+    const Color fg = selected ? Color::White : Color::Black;
+    const int base = r.y + (r.h + ui::text_font().ascent * 7 / 10) / 2;
+    // A dot before the one in use.
+    const int dot = 10;
+    if (i == chosen) fb_.fill_round_rect({r.x + kPad, base - 7 - dot / 2, dot, dot}, dot / 2, fg);
+    const int x = r.x + kPad + dot + 10;
+    char value[16];
+    if (i == 0) {
+      std::snprintf(value, sizeof(value), "%s", t.zone_from_phone);
+    } else {
+      // Its offset in winter.
+      TimeZone zone;
+      parse_time_zone(zone_choice(i - 1).rule, zone);
+      if (zone.offset == 0) {
+        std::snprintf(value, sizeof(value), "UTC");
+      } else {
+        format_offset(zone.offset, value, sizeof(value));
+      }
+    }
+    const int right = r.x + r.w - kPad;
+    const int value_w = text_width_px(ui::label_font(), value);
+    ui::draw_fitted(fb_, ui::text_font(), x, base, right - value_w - 16 - x,
+                    i == 0 ? t.automatic : zone_choice(i - 1).name, fg);
+    ui::draw_right(fb_, ui::label_font(), right, base, value, fg);
+    y += kSettingRowHeight;
+  }
+
+  // ‹ 2 / 5 › under the list: the arrows turn its pages.
+  const int pages = (count + per_page - 1) / per_page;
+  const int nav_top = kSettingsTop + per_page * kSettingRowHeight + 12;
+  const int nav_base = nav_top + kZonesNavHeight * 2 / 3;
+  char page[16];
+  std::snprintf(page, sizeof(page), "%d / %d", first / per_page + 1, pages);
+  ui::draw_centered(fb_, ui::label_font(), nav_base, page);
+  const Font& arrows = ui::screen_title_font();
+  draw_text(fb_, arrows, kSide * 64, nav_base + 6, "\xE2\x80\xB9");      // ‹
+  ui::draw_right(fb_, arrows, w - kSide, nav_base + 6, "\xE2\x80\xBA");  // ›
+  add_hit({0, nav_top, w / 3, kZonesNavHeight}, kZonesPrevItem);
+  add_hit({w - w / 3, nav_top, w / 3, kZonesNavHeight}, kZonesNextItem);
+
+  ui::draw_hint(fb_, t.hint_zones);
+}
+
+bool App::zones_page(int step) {
+  const int per_page = zones_per_page();
+  const int pages = (zone_count() + 1 + per_page - 1) / per_page;
+  zones_sel_ = wrap_index(zones_sel_ / per_page + step, pages) * per_page;
+  return true;
+}
+
+void App::zones_pick() {
+  if (zones_sel_ == 0) {
+    // The phone's zone, the next time the phone page opens; the one in use until then.
+    settings_.zone_auto = true;
+  } else {
+    const ZoneChoice& zone = zone_choice(zones_sel_ - 1);
+    settings_.zone_auto = false;
+    set_text(settings_.time_zone, zone.name);
+    set_text(settings_.zone_rule, zone.rule);
+  }
+  local_clock_.set_zone(settings_.zone_rule);
+  if (board_.storage != nullptr) save_settings(*board_.storage, settings_);
+  open_settings_page(kGeneralPage, row_index(kGeneralPage, Row::TimeZone));
 }
 
 void App::apply_fonts() {
@@ -3592,6 +3682,9 @@ void App::draw_screen() {
     case Screen::Notes:
       draw_notes();
       break;
+    case Screen::Zones:
+      draw_zones();
+      break;
     case Screen::Pictures:
       draw_pictures();
       break;
@@ -4115,6 +4208,10 @@ bool App::handle_key(Key key) {
       if (screen_ == Screen::Light && board_.storage != nullptr) save_settings(*board_.storage, settings_);
       if (screen_ == Screen::Transfer) return close_transfer(), false;
       if (screen_ == Screen::Settings) return settings_back(), false;
+      if (screen_ == Screen::Zones) {
+        // Back to Settings as it was, on the Time zone row.
+        return open_settings_page(kGeneralPage, row_index(kGeneralPage, Row::TimeZone)), false;
+      }
       if (screen_ == Screen::Buttons) {
         // Back to Settings, on the Buttons row.
         return open_settings_page(kGeneralPage, row_index(kGeneralPage, Row::Buttons)), false;
@@ -4212,6 +4309,10 @@ bool App::handle_key(Key key) {
       return true;
     case Screen::Setup:
       return setup_key(key);
+    case Screen::Zones:
+      if (key == Key::Power) return zones_pick(), false;
+      zones_sel_ = wrap_index(zones_sel_ + step, zone_count() + 1);
+      return true;
     case Screen::Notes:
       return notes_key(key);
     case Screen::SleepSetup:
@@ -4326,6 +4427,9 @@ bool App::handle_gesture(const Gesture& g) {
     pictures_sel_ = wrap_index(pictures_sel_ / kPicturesPerPage + forward, pages) * kPicturesPerPage;
     return true;
   }
+  if (screen_ == Screen::Zones && g.kind != K::Tap) {
+    return zones_page(g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? 1 : -1);
+  }
   if (screen_ == Screen::Notes && g.kind != K::Tap) {
     return notes_key(g.kind == K::SwipeLeft || g.kind == K::SwipeUp ? Key::Next : Key::Prev);
   }
@@ -4395,6 +4499,11 @@ bool App::handle_gesture(const Gesture& g) {
     case Screen::Setup:
       setup_sel_ = item;
       return setup_activate();
+    case Screen::Zones:
+      if (item == kBackItem) return handle_key(Key::Home);
+      if (item == kZonesPrevItem || item == kZonesNextItem) return zones_page(item == kZonesNextItem ? 1 : -1);
+      zones_sel_ = item;
+      return zones_pick(), false;
     case Screen::Notes:
       if (item == kBackItem) return close_notes(), false;
       return notes_key(item == 0 ? Key::Power : Key::Next);  // the button, or the text: the next page

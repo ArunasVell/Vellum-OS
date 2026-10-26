@@ -65,7 +65,7 @@ If the reader goes straight to a **Battery empty** screen although the battery i
 
 **Do:** Look at the time at the top. If it says the clock is not set, do test 10 (Add books), which sets the clock from your phone, then come back.
 
-**Good:** After the phone has set it, the time is right and stays right after the reader sleeps and wakes (test 11), and the next day. **Settings → General → Clock** switches between 24-hour and 12-hour. **Settings → General → Time zone** shows the phone's zone with "auto" (Vilnius until a phone has set it); summer and winter time change by themselves, and a trip abroad is picked up the next time the phone page is opened. Pressing Power on that row picks a zone by hand instead.
+**Good:** After the phone has set it, the time is right and stays right after the reader sleeps and wakes (test 11), and the next day. **Settings → General → Clock** switches between 24-hour and 12-hour. **Settings → General → Time zone** shows the phone's zone with "auto" (Vilnius until a phone has set it); summer and winter time change by themselves, and a trip abroad is picked up the next time the phone page is opened. Tapping that row (or pressing Power on it) opens a list: **Automatic** at the top, then cities from west to east, with **‹ ›** under the list (or a swipe) for the next page. Picking one goes straight back to Settings with it set.
 
 **If not, send:** what time it showed and the real time, and whether it was before or after sleeping.
 

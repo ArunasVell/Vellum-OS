@@ -50,7 +50,9 @@ struct Strings {
   const char* clock_24;
   const char* clock_12;
   const char* time_zone;
-  const char* zone_auto;  // after the zone's name: it follows the phone's
+  const char* zone_auto;        // after the zone's name: it follows the phone's
+  const char* zone_from_phone;  // beside Automatic in the list of zones
+  const char* hint_zones;
   const char* sleep_after;
   const char* sleep_names[4];  // 5, 10, 30 minutes, never
   const char* sleeping;        // uppercase label on the sleep screen

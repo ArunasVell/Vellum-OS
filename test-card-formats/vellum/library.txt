@@ -1,0 +1,3 @@
+236	books/sample-1257.txt	sample-1257		lt	0	1
+883	books/sample.fb2.zip	Vellum & FB2	Arūnas T. Testeris	lt	2	2
+1573	books/sample.fb2	Vellum & FB2	Arūnas T. Testeris	lt	2	3

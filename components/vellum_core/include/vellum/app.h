@@ -188,7 +188,8 @@ class App {
     SleepPreview,  // the sleep screen, until a button is pressed
     Buttons,       // what each button does
     Setup,         // a step of the first-time setup
-    Notes          // what's new in a version (its release notes)
+    Notes,         // what's new in a version (its release notes)
+    Zones          // Settings › Time zone: Automatic, then the zones to pick from
   };
   // One line of the contents screen.
   enum class ContentsRow : uint8_t {
@@ -296,6 +297,14 @@ class App {
   void open_settings_page(int page, int sel);
   int settings_row_count() const;
   void settings_back();
+  // Settings › Time zone: a list to pick from, Automatic first, a page of
+  // rows at a time. Picking one (Power, or a tap) goes back to Settings.
+  void open_zones();
+  void draw_zones();
+  int zones_per_page() const;
+  void zones_pick();
+  // Another page of the list, landing on its first row.
+  bool zones_page(int step);
   // The ‹ and a screen's title; a tap on them goes back (kBackItem).
   void draw_back_title(const char* title, int baseline);
   // Makes the menu and book typefaces from Settings current. Book fonts
@@ -798,6 +807,7 @@ class App {
   int key_held_ = 0;
   uint32_t key_down_at_ = 0;  // steady_ms() when pressed
   int buttons_sel_ = 0;
+  int zones_sel_ = 0;             // 0 = Automatic, then zone_choice(sel - 1)
   bool buttons_menus_ = false;    // the buttons screen shows the menu set
   bool buttons_refused_ = false;  // the last change found nothing safe
   bool auto_turn_ = false;        // pages turn by themselves

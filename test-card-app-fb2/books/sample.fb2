@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0" xmlns:l="http://www.w3.org/1999/xlink">
+<description>
+ <title-info>
+  <genre>prose</genre>
+  <author><first-name>Arūnas</first-name><middle-name>T.</middle-name><last-name>Testeris</last-name></author>
+  <author><first-name>Second</first-name><last-name>Author</last-name></author>
+  <book-title>Vellum &amp; FB2</book-title>
+  <annotation><p>Trumpas <emphasis>aprašymas</emphasis>.</p><p>Antra pastraipa.</p></annotation>
+  <coverpage><image l:href="#cover.png"/></coverpage>
+  <lang>lt</lang>
+ </title-info>
+ <src-title-info><book-title>Original</book-title><lang>en</lang></src-title-info>
+</description>
+<body>
+ <title><p>Vellum &amp; FB2</p></title>
+ <section>
+  <title><p>Pirmas skyrius</p><p>Kelionė</p></title>
+  <p>Labas, <strong>pasauli</strong>!<a l:href="#n1" type="note">1</a></p>
+  <empty-line/>
+  <section>
+   <title><p>Eilėraštis</p></title>
+   <poem><stanza><v>pirma eilė</v><v>antra eilė</v></stanza></poem>
+  </section>
+ </section>
+ <section>
+  <p>Be pavadinimo.</p>
+ </section>
+ <section>
+  <title><p>Antras skyrius</p></title>
+  <subtitle>* * *</subtitle>
+  <p>Paskutinis „sakinys“.</p>
+ </section>
+</body>
+<body name="notes">
+ <title><p>Pastabos</p></title>
+ <section id="n1"><title><p>1</p></title><p>Pastaba.</p></section>
+</body>
+<binary id="cover.png" content-type="image/png">
+iVBORw0KGgoAAAANSUhEUgAAADwAAABaCAAAAADBOmrpAAAAJ0lEQVR4nO3LsQ0AAAQAMPz/Mz+w
+Sbs3O/bqcGVZlmVZlmUZAADeGQ9sAVnPfBs9AAAAAElFTkSuQmCC
+</binary>
+</FictionBook>
